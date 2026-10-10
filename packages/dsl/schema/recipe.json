@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rpa-studio.dev/schemas/recipe.v1.json",
+  "title": "RPARecipe",
+  "description": "Especificación formal del grafo dirigido de acciones de RPA Studio",
+  "type": "object",
+  "required": ["schema", "entry", "nodes", "edges"],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "rpa/v1"
+    },
+    "name": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "variables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "type"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$" },
+          "type": { "type": "string", "enum": ["string", "number", "boolean", "array", "object"] },
+          "defaultValue": {},
+          "description": { "type": "string" }
+        }
+      },
+      "default": []
+    },
+    "secrets": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "entry": {
+      "type": "string",
+      "description": "ID del nodo inicial del grafo"
+    },
+    "nodes": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/Node"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to"],
+        "properties": {
+          "from": { "type": "string" },
+          "to": { "type": "string" },
+          "label": { "type": "string" },
+          "condition": { "type": "string" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "LocatorCandidate": {
+      "type": "object",
+      "required": ["strategy", "value", "score"],
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "enum": ["testid", "role", "label", "text", "css", "xpath", "vision"]
+        },
+        "value": { "type": "string" },
+        "score": { "type": "number", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "SemanticFingerprint": {
+      "type": "object",
+      "properties": {
+        "role": { "type": "string" },
+        "accessibleName": { "type": "string" },
+        "tag": { "type": "string" },
+        "text": { "type": "string" },
+        "classes": { "type": "array", "items": { "type": "string" } },
+        "attributes": { "type": "object" },
+        "boundingBox": {
+          "type": "object",
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "width": { "type": "number" },
+            "height": { "type": "number" }
+          }
+        }
+      }
+    },
+    "LocatorGroup": {
+      "type": "object",
+      "required": ["primary"],
+      "properties": {
+        "primary": { "$ref": "#/$defs/LocatorCandidate" },
+        "fallbacks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/LocatorCandidate" },
+          "default": []
+        },
+        "fingerprint": { "$ref": "#/$defs/SemanticFingerprint" }
+      }
+    },
+    "Node": {
+      "type": "object",
+      "required": ["id", "type", "description", "params"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": {
+          "type": "string",
+          "enum": [
+            "navigate",
+            "click",
+            "type",
+            "select",
+            "waitFor",
+            "extract",
+            "screenshot",
+            "setVariable",
+            "condition",
+            "loop"
+          ]
+        },
+        "description": { "type": "string" },
+        "timeout": { "type": "number", "default": 30000 },
+        "onError": {
+          "type": "string",
+          "enum": ["fail", "continue", "retry"],
+          "default": "fail"
+        },
+        "screenshot": {
+          "type": "string",
+          "enum": ["never", "onError", "always"],
+          "default": "onError"
+        },
+        "locator": { "$ref": "#/$defs/LocatorGroup" },
+        "params": { "type": "object" },
+        "next": { "type": "string" }
+      }
+    }
+  }
+}

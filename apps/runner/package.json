@@ -7,9 +7,12 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@rpa/dsl": "workspace:*",
+    "@rpa/locator": "workspace:*",
     "playwright": "^1.49.0",
     "ioredis": "^5.4.1",
     "jsonata": "^2.0.5",
@@ -19,6 +22,7 @@
   "devDependencies": {
     "@types/node": "^22.9.0",
     "tsx": "^4.19.2",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
   }
 }

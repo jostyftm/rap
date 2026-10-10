@@ -1,4 +1,6 @@
 import { Redis } from "ioredis";
+import { RedisEventEmitter } from "./protocol/event-emitter.js";
+import { RedisStreamConsumer } from "./protocol/stream-consumer.js";
 
 const REDIS_HOST = process.env.REDIS_HOST || "localhost";
 const REDIS_PORT = Number(process.env.REDIS_PORT || 6379);
@@ -17,9 +19,20 @@ const redis = new Redis({
   },
 });
 
+const eventEmitter = new RedisEventEmitter(redis, process.env.EVENT_STREAM || "rpa:evt");
+const streamConsumer = new RedisStreamConsumer(
+  redis,
+  eventEmitter,
+  process.env.COMMAND_STREAM || "rpa:cmd",
+  "rpa:runners"
+);
+
 redis.on("connect", () => {
   console.log("[RPA-Runner] Conexión establecida con Redis.");
   registerHeartbeat();
+  streamConsumer.start().catch((err) => {
+    console.error("[RPA-Runner] Error fatal en stream consumer:", err);
+  });
 });
 
 redis.on("error", (err: Error) => {
@@ -40,6 +53,7 @@ function registerHeartbeat(): void {
 
 process.on("SIGTERM", async () => {
   console.log("[RPA-Runner] Señal SIGTERM recibida, cerrando limpiamente...");
+  streamConsumer.stop();
   await redis.quit();
   process.exit(0);
 });
