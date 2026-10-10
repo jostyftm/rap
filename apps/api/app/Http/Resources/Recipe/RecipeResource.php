@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Resources;
+namespace App\Http\Resources\Recipe;
 
 use App\Models\Recipe;
 use Illuminate\Http\Request;

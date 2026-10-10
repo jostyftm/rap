@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Resources;
+namespace App\Http\Resources\Run;
 
 use App\Models\RunStep;
 use Illuminate\Http\Request;

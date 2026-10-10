@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Resources;
+namespace App\Http\Resources\Workspace;
 
 use App\Models\Workspace;
 use Illuminate\Http\Request;
