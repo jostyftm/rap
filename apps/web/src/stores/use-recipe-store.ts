@@ -1,0 +1,608 @@
+import { create } from "zustand";
+import type { RecipeDsl, RecipeNode, RecipeEdge, LocatorGroup } from "@rpa/dsl";
+import { validateRecipeDsl } from "@rpa/dsl";
+import { calculateLocatorScore } from "@rpa/locator";
+
+export type EditorView = "canvas" | "steps" | "code";
+
+export interface ExecutionLog {
+  id: string;
+  timestamp: string;
+  level: "info" | "warn" | "error" | "success";
+  message: string;
+  nodeId?: string;
+}
+
+export interface ExecutionScreenshot {
+  id: string;
+  nodeId: string;
+  timestamp: string;
+  url: string;
+}
+
+export interface RecipeStoreState {
+  recipeId: string | null;
+  recipeName: string;
+  recipeDescription: string;
+  recipeVersion: number;
+  definition: RecipeDsl;
+  validationErrors: string[];
+  selectedNodeId: string | null;
+  activeView: EditorView;
+  isDirty: boolean;
+
+  // Ejecución en vivo
+  runId: string | null;
+  runStatus: "idle" | "running" | "success" | "failed";
+  runningNodeId: string | null;
+  logs: ExecutionLog[];
+  screenshots: ExecutionScreenshot[];
+
+  // Historial (Undo / Redo)
+  history: RecipeDsl[];
+  historyIndex: number;
+
+  // Acciones
+  setRecipe: (data: {
+    id: string;
+    name: string;
+    description?: string;
+    version: number;
+    definition: RecipeDsl;
+  }) => void;
+  setName: (name: string) => void;
+  setDescription: (desc: string) => void;
+  setActiveView: (view: EditorView) => void;
+  setSelectedNodeId: (nodeId: string | null) => void;
+
+  addNode: (type: RecipeNode["type"]) => string;
+  updateNode: (id: string, updates: Partial<RecipeNode>) => void;
+  deleteNode: (id: string) => void;
+  reorderNodes: (orderedIds: string[]) => void;
+  setEntryNode: (id: string) => void;
+
+  addEdge: (edge: RecipeEdge) => void;
+  removeEdge: (from: string, to: string) => void;
+
+  setDefinitionFromCode: (dsl: RecipeDsl) => void;
+  undo: () => void;
+  redo: () => void;
+
+  // Control de Ejecución
+  startRun: (runId: string) => void;
+  setRunningNodeId: (nodeId: string | null) => void;
+  addLog: (log: Omit<ExecutionLog, "id" | "timestamp">) => void;
+  addScreenshot: (screenshot: Omit<ExecutionScreenshot, "id" | "timestamp">) => void;
+  finishRun: (status: "success" | "failed") => void;
+  clearRunState: () => void;
+}
+
+const DEFAULT_INITIAL_DSL: RecipeDsl = {
+  schema: "rpa/v1",
+  name: "Nueva Receta RPA",
+  entry: "step_navigate",
+  variables: [],
+  nodes: {
+    step_navigate: {
+      id: "step_navigate",
+      type: "navigate",
+      description: "Navegar a la página web",
+      params: { url: "https://example.com", waitUntil: "domcontentloaded" },
+      next: "step_click",
+    },
+    step_click: {
+      id: "step_click",
+      type: "click",
+      description: "Hacer clic en el botón principal",
+      locator: {
+        primary: { strategy: "role", value: "button[name='More information...']", score: 90 },
+        fallbacks: [
+          { strategy: "css", value: "a[href*='iana.org']", score: 70 },
+        ],
+      },
+      params: { button: "left" },
+    },
+  },
+  edges: [
+    { from: "step_navigate", to: "step_click" },
+  ],
+};
+
+function createDefaultNode(id: string, type: RecipeNode["type"]): RecipeNode {
+  switch (type) {
+    case "navigate":
+      return {
+        id,
+        type: "navigate",
+        description: "Navegar a URL",
+        params: { url: "https://example.com", waitUntil: "domcontentloaded" },
+      };
+    case "click":
+      return {
+        id,
+        type: "click",
+        description: "Hacer clic en elemento",
+        locator: {
+          primary: { strategy: "testid", value: "action-button", score: 95 },
+          fallbacks: [],
+        },
+        params: { button: "left" },
+      };
+    case "type":
+      return {
+        id,
+        type: "type",
+        description: "Escribir texto en campo",
+        locator: {
+          primary: { strategy: "testid", value: "input-field", score: 95 },
+          fallbacks: [],
+        },
+        params: { text: "Texto de ejemplo", clear: true },
+      };
+    case "select":
+      return {
+        id,
+        type: "select",
+        description: "Seleccionar opción",
+        locator: {
+          primary: { strategy: "testid", value: "select-dropdown", score: 95 },
+          fallbacks: [],
+        },
+        params: { value: "option_value" },
+      };
+    case "waitFor":
+      return {
+        id,
+        type: "waitFor",
+        description: "Esperar a que cargue la red",
+        params: { strategy: "networkIdle" },
+      };
+    case "extract":
+      return {
+        id,
+        type: "extract",
+        description: "Extraer texto a variable",
+        locator: {
+          primary: { strategy: "testid", value: "data-text", score: 95 },
+          fallbacks: [],
+        },
+        params: { extractType: "text", variable: "extractedData" },
+      };
+    case "screenshot":
+      return {
+        id,
+        type: "screenshot",
+        description: "Capturar pantalla completa",
+        params: { fullPage: true, name: "captura" },
+      };
+    case "setVariable":
+      return {
+        id,
+        type: "setVariable",
+        description: "Definir variable",
+        params: { name: "miVariable", expression: "'valor'" },
+      };
+    case "condition":
+      return {
+        id,
+        type: "condition",
+        description: "Bifurcación condicional",
+        params: {
+          expression: "variables.flag === true",
+          thenNodeId: "",
+        },
+      };
+    case "loop":
+      return {
+        id,
+        type: "loop",
+        description: "Bucle sobre colección",
+        params: {
+          collectionExpression: "variables.items",
+          itemVariable: "item",
+          bodyEntryNodeId: "",
+          maxIterations: 10,
+        },
+      };
+  }
+}
+
+function pushHistory(currentHistory: RecipeDsl[], currentIndex: number, newDsl: RecipeDsl) {
+  const truncated = currentHistory.slice(0, currentIndex + 1);
+  const updated = [...truncated, JSON.parse(JSON.stringify(newDsl))];
+  if (updated.length > 30) updated.shift();
+  return { history: updated, historyIndex: updated.length - 1 };
+}
+
+function validateDsl(dsl: RecipeDsl): string[] {
+  const res = validateRecipeDsl(dsl);
+  if (res.success) return [];
+  return res.errors || ["Error de validación en DSL"];
+}
+
+export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
+  recipeId: null,
+  recipeName: "Nueva Receta RPA",
+  recipeDescription: "",
+  recipeVersion: 1,
+  definition: DEFAULT_INITIAL_DSL,
+  validationErrors: validateDsl(DEFAULT_INITIAL_DSL),
+  selectedNodeId: "step_navigate",
+  activeView: "canvas",
+  isDirty: false,
+
+  runId: null,
+  runStatus: "idle",
+  runningNodeId: null,
+  logs: [],
+  screenshots: [],
+
+  history: [JSON.parse(JSON.stringify(DEFAULT_INITIAL_DSL))],
+  historyIndex: 0,
+
+  setRecipe: ({ id, name, description, version, definition }) => {
+    const errors = validateDsl(definition);
+    set({
+      recipeId: id,
+      recipeName: name,
+      recipeDescription: description || "",
+      recipeVersion: version,
+      definition,
+      validationErrors: errors,
+      selectedNodeId: definition.entry || Object.keys(definition.nodes)[0] || null,
+      history: [JSON.parse(JSON.stringify(definition))],
+      historyIndex: 0,
+      isDirty: false,
+    });
+  },
+
+  setName: (recipeName) => set({ recipeName, isDirty: true }),
+  setDescription: (recipeDescription) => set({ recipeDescription, isDirty: true }),
+  setActiveView: (activeView) => set({ activeView }),
+  setSelectedNodeId: (selectedNodeId) => set({ selectedNodeId }),
+
+  addNode: (type) => {
+    const { definition, history, historyIndex } = get();
+    const newId = `${type}_${Math.random().toString(36).substring(2, 7)}`;
+    const newNode = createDefaultNode(newId, type);
+
+    const updatedNodes = { ...definition.nodes, [newId]: newNode };
+    let newEntry = definition.entry;
+    const updatedEdges = [...definition.edges];
+
+    if (!newEntry || Object.keys(definition.nodes).length === 0) {
+      newEntry = newId;
+    } else {
+      // Conectar automáticamente con el último nodo si este no tiene next
+      const nodeKeys = Object.keys(definition.nodes);
+      const lastKey = nodeKeys[nodeKeys.length - 1];
+      const lastNode = definition.nodes[lastKey];
+      if (lastNode && !lastNode.next && lastNode.type !== "condition") {
+        updatedNodes[lastKey] = { ...lastNode, next: newId };
+        updatedEdges.push({ from: lastKey, to: newId });
+      }
+    }
+
+    const updatedDsl: RecipeDsl = {
+      ...definition,
+      entry: newEntry,
+      nodes: updatedNodes,
+      edges: updatedEdges,
+    };
+
+    const errors = validateDsl(updatedDsl);
+    const hist = pushHistory(history, historyIndex, updatedDsl);
+
+    set({
+      definition: updatedDsl,
+      validationErrors: errors,
+      selectedNodeId: newId,
+      isDirty: true,
+      ...hist,
+    });
+
+    return newId;
+  },
+
+  updateNode: (id, updates) => {
+    const { definition, history, historyIndex } = get();
+    const existing = definition.nodes[id];
+    if (!existing) return;
+
+    // Si se actualizan localizadores, recalcular scores
+    const merged: any = { ...existing, ...updates };
+    const rawUpdates = updates as Record<string, any>;
+    if ("locator" in rawUpdates && rawUpdates.locator) {
+      const loc = rawUpdates.locator as LocatorGroup;
+      if (loc.primary) {
+        loc.primary.score = calculateLocatorScore(loc.primary.strategy, loc.primary.value);
+      }
+      if (loc.fallbacks) {
+        loc.fallbacks = loc.fallbacks.map((f) => ({
+          ...f,
+          score: calculateLocatorScore(f.strategy, f.value),
+        }));
+      }
+      merged.locator = loc;
+    }
+
+    const updatedDsl: RecipeDsl = {
+      ...definition,
+      nodes: {
+        ...definition.nodes,
+        [id]: merged as RecipeNode,
+      },
+    };
+
+    const errors = validateDsl(updatedDsl);
+    const hist = pushHistory(history, historyIndex, updatedDsl);
+
+    set({
+      definition: updatedDsl,
+      validationErrors: errors,
+      isDirty: true,
+      ...hist,
+    });
+  },
+
+  deleteNode: (id) => {
+    const { definition, history, historyIndex, selectedNodeId } = get();
+    const nextNodes = { ...definition.nodes };
+    delete nextNodes[id];
+
+    // Limpiar referencias 'next' hacia este nodo
+    for (const key of Object.keys(nextNodes)) {
+      if (nextNodes[key].next === id) {
+        nextNodes[key] = { ...nextNodes[key], next: undefined };
+      }
+    }
+
+    const nextEdges = definition.edges.filter((e) => e.from !== id && e.to !== id);
+
+    let nextEntry = definition.entry;
+    if (nextEntry === id) {
+      nextEntry = Object.keys(nextNodes)[0] || "";
+    }
+
+    const updatedDsl: RecipeDsl = {
+      ...definition,
+      entry: nextEntry,
+      nodes: nextNodes,
+      edges: nextEdges,
+    };
+
+    const errors = validateDsl(updatedDsl);
+    const hist = pushHistory(history, historyIndex, updatedDsl);
+
+    set({
+      definition: updatedDsl,
+      validationErrors: errors,
+      selectedNodeId: selectedNodeId === id ? (nextEntry || null) : selectedNodeId,
+      isDirty: true,
+      ...hist,
+    });
+  },
+
+  reorderNodes: (orderedIds) => {
+    const { definition, history, historyIndex } = get();
+    if (orderedIds.length === 0) return;
+
+    const newNodes = { ...definition.nodes };
+    const newEdges: RecipeEdge[] = [];
+
+    for (let i = 0; i < orderedIds.length; i++) {
+      const currentId = orderedIds[i];
+      const nextId = orderedIds[i + 1];
+      if (newNodes[currentId]) {
+        newNodes[currentId] = {
+          ...newNodes[currentId],
+          next: nextId || undefined,
+        };
+        if (nextId) {
+          newEdges.push({ from: currentId, to: nextId });
+        }
+      }
+    }
+
+    const updatedDsl: RecipeDsl = {
+      ...definition,
+      entry: orderedIds[0],
+      nodes: newNodes,
+      edges: newEdges,
+    };
+
+    const errors = validateDsl(updatedDsl);
+    const hist = pushHistory(history, historyIndex, updatedDsl);
+
+    set({
+      definition: updatedDsl,
+      validationErrors: errors,
+      isDirty: true,
+      ...hist,
+    });
+  },
+
+  setEntryNode: (id) => {
+    const { definition, history, historyIndex } = get();
+    if (!definition.nodes[id]) return;
+
+    const updatedDsl = { ...definition, entry: id };
+    const errors = validateDsl(updatedDsl);
+    const hist = pushHistory(history, historyIndex, updatedDsl);
+
+    set({
+      definition: updatedDsl,
+      validationErrors: errors,
+      isDirty: true,
+      ...hist,
+    });
+  },
+
+  addEdge: (edge) => {
+    const { definition, history, historyIndex } = get();
+    // Evitar duplicados
+    const exists = definition.edges.some((e) => e.from === edge.from && e.to === edge.to);
+    if (exists) return;
+
+    // Actualizar también el 'next' del nodo de origen
+    const sourceNode = definition.nodes[edge.from];
+    const updatedNodes = { ...definition.nodes };
+    if (sourceNode && !edge.condition) {
+      updatedNodes[edge.from] = { ...sourceNode, next: edge.to };
+    }
+
+    const updatedDsl: RecipeDsl = {
+      ...definition,
+      nodes: updatedNodes,
+      edges: [...definition.edges, edge],
+    };
+
+    const errors = validateDsl(updatedDsl);
+    const hist = pushHistory(history, historyIndex, updatedDsl);
+
+    set({
+      definition: updatedDsl,
+      validationErrors: errors,
+      isDirty: true,
+      ...hist,
+    });
+  },
+
+  removeEdge: (from, to) => {
+    const { definition, history, historyIndex } = get();
+    const sourceNode = definition.nodes[from];
+    const updatedNodes = { ...definition.nodes };
+    if (sourceNode && sourceNode.next === to) {
+      updatedNodes[from] = { ...sourceNode, next: undefined };
+    }
+
+    const updatedDsl: RecipeDsl = {
+      ...definition,
+      nodes: updatedNodes,
+      edges: definition.edges.filter((e) => !(e.from === from && e.to === to)),
+    };
+
+    const errors = validateDsl(updatedDsl);
+    const hist = pushHistory(history, historyIndex, updatedDsl);
+
+    set({
+      definition: updatedDsl,
+      validationErrors: errors,
+      isDirty: true,
+      ...hist,
+    });
+  },
+
+  setDefinitionFromCode: (dsl) => {
+    const { history, historyIndex } = get();
+    const errors = validateDsl(dsl);
+    const hist = pushHistory(history, historyIndex, dsl);
+
+    set({
+      definition: dsl,
+      validationErrors: errors,
+      isDirty: true,
+      ...hist,
+    });
+  },
+
+  undo: () => {
+    const { history, historyIndex } = get();
+    if (historyIndex > 0) {
+      const prev = history[historyIndex - 1];
+      set({
+        definition: prev,
+        validationErrors: validateDsl(prev),
+        historyIndex: historyIndex - 1,
+        isDirty: true,
+      });
+    }
+  },
+
+  redo: () => {
+    const { history, historyIndex } = get();
+    if (historyIndex < history.length - 1) {
+      const next = history[historyIndex + 1];
+      set({
+        definition: next,
+        validationErrors: validateDsl(next),
+        historyIndex: historyIndex + 1,
+        isDirty: true,
+      });
+    }
+  },
+
+  startRun: (runId) => {
+    set({
+      runId,
+      runStatus: "running",
+      runningNodeId: null,
+      logs: [
+        {
+          id: Math.random().toString(36).substring(2, 9),
+          timestamp: new Date().toLocaleTimeString(),
+          level: "info",
+          message: `Iniciando ejecución determinista ${runId}...`,
+        },
+      ],
+      screenshots: [],
+    });
+  },
+
+  setRunningNodeId: (runningNodeId) => set({ runningNodeId }),
+
+  addLog: (log) => {
+    set((state) => ({
+      logs: [
+        ...state.logs,
+        {
+          ...log,
+          id: Math.random().toString(36).substring(2, 9),
+          timestamp: new Date().toLocaleTimeString(),
+        },
+      ],
+    }));
+  },
+
+  addScreenshot: (screenshot) => {
+    set((state) => ({
+      screenshots: [
+        ...state.screenshots,
+        {
+          ...screenshot,
+          id: Math.random().toString(36).substring(2, 9),
+          timestamp: new Date().toLocaleTimeString(),
+        },
+      ],
+    }));
+  },
+
+  finishRun: (status) => {
+    set((state) => ({
+      runStatus: status,
+      runningNodeId: null,
+      logs: [
+        ...state.logs,
+        {
+          id: Math.random().toString(36).substring(2, 9),
+          timestamp: new Date().toLocaleTimeString(),
+          level: status === "success" ? "success" : "error",
+          message:
+            status === "success"
+              ? "✓ Receta completada con éxito."
+              : "✗ La ejecución falló con errores.",
+        },
+      ],
+    }));
+  },
+
+  clearRunState: () => {
+    set({
+      runId: null,
+      runStatus: "idle",
+      runningNodeId: null,
+      logs: [],
+      screenshots: [],
+    });
+  },
+}));

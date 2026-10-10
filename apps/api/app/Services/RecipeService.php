@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Http\Requests\Recipe\RecipeCreateRequest;
+use App\Http\Requests\Recipe\RecipeUpdateRequest;
 use App\Models\Project;
 use App\Models\Recipe;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -59,6 +60,47 @@ class RecipeService
             ]);
 
             Audit::log('recipe.created', $request->user(), $project->workspace, $recipe);
+
+            return $recipe->load('latestVersion');
+        });
+    }
+
+    public function update(RecipeUpdateRequest $request, Recipe $recipe): Recipe
+    {
+        $data = $request->validated();
+
+        if (isset($data['definition'])) {
+            $errors = $this->dslValidator->validate($data['definition']);
+            if (! empty($errors)) {
+                throw ValidationException::withMessages([
+                    'definition' => $errors,
+                ]);
+            }
+        }
+
+        return DB::transaction(function () use ($data, $recipe, $request): Recipe {
+            $updateData = [];
+            if (isset($data['name'])) {
+                $updateData['name'] = $data['name'];
+            }
+            if (array_key_exists('description', $data)) {
+                $updateData['description'] = $data['description'];
+            }
+            if (! empty($updateData)) {
+                $recipe->update($updateData);
+            }
+
+            if (isset($data['definition'])) {
+                $nextVersion = ((int) $recipe->versions()->max('version')) + 1;
+                $recipe->versions()->create([
+                    'version' => $nextVersion,
+                    'definition' => $data['definition'],
+                    'changelog' => $data['changelog'] ?? "Versión {$nextVersion}",
+                    'created_by_user_id' => $request->user()?->id,
+                ]);
+            }
+
+            Audit::log('recipe.updated', $request->user(), $recipe->project->workspace, $recipe);
 
             return $recipe->load('latestVersion');
         });

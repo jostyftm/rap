@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\Api\v1\Auth\AuthController;
 use App\Http\Controllers\Api\v1\Project\ProjectController;
 use App\Http\Controllers\Api\v1\Recipe\RecipeController;
+use App\Http\Controllers\Api\v1\Recipe\RecipeExportController;
 use App\Http\Controllers\Api\v1\Run\RunController;
 use App\Http\Controllers\Api\v1\Workspace\WorkspaceController;
 use Illuminate\Support\Facades\Route;
@@ -35,6 +36,8 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function (): void {
     Route::get('projects/{project}/recipes', [RecipeController::class, 'index']);
     Route::post('projects/{project}/recipes', [RecipeController::class, 'store']);
     Route::get('recipes/{recipe}', [RecipeController::class, 'show']);
+    Route::put('recipes/{recipe}', [RecipeController::class, 'update']);
+    Route::get('recipes/{recipe}/export/playwright', [RecipeExportController::class, 'export']);
 
     // Ejecuciones (Runs)
     Route::post('recipes/{recipe}/runs', [RunController::class, 'store']);

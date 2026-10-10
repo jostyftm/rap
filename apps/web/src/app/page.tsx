@@ -71,12 +71,19 @@ export default function HomePage() {
             auto-reparación inteligente.
           </p>
 
-          <div className="flex flex-wrap gap-3 pt-4">
+          <div className="flex flex-wrap justify-center gap-3 pt-4">
+            <a
+              href="/recipes"
+              className="px-5 py-2.5 rounded-lg text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/30 transition flex items-center gap-2"
+            >
+              <Play className="w-4 h-4 fill-current" />
+              <span>Abrir Editor Low-Code</span>
+            </a>
             <button
               onClick={() => setActiveTab("overview")}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
+              className={`px-4 py-2.5 rounded-lg text-sm font-semibold transition ${
                 activeTab === "overview"
-                  ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+                  ? "bg-slate-700 text-white"
                   : "bg-slate-800 text-slate-300 hover:bg-slate-700"
               }`}
             >
@@ -84,9 +91,9 @@ export default function HomePage() {
             </button>
             <button
               onClick={() => setActiveTab("architecture")}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
+              className={`px-4 py-2.5 rounded-lg text-sm font-semibold transition ${
                 activeTab === "architecture"
-                  ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+                  ? "bg-slate-700 text-white"
                   : "bg-slate-800 text-slate-300 hover:bg-slate-700"
               }`}
             >

@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\v1\Recipe;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Recipe\RecipeCreateRequest;
+use App\Http\Requests\Recipe\RecipeUpdateRequest;
 use App\Http\Resources\Recipe\RecipeResource;
 use App\Models\Project;
 use App\Models\Recipe;
@@ -48,6 +49,16 @@ class RecipeController extends Controller
     public function show(Recipe $recipe): RecipeResource
     {
         $result = $this->recipeService->get($recipe);
+
+        return new RecipeResource($result);
+    }
+
+    /**
+     * Update recipe and optionally create a new version
+     */
+    public function update(RecipeUpdateRequest $request, Recipe $recipe): RecipeResource
+    {
+        $result = $this->recipeService->update($request, $recipe);
 
         return new RecipeResource($result);
     }
