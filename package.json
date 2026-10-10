@@ -1,0 +1,12 @@
+{
+  "name": "rpa-studio",
+  "private": true,
+  "packageManager": "pnpm@10.0.0",
+  "scripts": {
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": { "turbo": "^2.5.0" }
+}

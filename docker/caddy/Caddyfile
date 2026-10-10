@@ -1,0 +1,31 @@
+:80 {
+    # Logging estructurado en JSON
+    log {
+        output stdout
+        format json
+    }
+
+    # API de Laravel y Sanctum
+    handle /api/* {
+        reverse_proxy api:8000
+    }
+    handle /sanctum/* {
+        reverse_proxy api:8000
+    }
+    handle /broadcasting/* {
+        reverse_proxy api:8000
+    }
+    handle /up {
+        reverse_proxy api:8000
+    }
+
+    # Laravel Reverb WebSockets
+    handle /app/* {
+        reverse_proxy reverb:8080
+    }
+
+    # Frontend Next.js
+    handle {
+        reverse_proxy web:3000
+    }
+}

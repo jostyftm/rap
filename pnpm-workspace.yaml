@@ -1,0 +1,9 @@
+packages:
+  - "apps/web"
+  - "apps/runner"
+  - "apps/extension"
+  - "packages/*"
+
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver

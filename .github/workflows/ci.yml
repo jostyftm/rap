@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-tests:
+    name: Backend Tests & Lint (Laravel 13)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, xml, ctype, iconv, intl, pdo, sqlite, pdo_sqlite, bcmath, pcntl, redis
+          coverage: none
+
+      - name: Install Composer dependencies
+        working-directory: apps/api
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Run Pint (Code Style)
+        working-directory: apps/api
+        run: ./vendor/bin/pint --test
+
+      - name: Run Pest Tests
+        working-directory: apps/api
+        run: php artisan test --parallel
+
+  frontend-build:
+    name: Frontend Build & Typecheck (Next.js)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile=false
+
+      - name: Typecheck Next.js
+        run: pnpm --filter web build
+
+  docker-validate:
+    name: Validate Docker Compose
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Compose File
+        run: docker compose config -q
