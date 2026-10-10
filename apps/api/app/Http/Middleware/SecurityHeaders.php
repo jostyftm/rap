@@ -13,6 +13,11 @@ final class SecurityHeaders
     public function handle(Request $request, Closure $next): Response
     {
         $response = $next($request);
+
+        if ($request->isMethod('OPTIONS')) {
+            return $response;
+        }
+
         $response->headers->add([
             'X-Content-Type-Options' => 'nosniff',
             'X-Frame-Options' => 'DENY',

@@ -13,11 +13,28 @@ export class ApiError extends Error {
   }
 }
 
+let csrfPromise: Promise<void> | null = null;
+
 export async function getCsrfCookie(): Promise<void> {
   if (typeof window === "undefined") return;
-  await fetch(`${API_BASE_URL}/sanctum/csrf-cookie`, {
-    credentials: "include",
-  });
+
+  if (!csrfPromise) {
+    csrfPromise = fetch(`${API_BASE_URL}/sanctum/csrf-cookie`, {
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+      },
+    })
+      .then(() => {})
+      .catch((err) => {
+        console.warn("Error al obtener cookie CSRF:", err);
+      })
+      .finally(() => {
+        csrfPromise = null;
+      });
+  }
+
+  return csrfPromise;
 }
 
 function getCookie(name: string): string | null {
@@ -30,7 +47,16 @@ export async function apiFetch<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
+  const method = (options.method || "GET").toUpperCase();
   const url = path.startsWith("http") ? path : `${API_BASE_URL}${path}`;
+
+  // Si es una acción mutante (POST, PUT, DELETE, PATCH) y no tenemos cookie CSRF, obtenerla primero
+  if (typeof window !== "undefined" && method !== "GET" && method !== "HEAD") {
+    let token = getCookie("XSRF-TOKEN");
+    if (!token) {
+      await getCsrfCookie();
+    }
+  }
 
   const headers: Record<string, string> = {
     Accept: "application/json",
@@ -43,11 +69,25 @@ export async function apiFetch<T>(
     headers["X-XSRF-TOKEN"] = xsrfToken;
   }
 
-  const response = await fetch(url, {
+  let response = await fetch(url, {
     ...options,
     headers,
     credentials: "include",
   });
+
+  // Si falló por 419 (CSRF Token Mismatch), refrescar cookie y reintentar una vez
+  if (response.status === 419 && typeof window !== "undefined") {
+    await getCsrfCookie();
+    const refreshedToken = getCookie("XSRF-TOKEN");
+    if (refreshedToken) {
+      headers["X-XSRF-TOKEN"] = refreshedToken;
+    }
+    response = await fetch(url, {
+      ...options,
+      headers,
+      credentials: "include",
+    });
+  }
 
   if (!response.ok) {
     let problem: ProblemDetails;
