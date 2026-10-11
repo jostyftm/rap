@@ -59,7 +59,7 @@ export function FlowCanvas() {
       visited.add(currId);
       const node: RecipeNode = definition.nodes[currId];
       const { highlightParam, locator } = getNodeHighlights(node);
-      const issues = (currId && nodeIssues?.[currId]) ? nodeIssues[currId] : [];
+      const issues = (currId && Array.isArray(nodeIssues?.[currId])) ? nodeIssues[currId] : [];
       const hasErrors = issues.length > 0;
       const firstErrorMessage = issues[0]?.message;
 
@@ -97,7 +97,7 @@ export function FlowCanvas() {
         unvisitedCol++;
 
         const { highlightParam, locator } = getNodeHighlights(node);
-        const issues = (key && nodeIssues?.[key]) ? nodeIssues[key] : [];
+        const issues = (key && Array.isArray(nodeIssues?.[key])) ? nodeIssues[key] : [];
         const hasErrors = issues.length > 0;
         const firstErrorMessage = issues[0]?.message;
 

@@ -44,7 +44,7 @@ export function NodeInspector() {
     return null;
   }
 
-  const issues = (selectedNodeId && nodeIssues?.[selectedNodeId]) ? nodeIssues[selectedNodeId] : [];
+  const issues = (selectedNodeId && Array.isArray(nodeIssues?.[selectedNodeId])) ? nodeIssues[selectedNodeId] : [];
 
   const node: RecipeNode = definition.nodes[selectedNodeId];
   const isEntry = definition.entry === selectedNodeId;
