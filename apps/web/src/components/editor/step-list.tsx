@@ -20,7 +20,8 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import type { RecipeNode } from "@rpa/dsl";
-import { useRecipeStore } from "../../stores/use-recipe-store";
+import { useRecipeStore } from "@/stores/use-recipe-store";
+import { nodeRegistry } from "@/app/recipes/[id]/edit/components/nodes";
 
 export function StepList() {
   const definition = useRecipeStore((s) => s.definition);
@@ -65,19 +66,6 @@ export function StepList() {
     reorderNodes(ids);
   };
 
-  const iconMap: Record<RecipeNode["type"], React.ComponentType<{ className?: string }>> = {
-    navigate: Globe,
-    click: MousePointer,
-    type: Keyboard,
-    select: ListFilter,
-    waitFor: Clock,
-    extract: Download,
-    screenshot: Camera,
-    setVariable: Variable,
-    condition: GitBranch,
-    loop: Repeat,
-  };
-
   return (
     <div className="flex-1 h-full bg-neutral-950 p-6 overflow-y-auto select-none">
       <div className="max-w-4xl mx-auto space-y-4">
@@ -94,7 +82,7 @@ export function StepList() {
 
         <div className="space-y-2">
           {orderedNodes.map((node, index) => {
-            const Icon = iconMap[node.type] || Globe;
+            const Icon = nodeRegistry.get(node.type)?.icon || Globe;
             const isSelected = selectedNodeId === node.id;
             const isRunning = runningNodeId === node.id;
             const isEntry = definition.entry === node.id;

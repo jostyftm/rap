@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { RecipeDsl, RecipeNode, RecipeEdge, LocatorGroup } from "@rpa/dsl";
 import { validateRecipeDsl } from "@rpa/dsl";
 import { calculateLocatorScore } from "@rpa/locator";
+import { nodeRegistry } from "@/app/recipes/[id]/edit/components/nodes";
 
 export type EditorView = "canvas" | "steps" | "code";
 
@@ -11,6 +12,8 @@ export interface ExecutionLog {
   level: "info" | "warn" | "error" | "success";
   message: string;
   nodeId?: string;
+  source?: "runner" | "browser" | "network" | "live";
+  context?: Record<string, unknown>;
 }
 
 export interface ExecutionScreenshot {
@@ -34,9 +37,15 @@ export interface RecipeStoreState {
   // Ejecución en vivo
   runId: string | null;
   runStatus: "idle" | "running" | "success" | "failed";
+  runControlState: "idle" | "running" | "paused" | "stopping";
   runningNodeId: string | null;
   logs: ExecutionLog[];
   screenshots: ExecutionScreenshot[];
+
+  // Grabación en vivo (Recorder)
+  isRecording: boolean;
+  recordingSessionId: string | null;
+  recordedActionsCount: number;
 
   // Historial (Undo / Redo)
   history: RecipeDsl[];
@@ -71,10 +80,22 @@ export interface RecipeStoreState {
   // Control de Ejecución
   startRun: (runId: string) => void;
   setRunningNodeId: (nodeId: string | null) => void;
+  setRunControlState: (state: "idle" | "running" | "paused" | "stopping") => void;
   addLog: (log: Omit<ExecutionLog, "id" | "timestamp">) => void;
   addScreenshot: (screenshot: Omit<ExecutionScreenshot, "id" | "timestamp">) => void;
   finishRun: (status: "success" | "failed") => void;
   clearRunState: () => void;
+
+  // Grabación en vivo
+  startRecording: (sessionId: string) => void;
+  stopRecording: () => void;
+  appendRecordedAction: (action: {
+    type: string;
+    locator?: any;
+    params?: any;
+    url?: string;
+    description?: string;
+  }) => void;
 }
 
 const DEFAULT_INITIAL_DSL: RecipeDsl = {
@@ -108,105 +129,6 @@ const DEFAULT_INITIAL_DSL: RecipeDsl = {
   ],
 };
 
-function createDefaultNode(id: string, type: RecipeNode["type"]): RecipeNode {
-  switch (type) {
-    case "navigate":
-      return {
-        id,
-        type: "navigate",
-        description: "Navegar a URL",
-        params: { url: "https://example.com", waitUntil: "domcontentloaded" },
-      };
-    case "click":
-      return {
-        id,
-        type: "click",
-        description: "Hacer clic en elemento",
-        locator: {
-          primary: { strategy: "testid", value: "action-button", score: 95 },
-          fallbacks: [],
-        },
-        params: { button: "left" },
-      };
-    case "type":
-      return {
-        id,
-        type: "type",
-        description: "Escribir texto en campo",
-        locator: {
-          primary: { strategy: "testid", value: "input-field", score: 95 },
-          fallbacks: [],
-        },
-        params: { text: "Texto de ejemplo", clear: true },
-      };
-    case "select":
-      return {
-        id,
-        type: "select",
-        description: "Seleccionar opción",
-        locator: {
-          primary: { strategy: "testid", value: "select-dropdown", score: 95 },
-          fallbacks: [],
-        },
-        params: { value: "option_value" },
-      };
-    case "waitFor":
-      return {
-        id,
-        type: "waitFor",
-        description: "Esperar a que cargue la red",
-        params: { strategy: "networkIdle" },
-      };
-    case "extract":
-      return {
-        id,
-        type: "extract",
-        description: "Extraer texto a variable",
-        locator: {
-          primary: { strategy: "testid", value: "data-text", score: 95 },
-          fallbacks: [],
-        },
-        params: { extractType: "text", variable: "extractedData" },
-      };
-    case "screenshot":
-      return {
-        id,
-        type: "screenshot",
-        description: "Capturar pantalla completa",
-        params: { fullPage: true, name: "captura" },
-      };
-    case "setVariable":
-      return {
-        id,
-        type: "setVariable",
-        description: "Definir variable",
-        params: { name: "miVariable", expression: "'valor'" },
-      };
-    case "condition":
-      return {
-        id,
-        type: "condition",
-        description: "Bifurcación condicional",
-        params: {
-          expression: "variables.flag === true",
-          thenNodeId: "",
-        },
-      };
-    case "loop":
-      return {
-        id,
-        type: "loop",
-        description: "Bucle sobre colección",
-        params: {
-          collectionExpression: "variables.items",
-          itemVariable: "item",
-          bodyEntryNodeId: "",
-          maxIterations: 10,
-        },
-      };
-  }
-}
-
 function pushHistory(currentHistory: RecipeDsl[], currentIndex: number, newDsl: RecipeDsl) {
   const truncated = currentHistory.slice(0, currentIndex + 1);
   const updated = [...truncated, JSON.parse(JSON.stringify(newDsl))];
@@ -233,9 +155,14 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
 
   runId: null,
   runStatus: "idle",
+  runControlState: "idle",
   runningNodeId: null,
   logs: [],
   screenshots: [],
+
+  isRecording: false,
+  recordingSessionId: null,
+  recordedActionsCount: 0,
 
   history: [JSON.parse(JSON.stringify(DEFAULT_INITIAL_DSL))],
   historyIndex: 0,
@@ -264,7 +191,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   addNode: (type) => {
     const { definition, history, historyIndex } = get();
     const newId = `${type}_${Math.random().toString(36).substring(2, 7)}`;
-    const newNode = createDefaultNode(newId, type);
+    const newNode = nodeRegistry.createNode(type, newId);
 
     const updatedNodes = { ...definition.nodes, [newId]: newNode };
     let newEntry = definition.entry;
@@ -536,6 +463,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     set({
       runId,
       runStatus: "running",
+      runControlState: "running",
       runningNodeId: null,
       logs: [
         {
@@ -550,6 +478,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   },
 
   setRunningNodeId: (runningNodeId) => set({ runningNodeId }),
+  setRunControlState: (runControlState) => set({ runControlState }),
 
   addLog: (log) => {
     set((state) => ({
@@ -580,6 +509,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   finishRun: (status) => {
     set((state) => ({
       runStatus: status,
+      runControlState: "idle",
       runningNodeId: null,
       logs: [
         ...state.logs,
@@ -600,9 +530,74 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     set({
       runId: null,
       runStatus: "idle",
+      runControlState: "idle",
       runningNodeId: null,
       logs: [],
       screenshots: [],
+    });
+  },
+
+  startRecording: (recordingSessionId: string) => {
+    set({
+      isRecording: true,
+      recordingSessionId,
+      recordedActionsCount: 0,
+    });
+  },
+
+  stopRecording: () => {
+    set({
+      isRecording: false,
+      recordingSessionId: null,
+    });
+  },
+
+  appendRecordedAction: (action) => {
+    const { definition, history, historyIndex, recordedActionsCount } = get();
+    const type = (action.type || "click") as RecipeNode["type"];
+    const newId = `rec_${type}_${Math.random().toString(36).substring(2, 7)}`;
+
+    const newNode: RecipeNode = {
+      id: newId,
+      type: type,
+      description: action.description || `Acción grabada: ${type}`,
+      locator: action.locator,
+      params: action.params || {},
+    };
+
+    const updatedNodes = { ...definition.nodes, [newId]: newNode };
+    let newEntry = definition.entry;
+    const updatedEdges = [...definition.edges];
+
+    if (!newEntry || Object.keys(definition.nodes).length === 0) {
+      newEntry = newId;
+    } else {
+      const nodeKeys = Object.keys(definition.nodes);
+      const lastKey = nodeKeys[nodeKeys.length - 1];
+      const lastNode = definition.nodes[lastKey];
+      if (lastNode && !lastNode.next && lastNode.type !== "condition") {
+        updatedNodes[lastKey] = { ...lastNode, next: newId };
+        updatedEdges.push({ from: lastKey, to: newId });
+      }
+    }
+
+    const updatedDsl: RecipeDsl = {
+      ...definition,
+      entry: newEntry,
+      nodes: updatedNodes,
+      edges: updatedEdges,
+    };
+
+    const errors = validateDsl(updatedDsl);
+    const hist = pushHistory(history, historyIndex, updatedDsl);
+
+    set({
+      definition: updatedDsl,
+      validationErrors: errors,
+      selectedNodeId: newId,
+      isDirty: true,
+      recordedActionsCount: recordedActionsCount + 1,
+      ...hist,
     });
   },
 }));

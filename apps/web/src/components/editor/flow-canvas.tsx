@@ -4,8 +4,6 @@ import React, { useMemo, useCallback } from "react";
 import {
   ReactFlow,
   Background,
-  Controls,
-  MiniMap,
   type Node,
   type Edge,
   type Connection,
@@ -13,9 +11,10 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import { useRecipeStore } from "../../stores/use-recipe-store";
+import { useRecipeStore } from "@/stores/use-recipe-store";
 import { CustomFlowNode } from "./custom-flow-node";
 import type { RecipeNode } from "@rpa/dsl";
+import { nodeRegistry } from "@/app/recipes/[id]/edit/components/nodes";
 
 const nodeTypes = {
   customNode: CustomFlowNode as any,
@@ -35,31 +34,31 @@ export function FlowCanvas() {
     const result: Node[] = [];
     const visited = new Set<string>();
 
-    let currentY = 50;
-    let currentX = 300;
+    let currentY = 20;
+    let currentX = 180;
+
+    function getNodeHighlights(node: RecipeNode) {
+      const highlightParam = nodeRegistry.getHighlight(node);
+
+      const locator =
+        "locator" in node && node.locator
+          ? {
+              strategy: node.locator.primary.strategy,
+              value: node.locator.primary.value,
+              score: node.locator.primary.score,
+              fallbacksCount: node.locator.fallbacks?.length || 0,
+            }
+          : undefined;
+
+      return { highlightParam, locator };
+    }
 
     // 1. Recorrer la cadena principal desde entry
     let currId: string | undefined = definition.entry;
     while (currId && definition.nodes[currId] && !visited.has(currId)) {
       visited.add(currId);
       const node: RecipeNode = definition.nodes[currId];
-
-      let highlightParam: string | undefined;
-      if (node.type === "navigate") highlightParam = node.params.url;
-      if (node.type === "type") highlightParam = `"${node.params.text}"`;
-      if (node.type === "select") highlightParam = `Opción: ${node.params.value}`;
-      if (node.type === "extract") highlightParam = `-> ${node.params.variable}`;
-      if (node.type === "setVariable") highlightParam = `${node.params.name} = ${node.params.expression}`;
-      if (node.type === "condition") highlightParam = node.params.expression;
-      if (node.type === "loop") highlightParam = `in ${node.params.collectionExpression}`;
-
-      const locator = "locator" in node && node.locator ? {
-        strategy: node.locator.primary.strategy,
-        value: node.locator.primary.value,
-        score: node.locator.primary.score,
-        fallbacksCount: node.locator.fallbacks?.length || 0,
-      } : undefined;
-
+      const { highlightParam, locator } = getNodeHighlights(node);
       const hasErrors = validationErrors.some((e) => e.includes(currId!));
 
       result.push({
@@ -70,6 +69,7 @@ export function FlowCanvas() {
         data: {
           id: currId,
           type: node.type,
+          strategy: (node as any).params?.strategy,
           description: node.description,
           isEntry: definition.entry === currId,
           locator,
@@ -78,7 +78,7 @@ export function FlowCanvas() {
         },
       });
 
-      currentY += 180;
+      currentY += 220;
       currId = node.next;
     }
 
@@ -92,6 +92,8 @@ export function FlowCanvas() {
         const posY = 50 + (result.length % 5) * 180;
         unvisitedCol++;
 
+        const { highlightParam, locator } = getNodeHighlights(node);
+
         result.push({
           id: key,
           type: "customNode",
@@ -100,8 +102,11 @@ export function FlowCanvas() {
           data: {
             id: key,
             type: node.type,
+            strategy: (node as any).params?.strategy,
             description: node.description,
             isEntry: definition.entry === key,
+            locator,
+            highlightParam,
             hasErrors: validationErrors.some((e) => e.includes(key)),
           },
         });
@@ -163,12 +168,6 @@ export function FlowCanvas() {
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#262626" />
-        <Controls className="!bg-neutral-900 !border-neutral-800 !fill-neutral-300 [&>button]:!border-neutral-800" />
-        <MiniMap
-          nodeColor="#3b82f6"
-          maskColor="rgba(0, 0, 0, 0.7)"
-          className="!bg-neutral-950 !border !border-neutral-800 !rounded-lg"
-        />
       </ReactFlow>
     </div>
   );

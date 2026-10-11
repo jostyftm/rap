@@ -1,131 +1,24 @@
 "use client";
 
 import React, { useState } from "react";
-import {
-  Globe,
-  MousePointer,
-  Keyboard,
-  ListFilter,
-  Clock,
-  Camera,
-  Download,
-  Variable,
-  GitBranch,
-  Repeat,
-  Search,
-  Plus,
-} from "lucide-react";
-import type { RecipeNode } from "@rpa/dsl";
-import { useRecipeStore } from "../../stores/use-recipe-store";
-
-interface BlockDefinition {
-  type: RecipeNode["type"];
-  label: string;
-  description: string;
-  category: "interaction" | "waits" | "data" | "control";
-  icon: React.ComponentType<{ className?: string }>;
-  color: string;
-}
-
-const BLOCK_DEFINITIONS: BlockDefinition[] = [
-  // Interacción y Navegación
-  {
-    type: "navigate",
-    label: "Navegar (goto)",
-    description: "Cargar una dirección URL en el navegador",
-    category: "interaction",
-    icon: Globe,
-    color: "bg-blue-500/10 text-blue-600 border-blue-500/20",
-  },
-  {
-    type: "click",
-    label: "Clic",
-    description: "Hacer clic en un botón, enlace o elemento",
-    category: "interaction",
-    icon: MousePointer,
-    color: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20",
-  },
-  {
-    type: "type",
-    label: "Escribir (type)",
-    description: "Rellenar un campo de texto o formulario",
-    category: "interaction",
-    icon: Keyboard,
-    color: "bg-cyan-500/10 text-cyan-600 border-cyan-500/20",
-  },
-  {
-    type: "select",
-    label: "Seleccionar (select)",
-    description: "Elegir una opción en un menú desplegable",
-    category: "interaction",
-    icon: ListFilter,
-    color: "bg-teal-500/10 text-teal-600 border-teal-500/20",
-  },
-
-  // Esperas
-  {
-    type: "waitFor",
-    label: "Esperar (waitFor)",
-    description: "Esperar elemento, red o URL con auto-wait",
-    category: "waits",
-    icon: Clock,
-    color: "bg-amber-500/10 text-amber-600 border-amber-500/20",
-  },
-
-  // Extracción y Capturas
-  {
-    type: "extract",
-    label: "Extraer Datos",
-    description: "Obtener texto, atributo o lista a variable",
-    category: "data",
-    icon: Download,
-    color: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
-  },
-  {
-    type: "screenshot",
-    label: "Captura de Pantalla",
-    description: "Tomar screenshot de la página o de un elemento",
-    category: "data",
-    icon: Camera,
-    color: "bg-purple-500/10 text-purple-600 border-purple-500/20",
-  },
-  {
-    type: "setVariable",
-    label: "Definir Variable",
-    description: "Almacenar o transformar un valor con expresión",
-    category: "data",
-    icon: Variable,
-    color: "bg-pink-500/10 text-pink-600 border-pink-500/20",
-  },
-
-  // Control de Flujo
-  {
-    type: "condition",
-    label: "Condición (if / else)",
-    description: "Bifurcación lógica basada en expresión",
-    category: "control",
-    icon: GitBranch,
-    color: "bg-orange-500/10 text-orange-600 border-orange-500/20",
-  },
-  {
-    type: "loop",
-    label: "Bucle (loop)",
-    description: "Iterar sobre una colección de elementos",
-    category: "control",
-    icon: Repeat,
-    color: "bg-rose-500/10 text-rose-600 border-rose-500/20",
-  },
-];
+import { Search, Plus, PanelLeftClose } from "lucide-react";
+import { useRecipeStore } from "@/stores/use-recipe-store";
+import { useLayoutStore } from "@/stores/use-layout-store";
+import { nodeRegistry } from "@/app/recipes/[id]/edit/components/nodes";
 
 export function NodePalette() {
   const [search, setSearch] = useState("");
   const addNode = useRecipeStore((state) => state.addNode);
+  const togglePaletteCollapsed = useLayoutStore((state) => state.togglePaletteCollapsed);
 
-  const filteredBlocks = BLOCK_DEFINITIONS.filter(
+  const blockDefinitions = nodeRegistry.getAll();
+
+  const filteredBlocks = blockDefinitions.filter(
     (b) =>
       b.label.toLowerCase().includes(search.toLowerCase()) ||
       b.description.toLowerCase().includes(search.toLowerCase()) ||
-      b.type.toLowerCase().includes(search.toLowerCase())
+      b.type.toLowerCase().includes(search.toLowerCase()) ||
+      (b.keywords && b.keywords.some((k) => k.toLowerCase().includes(search.toLowerCase())))
   );
 
   const categories = [
@@ -136,11 +29,20 @@ export function NodePalette() {
   ];
 
   return (
-    <aside className="w-72 bg-neutral-900 border-r border-neutral-800 flex flex-col h-full select-none">
+    <aside className="w-72 bg-neutral-900 border-r border-neutral-800 flex flex-col h-full select-none shrink-0">
       <div className="p-3 border-b border-neutral-800">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
-          Bloques de Automatización
-        </h3>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-400">
+            Bloques
+          </h3>
+          <button
+            onClick={togglePaletteCollapsed}
+            title="Ocultar panel de bloques (Ctrl+B)"
+            className="p-1 rounded-md text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors"
+          >
+            <PanelLeftClose className="w-4 h-4" />
+          </button>
+        </div>
         <div className="relative">
           <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-neutral-500" />
           <input

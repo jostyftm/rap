@@ -3,6 +3,22 @@ import type { ProblemDetails } from "../types/api";
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+const AUTH_TOKEN_KEY = "rpa_auth_token";
+
+export function getStoredToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+export function setStoredToken(token: string | null): void {
+  if (typeof window === "undefined") return;
+  if (token) {
+    localStorage.setItem(AUTH_TOKEN_KEY, token);
+  } else {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+  }
+}
+
 export class ApiError extends Error {
   public problem: ProblemDetails;
 
@@ -69,6 +85,11 @@ export async function apiFetch<T>(
     headers["X-XSRF-TOKEN"] = xsrfToken;
   }
 
+  const authToken = getStoredToken();
+  if (authToken && !headers["Authorization"]) {
+    headers["Authorization"] = `Bearer ${authToken}`;
+  }
+
   let response = await fetch(url, {
     ...options,
     headers,
@@ -87,6 +108,12 @@ export async function apiFetch<T>(
       headers,
       credentials: "include",
     });
+  }
+
+  // Si falló por 401 en una ruta protegida
+  if (response.status === 401 && typeof window !== "undefined") {
+    setStoredToken(null);
+    window.dispatchEvent(new Event("rpa:unauthorized"));
   }
 
   if (!response.ok) {

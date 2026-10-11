@@ -16,13 +16,18 @@ import {
   Play,
   ShieldCheck,
   AlertTriangle,
+  Crosshair,
 } from "lucide-react";
 import type { RecipeNode } from "@rpa/dsl";
-import { useRecipeStore } from "../../stores/use-recipe-store";
+import { useRecipeStore } from "@/stores/use-recipe-store";
+import { useLiveStore } from "@/stores/use-live-store";
+import { useLayoutStore } from "@/stores/use-layout-store";
+import { nodeRegistry } from "@/app/recipes/[id]/edit/components/nodes";
 
 export interface CustomNodeData extends Record<string, unknown> {
   id: string;
   type: RecipeNode["type"];
+  strategy?: string;
   description: string;
   isEntry: boolean;
   locator?: {
@@ -39,31 +44,19 @@ export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selec
   const nodeData = data;
   const runningNodeId = useRecipeStore((s) => s.runningNodeId);
   const isRunning = runningNodeId === nodeData.id;
+  const isArmed = useLiveStore((s) => s.armedNodeId === nodeData.id);
 
-  const iconMap: Record<RecipeNode["type"], React.ComponentType<{ className?: string }>> = {
-    navigate: Globe,
-    click: MousePointer,
-    type: Keyboard,
-    select: ListFilter,
-    waitFor: Clock,
-    extract: Download,
-    screenshot: Camera,
-    setVariable: Variable,
-    condition: GitBranch,
-    loop: Repeat,
-  };
-
-  const Icon = (iconMap as Record<string, React.ComponentType<{ className?: string }>>)[nodeData.type] || Globe;
+  const Icon = nodeRegistry.get(nodeData.type)?.icon || Globe;
 
   return (
     <div
-      className={`relative w-64 rounded-xl border bg-neutral-900/95 backdrop-blur-md shadow-xl transition-all duration-200 ${
-        isRunning
+      onClick={() => useRecipeStore.getState().setSelectedNodeId(nodeData.id)}
+      className={`relative w-64 rounded-xl border bg-neutral-900/95 backdrop-blur-md shadow-xl transition-all duration-200 cursor-pointer ${isRunning
           ? "border-amber-400 ring-4 ring-amber-400/30 animate-pulse"
           : selected
-          ? "border-blue-500 ring-2 ring-blue-500/20"
-          : "border-neutral-800 hover:border-neutral-700"
-      }`}
+            ? "border-blue-500 ring-2 ring-blue-500/20"
+            : "border-neutral-800 hover:border-neutral-700"
+        }`}
     >
       {/* Handle superior de entrada */}
       <Handle
@@ -117,19 +110,69 @@ export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selec
             </div>
             <div className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-neutral-800">
               <ShieldCheck
-                className={`w-3 h-3 ${
-                  nodeData.locator.score >= 80
+                className={`w-3 h-3 ${nodeData.locator.score >= 80
                     ? "text-emerald-400"
                     : nodeData.locator.score >= 60
-                    ? "text-amber-400"
-                    : "text-rose-400"
-                }`}
+                      ? "text-amber-400"
+                      : "text-rose-400"
+                  }`}
               />
               <span className="font-mono font-medium text-neutral-300">
                 {nodeData.locator.score}
               </span>
             </div>
           </div>
+        )}
+
+        {/* Botón directo de selección interactiva SIEMPRE VISIBLE en el nodo para waitFor y acciones */}
+        {["waitFor", "click", "type", "select", "extract", "scroll"].includes(nodeData.type) && (
+          <button
+            type="button"
+            onClick={(e: { stopPropagation: () => void; }) => {
+              e.stopPropagation();
+              useRecipeStore.getState().setSelectedNodeId(nodeData.id);
+              if (nodeData.type === "waitFor" && nodeData.strategy !== "selector") {
+                useRecipeStore.getState().updateNode(nodeData.id, {
+                  params: { ...(nodeData as any).params, strategy: "selector" },
+                  locator: nodeData.locator || {
+                    primary: { strategy: "css", value: "", score: 60 },
+                    fallbacks: [],
+                  },
+                } as any);
+              }
+              const live = useLiveStore.getState();
+              if (live.isOpen && live.status === "ready") {
+                if (live.armedNodeId === nodeData.id) live.disarm();
+                else live.arm(nodeData.id);
+              } else {
+                useLayoutStore.getState().setMode("split");
+                useLayoutStore.getState().setPaletteCollapsed(true);
+                if (typeof live.openAndArm === "function") {
+                  live.openAndArm(nodeData.id);
+                } else {
+                  useLiveStore.setState({ isOpen: true, pendingArmNodeId: nodeData.id });
+                  if (live.status === "ready" && typeof live.arm === "function") {
+                    live.arm(nodeData.id);
+                  }
+                }
+                const recId = useRecipeStore.getState().recipeId || "current";
+                const definition = useRecipeStore.getState().definition;
+                const navNode = Object.values(definition.nodes).find(
+                  (n) => n.type === "navigate" && (n as any).params?.url
+                );
+                if (navNode && (navNode as any).params?.url) {
+                  live.startEmbedded(recId, (navNode as any).params.url);
+                }
+              }
+            }}
+            className={`nodrag w-full flex items-center justify-center space-x-1.5 py-1.5 px-2 rounded-md text-[11px] font-bold transition-all mt-1 ${isArmed
+                ? "bg-amber-500 text-black ring-2 ring-amber-400 animate-pulse"
+                : "bg-blue-600 hover:bg-blue-500 text-white shadow-sm"
+              }`}
+          >
+            <Crosshair className="w-3.5 h-3.5" />
+            <span>{isArmed ? "Seleccionando en el sitio…" : "🎯 Seleccionar en el sitio"}</span>
+          </button>
         )}
 
         {/* Indicador de error de validación */}

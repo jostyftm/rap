@@ -3,6 +3,12 @@
   "private": true,
   "packageManager": "pnpm@10.0.0",
   "scripts": {
+    "dev": "./dev start",
+    "dev:stop": "./dev stop",
+    "dev:restart": "./dev restart",
+    "dev:status": "./dev status",
+    "dev:logs": "./dev logs",
+    "artisan": "./dev artisan",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "test": "turbo run test",

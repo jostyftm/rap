@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   Bot,
   Play,
@@ -11,10 +12,14 @@ import {
   Globe,
   Database,
   Terminal,
+  LogOut,
+  LogIn,
 } from "lucide-react";
+import { useAuth } from "../context/auth-context";
 
 export default function HomePage() {
   const [activeTab, setActiveTab] = useState<"overview" | "architecture">("overview");
+  const { user, isAuthenticated, logout } = useAuth();
 
   return (
     <main className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-indigo-500 selection:text-white">
@@ -35,19 +40,38 @@ export default function HomePage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-800/80 px-3 py-1.5 rounded-md border border-slate-700 font-mono">
-              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-              API: Laravel 13 + Gemini SDK
-            </div>
-            <a
-              href="/api/v1/workspaces"
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs font-medium text-slate-300 hover:text-white transition px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700"
-            >
-              Endpoints API
-            </a>
+          <div className="flex items-center gap-3">
+            {isAuthenticated && user ? (
+              <div className="flex items-center gap-3">
+                <Link
+                  href="/recipes"
+                  className="text-xs font-medium text-slate-200 hover:text-white px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 transition"
+                >
+                  Mis Recetas
+                </Link>
+                <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-xs">
+                  <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                  <span className="text-slate-300 font-medium max-w-[120px] truncate">
+                    {user.name}
+                  </span>
+                  <button
+                    onClick={() => logout()}
+                    title="Cerrar Sesión"
+                    className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-rose-400 transition"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <Link
+                href="/login"
+                className="flex items-center gap-1.5 text-xs font-semibold text-white px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-600/20 transition"
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                <span>Iniciar Sesión</span>
+              </Link>
+            )}
           </div>
         </div>
       </header>
