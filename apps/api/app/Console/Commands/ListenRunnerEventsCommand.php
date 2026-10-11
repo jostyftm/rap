@@ -24,12 +24,27 @@ final class ListenRunnerEventsCommand extends Command
         while (true) {
             try {
                 // Bloquea por 2 segundos esperando nuevos mensajes
-                $messages = Redis::xread([$stream => $lastId], 10, 2000);
+                $raw = Redis::executeRaw(['XREAD', 'COUNT', '10', 'BLOCK', '2000', 'STREAMS', $stream, $lastId]);
 
-                if (! empty($messages) && isset($messages[$stream])) {
-                    foreach ($messages[$stream] as $id => $payload) {
-                        $lastId = $id;
-                        $processor->process($payload);
+                if (! empty($raw) && is_array($raw)) {
+                    foreach ($raw as $streamData) {
+                        $messages = $streamData[1] ?? [];
+                        foreach ($messages as $msg) {
+                            $id = $msg[0];
+                            $fields = $msg[1] ?? [];
+                            $lastId = (string) $id;
+
+                            $payload = [];
+                            if (is_array($fields)) {
+                                for ($i = 0; $i < count($fields); $i += 2) {
+                                    if (isset($fields[$i])) {
+                                        $payload[$fields[$i]] = $fields[$i + 1] ?? null;
+                                    }
+                                }
+                            }
+
+                            $processor->process($payload);
+                        }
                     }
                 }
             } catch (\Throwable $e) {

@@ -45,6 +45,12 @@ class Workspace extends Model
         return $this->hasMany(Project::class);
     }
 
+    /** @return HasMany<WorkspaceSecret, $this> */
+    public function secrets(): HasMany
+    {
+        return $this->hasMany(WorkspaceSecret::class);
+    }
+
     public function roleOf(User $user): ?Role
     {
         $role = $this->members()->where('users.id', $user->id)->first()?->pivot->role;

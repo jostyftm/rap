@@ -26,6 +26,15 @@ class RunCreateRequest extends FormRequest
              * @example {"startDate": "2026-01-01", "limit": 50}
              */
             'parameters' => ['nullable', 'array'],
+
+            /**
+             * Opciones de visualización y ejecución en el navegador
+             */
+            'options' => ['nullable', 'array'],
+            'options.display' => ['nullable', 'string', 'in:headless,headed,live'],
+            'options.slow_mo_ms' => ['nullable', 'integer', 'min:0', 'max:5000'],
+            'options.highlight' => ['nullable', 'boolean'],
+            'options.keep_open_ms' => ['nullable', 'integer', 'min:0', 'max:30000'],
         ];
     }
 }

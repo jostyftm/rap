@@ -136,3 +136,66 @@ it('encola un run para una receta y procesa eventos del runner', function () {
         ->assertJsonPath('data.steps.0.status', 'success')
         ->assertJsonCount(1, 'data.artifacts');
 });
+
+it('permite pausar, reanudar y consultar logs persistidos de un run', function () {
+    $user = User::factory()->create();
+    $ws = Workspace::create(['name' => 'W1', 'slug' => 'w1-logs']);
+    $ws->members()->attach($user->id, ['role' => Role::Owner->value]);
+    $project = $ws->projects()->create(['name' => 'Proyecto Demo']);
+
+    Sanctum::actingAs($user);
+
+    $recipe = $project->recipes()->create(['name' => 'R_LOGS', 'status' => 'active']);
+    $recipe->versions()->create([
+        'version' => 1,
+        'definition' => createTestRecipePayload()['definition'],
+    ]);
+
+    $response = $this->postJson("/api/v1/recipes/{$recipe->uuid}/runs", [
+        'options' => [
+            'display' => 'headed',
+            'slow_mo_ms' => 300,
+            'highlight' => true,
+        ],
+    ]);
+    $response->assertCreated();
+    $runUuid = $response->json('data.id');
+
+    // Control: pausar
+    $controlRes = $this->postJson("/api/v1/runs/{$runUuid}/control", ['action' => 'pause']);
+    $controlRes->assertOk()->assertJsonPath('action', 'pause');
+
+    // Procesar logs enriquecidos del runner
+    $processor = app(RunnerEventProcessor::class);
+    $processor->process([
+        'event' => 'run.log',
+        'run_id' => $runUuid,
+        'level' => 'info',
+        'source' => 'runner',
+        'node_id' => 'node_1',
+        'message' => 'Ejecutando click en botón',
+    ]);
+
+    $processor->process([
+        'event' => 'run.log',
+        'run_id' => $runUuid,
+        'level' => 'info',
+        'source' => 'browser',
+        'node_id' => 'node_1',
+        'message' => 'Evento click recibido en DOM',
+    ]);
+
+    // Consultar logs persistidos
+    $logsRes = $this->getJson("/api/v1/runs/{$runUuid}/logs");
+    $logsRes->assertOk()
+        ->assertJsonCount(2, 'data')
+        ->assertJsonPath('data.0.source', 'runner')
+        ->assertJsonPath('data.1.source', 'browser');
+
+    // Filtro por origen
+    $filterRes = $this->getJson("/api/v1/runs/{$runUuid}/logs?source=browser");
+    $filterRes->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.source', 'browser');
+});
+

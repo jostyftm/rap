@@ -25,8 +25,10 @@ class AuthController extends Controller
     public function register(AuthRegisterRequest $request): JsonResponse
     {
         $user = $this->authService->register($request);
+        $token = $user->createToken('auth-token')->plainTextToken;
 
         return (new UserResource($user))
+            ->additional(['token' => $token])
             ->response()
             ->setStatusCode(Response::HTTP_CREATED);
     }
@@ -34,11 +36,14 @@ class AuthController extends Controller
     /**
      * Authenticate user session
      */
-    public function login(AuthLoginRequest $request): UserResource
+    public function login(AuthLoginRequest $request): JsonResponse
     {
         $user = $this->authService->login($request);
+        $token = $user->createToken('auth-token')->plainTextToken;
 
-        return new UserResource($user);
+        return (new UserResource($user))
+            ->additional(['token' => $token])
+            ->response();
     }
 
     /**
@@ -46,6 +51,11 @@ class AuthController extends Controller
      */
     public function logout(Request $request): Response
     {
+        $token = $request->user()?->currentAccessToken();
+        if ($token && method_exists($token, 'delete')) {
+            $token->delete();
+        }
+
         $this->authService->logout($request);
 
         return response()->noContent();

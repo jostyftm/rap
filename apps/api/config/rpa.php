@@ -22,4 +22,9 @@ return [
         'command_stream' => 'rpa:cmd',
         'event_stream' => 'rpa:evt',
     ],
+
+    'live' => [
+        'url' => env('RUNNER_LIVE_URL', 'http://host.docker.internal:8085'),
+        'token' => env('RUNNER_LIVE_TOKEN', 'local-live-token'),
+    ],
 ];

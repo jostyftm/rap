@@ -69,4 +69,10 @@ class Run extends Model
     {
         return $this->hasMany(Artifact::class);
     }
+
+    /** @return HasMany<RunLog, $this> */
+    public function logs(): HasMany
+    {
+        return $this->hasMany(RunLog::class)->orderBy('id');
+    }
 }

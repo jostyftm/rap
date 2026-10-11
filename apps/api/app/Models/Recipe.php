@@ -21,12 +21,15 @@ class Recipe extends Model
         'description',
         'status',
         'allowed_domains',
+        'webhook_token',
+        'webhook_enabled',
     ];
 
     protected function casts(): array
     {
         return [
             'allowed_domains' => 'array',
+            'webhook_enabled' => 'boolean',
         ];
     }
 
@@ -57,5 +60,11 @@ class Recipe extends Model
     public function latestVersion(): HasOne
     {
         return $this->hasOne(RecipeVersion::class)->latestOfMany('version');
+    }
+
+    /** @return HasMany<RecipeSchedule, $this> */
+    public function schedules(): HasMany
+    {
+        return $this->hasMany(RecipeSchedule::class);
     }
 }
