@@ -26,7 +26,7 @@ export function FlowCanvas() {
   const setSelectedNodeId = useRecipeStore((s) => s.setSelectedNodeId);
   const addEdge = useRecipeStore((s) => s.addEdge);
   const removeEdge = useRecipeStore((s) => s.removeEdge);
-  const nodeIssues = useRecipeStore((s) => s.nodeIssues);
+  const nodeIssues = useRecipeStore((s) => s.nodeIssues) ?? {};
 
   // Calcular disposición visual de los nodos (layout automático vertical)
   const nodes: Node[] = useMemo(() => {
@@ -59,7 +59,7 @@ export function FlowCanvas() {
       visited.add(currId);
       const node: RecipeNode = definition.nodes[currId];
       const { highlightParam, locator } = getNodeHighlights(node);
-      const issues = nodeIssues[currId] || [];
+      const issues = (currId && nodeIssues?.[currId]) ? nodeIssues[currId] : [];
       const hasErrors = issues.length > 0;
       const firstErrorMessage = issues[0]?.message;
 
@@ -97,7 +97,7 @@ export function FlowCanvas() {
         unvisitedCol++;
 
         const { highlightParam, locator } = getNodeHighlights(node);
-        const issues = nodeIssues[key] || [];
+        const issues = (key && nodeIssues?.[key]) ? nodeIssues[key] : [];
         const hasErrors = issues.length > 0;
         const firstErrorMessage = issues[0]?.message;
 

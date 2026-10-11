@@ -34,7 +34,7 @@ export function NodeInspector() {
   const updateNode = useRecipeStore((s) => s.updateNode);
   const deleteNode = useRecipeStore((s) => s.deleteNode);
   const setEntryNode = useRecipeStore((s) => s.setEntryNode);
-  const nodeIssues = useRecipeStore((s) => s.nodeIssues);
+  const nodeIssues = useRecipeStore((s) => s.nodeIssues) ?? {};
 
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const [newStrategy, setNewStrategy] = useState<LocatorStrategy>("css");
@@ -44,7 +44,7 @@ export function NodeInspector() {
     return null;
   }
 
-  const issues = nodeIssues[selectedNodeId] || [];
+  const issues = (selectedNodeId && nodeIssues?.[selectedNodeId]) ? nodeIssues[selectedNodeId] : [];
 
   const node: RecipeNode = definition.nodes[selectedNodeId];
   const isEntry = definition.entry === selectedNodeId;
