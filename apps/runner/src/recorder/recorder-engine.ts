@@ -1,0 +1,218 @@
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import type { RedisEventEmitter } from "../protocol/event-emitter.js";
+
+export interface RecorderOptions {
+  sessionId: string;
+  recipeId: string;
+  initialUrl: string;
+}
+
+export class RecorderEngine {
+  private browser: Browser | null = null;
+  private activeContexts: Map<string, { context: BrowserContext; page: Page }> = new Map();
+
+  constructor(private eventEmitter: RedisEventEmitter) {}
+
+  async initialize(): Promise<void> {
+    if (!this.browser) {
+      this.browser = await chromium.launch({
+        headless: process.env.RUNNER_HEADLESS !== "false",
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-gpu",
+        ],
+      });
+    }
+  }
+
+  async start(options: RecorderOptions): Promise<void> {
+    await this.initialize();
+    if (!this.browser) {
+      throw new Error("No se pudo iniciar Chromium para la grabación");
+    }
+
+    const { sessionId, recipeId, initialUrl } = options;
+
+    const context = await this.browser.newContext({
+      viewport: { width: 1280, height: 800 },
+      userAgent:
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 RPAStudio-Recorder/1.0",
+    });
+
+    const page = await context.newPage();
+    this.activeContexts.set(sessionId, { context, page });
+
+    // Exponer función de captura hacia el navegador
+    await page.exposeFunction("rpaCaptureAction", async (actionData: any) => {
+      console.log(`[RecorderEngine] Acción capturada en sesión ${sessionId}:`, actionData.type);
+
+      await (this.eventEmitter as any).redis.xadd(
+        (this.eventEmitter as any).streamName,
+        "*",
+        "event",
+        "recorder.action",
+        "session_id",
+        sessionId,
+        "recipe_id",
+        recipeId,
+        "action",
+        JSON.stringify(actionData),
+        "timestamp",
+        Date.now().toString()
+      );
+    });
+
+    // Inyectar script de captura en cada navegación
+    await page.addInitScript(`
+      (function() {
+        if (window.__rpaRecorderInjected) return;
+        window.__rpaRecorderInjected = true;
+
+        function getCandidates(el) {
+          const list = [];
+          if (!el || !(el instanceof HTMLElement)) return { primary: { strategy: 'css', value: 'body', score: 50 }, fallbacks: [] };
+
+          const testId = el.getAttribute('data-testid') || el.getAttribute('data-test') || el.getAttribute('data-cy');
+          if (testId) {
+            list.push({ strategy: 'testid', value: testId, score: 95 });
+          }
+
+          if (el.id && !/^[0-9]+$/.test(el.id)) {
+            list.push({ strategy: 'css', value: '#' + el.id, score: 85 });
+          }
+
+          const name = el.getAttribute('name');
+          if (name) {
+            list.push({ strategy: 'css', value: "[name='" + name + "']", score: 80 });
+          }
+
+          const ariaLabel = el.getAttribute('aria-label');
+          if (ariaLabel) {
+            list.push({ strategy: 'role', value: "button[name='" + ariaLabel + "']", score: 80 });
+          }
+
+          const tag = el.tagName.toLowerCase();
+          if (tag === 'button' || tag === 'a') {
+            const text = (el.innerText || '').trim();
+            if (text && text.length > 0 && text.length < 35) {
+              list.push({ strategy: 'role', value: "button[name='" + text + "']", score: 80 });
+            }
+          }
+
+          list.push({ strategy: 'css', value: tag, score: 50 });
+
+          return {
+            primary: list[0] || { strategy: 'css', value: tag, score: 50 },
+            fallbacks: list.slice(1)
+          };
+        }
+
+        // 1. Capturar clicks
+        document.addEventListener('click', function(e) {
+          const target = e.target;
+          if (!target || !(target instanceof HTMLElement)) return;
+
+          // Ignorar clicks en el body vacío
+          if (target === document.body || target === document.documentElement) return;
+
+          const loc = getCandidates(target);
+          window.rpaCaptureAction({
+            type: 'click',
+            locator: loc,
+            params: { button: e.button === 2 ? 'right' : 'left' },
+            url: window.location.href,
+            description: 'Clic en ' + (loc.primary.value || target.tagName)
+          });
+        }, true);
+
+        // 2. Capturar escritura (input/change con debounce)
+        let inputTimer = null;
+        document.addEventListener('input', function(e) {
+          const target = e.target;
+          if (!target || !(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
+
+          clearTimeout(inputTimer);
+          inputTimer = setTimeout(function() {
+            const loc = getCandidates(target);
+            window.rpaCaptureAction({
+              type: 'type',
+              locator: loc,
+              params: { text: target.value, clear: true },
+              url: window.location.href,
+              description: 'Escribir en ' + (loc.primary.value || target.name || 'campo')
+            });
+          }, 400);
+        }, true);
+
+        // 3. Capturar selects
+        document.addEventListener('change', function(e) {
+          const target = e.target;
+          if (!target || !(target instanceof HTMLSelectElement)) return;
+
+          const loc = getCandidates(target);
+          window.rpaCaptureAction({
+            type: 'select',
+            locator: loc,
+            params: { value: target.value },
+            url: window.location.href,
+            description: 'Seleccionar opción en ' + loc.primary.value
+          });
+        }, true);
+      })();
+    `);
+
+    // Emitir acción inicial de navegación
+    await (this.eventEmitter as any).redis.xadd(
+      (this.eventEmitter as any).streamName,
+      "*",
+      "event",
+      "recorder.action",
+      "session_id",
+      sessionId,
+      "recipe_id",
+      recipeId,
+      "action",
+      JSON.stringify({
+        type: "navigate",
+        params: { url: initialUrl, waitUntil: "domcontentloaded" },
+        url: initialUrl,
+        description: `Navegar a ${initialUrl}`,
+      }),
+      "timestamp",
+      Date.now().toString()
+    );
+
+    // Navegar en la página
+    try {
+      await page.goto(initialUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+      console.log(`[RecorderEngine] Navegación inicial completada para sesión ${sessionId}`);
+    } catch (err: any) {
+      console.warn(`[RecorderEngine] Aviso durante navegación inicial:`, err.message);
+    }
+  }
+
+  async stop(sessionId: string): Promise<void> {
+    const session = this.activeContexts.get(sessionId);
+    if (session) {
+      try {
+        await session.context.close();
+      } catch {
+        // Ignorar
+      }
+      this.activeContexts.delete(sessionId);
+      console.log(`[RecorderEngine] Sesión de grabación ${sessionId} cerrada.`);
+    }
+  }
+
+  async closeAll(): Promise<void> {
+    for (const [id] of this.activeContexts) {
+      await this.stop(id);
+    }
+    if (this.browser) {
+      await this.browser.close();
+      this.browser = null;
+    }
+  }
+}

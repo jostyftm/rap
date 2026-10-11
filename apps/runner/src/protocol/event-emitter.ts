@@ -24,6 +24,17 @@ export interface RunnerEventEmitter {
     durationMs: number,
     error?: string
   ): Promise<void>;
+  emitRunLog(
+    runId: string,
+    level: "info" | "warn" | "error" | "success",
+    message: string,
+    nodeId?: string,
+    source?: "runner" | "browser" | "network" | "live",
+    context?: Record<string, unknown>
+  ): Promise<void>;
+  emitRunPaused(runId: string): Promise<void>;
+  emitRunResumed(runId: string): Promise<void>;
+  emitRunStopped(runId: string): Promise<void>;
 }
 
 export class RedisEventEmitter implements RunnerEventEmitter {
@@ -113,6 +124,50 @@ export class RedisEventEmitter implements RunnerEventEmitter {
       status,
       duration_ms: durationMs,
       error,
+      timestamp: Date.now(),
+    });
+  }
+
+  async emitRunLog(
+    runId: string,
+    level: "info" | "warn" | "error" | "success",
+    message: string,
+    nodeId?: string,
+    source?: "runner" | "browser" | "network" | "live",
+    context?: Record<string, unknown>
+  ): Promise<void> {
+    await this.emit({
+      event: "run.log",
+      run_id: runId,
+      level,
+      message,
+      node_id: nodeId,
+      source: source || "runner",
+      context: context ? JSON.stringify(context) : undefined,
+      timestamp: Date.now(),
+    });
+  }
+
+  async emitRunPaused(runId: string): Promise<void> {
+    await this.emit({
+      event: "run.paused",
+      run_id: runId,
+      timestamp: Date.now(),
+    });
+  }
+
+  async emitRunResumed(runId: string): Promise<void> {
+    await this.emit({
+      event: "run.resumed",
+      run_id: runId,
+      timestamp: Date.now(),
+    });
+  }
+
+  async emitRunStopped(runId: string): Promise<void> {
+    await this.emit({
+      event: "run.stopped",
+      run_id: runId,
       timestamp: Date.now(),
     });
   }
