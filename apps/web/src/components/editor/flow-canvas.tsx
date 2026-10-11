@@ -13,8 +13,18 @@ import "@xyflow/react/dist/style.css";
 
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { CustomFlowNode } from "./custom-flow-node";
-import type { RecipeNode } from "@rpa/dsl";
+import type { RecipeNode, NodeValidationIssue } from "@rpa/dsl";
 import { nodeRegistry } from "./nodes";
+
+export function getSafeNodeIssues(
+  issuesRecord: unknown,
+  id: string | null | undefined
+): NodeValidationIssue[] {
+  if (!id || typeof id !== "string") return [];
+  if (!issuesRecord || typeof issuesRecord !== "object" || Array.isArray(issuesRecord)) return [];
+  const list = (issuesRecord as Record<string, unknown>)[id];
+  return Array.isArray(list) ? (list as NodeValidationIssue[]) : [];
+}
 
 const nodeTypes = {
   customNode: CustomFlowNode as any,
@@ -26,11 +36,12 @@ export function FlowCanvas() {
   const setSelectedNodeId = useRecipeStore((s) => s.setSelectedNodeId);
   const addEdge = useRecipeStore((s) => s.addEdge);
   const removeEdge = useRecipeStore((s) => s.removeEdge);
-  const nodeIssues = useRecipeStore((s) => s.nodeIssues) ?? {};
+  const nodeIssues = useRecipeStore((s) => s.nodeIssues);
 
   // Calcular disposición visual de los nodos (layout automático vertical)
   const nodes: Node[] = useMemo(() => {
-    const nodeKeys = Object.keys(definition.nodes);
+    const nodesMap = definition?.nodes ?? {};
+    const nodeKeys = Object.keys(nodesMap);
     const result: Node[] = [];
     const visited = new Set<string>();
 
@@ -54,12 +65,12 @@ export function FlowCanvas() {
     }
 
     // 1. Recorrer la cadena principal desde entry
-    let currId: string | undefined = definition.entry;
-    while (currId && definition.nodes[currId] && !visited.has(currId)) {
+    let currId: string | undefined = definition?.entry;
+    while (currId && nodesMap[currId] && !visited.has(currId)) {
       visited.add(currId);
-      const node: RecipeNode = definition.nodes[currId];
+      const node: RecipeNode = nodesMap[currId];
       const { highlightParam, locator } = getNodeHighlights(node);
-      const issues = (currId && Array.isArray(nodeIssues?.[currId])) ? nodeIssues[currId] : [];
+      const issues = getSafeNodeIssues(nodeIssues, currId);
       const hasErrors = issues.length > 0;
       const firstErrorMessage = issues[0]?.message;
 
@@ -73,7 +84,7 @@ export function FlowCanvas() {
           type: node.type,
           strategy: (node as any).params?.strategy,
           description: node.description,
-          isEntry: definition.entry === currId,
+          isEntry: definition?.entry === currId,
           locator,
           highlightParam,
           hasErrors,
@@ -91,13 +102,13 @@ export function FlowCanvas() {
     for (const key of nodeKeys) {
       if (!visited.has(key)) {
         visited.add(key);
-        const node: RecipeNode = definition.nodes[key];
+        const node: RecipeNode = nodesMap[key];
         const posX = 60 + unvisitedCol * 280;
         const posY = 50 + (result.length % 5) * 180;
         unvisitedCol++;
 
         const { highlightParam, locator } = getNodeHighlights(node);
-        const issues = (key && Array.isArray(nodeIssues?.[key])) ? nodeIssues[key] : [];
+        const issues = getSafeNodeIssues(nodeIssues, key);
         const hasErrors = issues.length > 0;
         const firstErrorMessage = issues[0]?.message;
 
@@ -111,7 +122,7 @@ export function FlowCanvas() {
             type: node.type,
             strategy: (node as any).params?.strategy,
             description: node.description,
-            isEntry: definition.entry === key,
+            isEntry: definition?.entry === key,
             locator,
             highlightParam,
             hasErrors,
@@ -127,7 +138,7 @@ export function FlowCanvas() {
 
   // Convertir aristas del DSL a aristas de React Flow
   const edges: Edge[] = useMemo(() => {
-    return (definition.edges || []).map((e) => ({
+    return (definition?.edges || []).map((e) => ({
       id: `edge_${e.from}_${e.to}`,
       source: e.from,
       target: e.to,
@@ -135,7 +146,7 @@ export function FlowCanvas() {
       label: e.condition || e.label,
       style: { stroke: "#64748b", strokeWidth: 2 },
     }));
-  }, [definition.edges]);
+  }, [definition?.edges]);
 
   const onConnect = useCallback(
     (connection: Connection) => {

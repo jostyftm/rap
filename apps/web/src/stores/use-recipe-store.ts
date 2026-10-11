@@ -180,17 +180,18 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   historyIndex: 0,
 
   setRecipe: ({ id, name, description, version, definition }) => {
-    const { errors, nodeIssues } = validateDsl(definition);
+    const safeDef = definition || DEFAULT_INITIAL_DSL;
+    const { errors, nodeIssues } = validateDsl(safeDef);
     set({
       recipeId: id,
       recipeName: name,
       recipeDescription: description || "",
       recipeVersion: version,
-      definition,
-      validationErrors: errors,
-      nodeIssues,
-      selectedNodeId: definition.entry || Object.keys(definition.nodes)[0] || null,
-      history: [JSON.parse(JSON.stringify(definition))],
+      definition: safeDef,
+      validationErrors: errors || [],
+      nodeIssues: nodeIssues || {},
+      selectedNodeId: safeDef.entry || Object.keys(safeDef.nodes || {})[0] || null,
+      history: [JSON.parse(JSON.stringify(safeDef))],
       historyIndex: 0,
       isDirty: false,
     });

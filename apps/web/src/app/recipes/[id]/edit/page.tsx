@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { EditorHeader } from "@/components/editor/editor-header";
 import { NodePalette } from "@/components/editor/node-palette";
 import { FlowCanvas } from "@/components/editor/flow-canvas";
+import { FlowErrorBoundary } from "@/components/editor/flow-error-boundary";
 import { NodeInspector } from "@/components/editor/node-inspector";
 import { StepList } from "@/components/editor/step-list";
 import { CodeEditor } from "@/components/editor/code-editor";
@@ -88,7 +89,11 @@ function RecipeEditorContent() {
                     <span className="text-[10px] text-neutral-500 font-mono">Ctrl+B</span>
                   </button>
                 )}
-                {activeView === "canvas" && <FlowCanvas />}
+                {activeView === "canvas" && (
+                  <FlowErrorBoundary>
+                    <FlowCanvas />
+                  </FlowErrorBoundary>
+                )}
                 {activeView === "steps" && <StepList />}
                 {activeView === "code" && <CodeEditor />}
               </main>
@@ -136,7 +141,11 @@ function RecipeEditorContent() {
                   <span className="text-[10px] text-neutral-500 font-mono">Ctrl+B</span>
                 </button>
               )}
-              {activeView === "canvas" && <FlowCanvas />}
+              {activeView === "canvas" && (
+                <FlowErrorBoundary>
+                  <FlowCanvas />
+                </FlowErrorBoundary>
+              )}
               {activeView === "steps" && <StepList />}
               {activeView === "code" && <CodeEditor />}
             </main>
