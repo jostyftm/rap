@@ -63,6 +63,9 @@ function formatValidationError(err: string, nodes: Record<string, any> = {}): st
   const rest = match[2];
   const node = nodes[nodeId];
   const nodeLabel = node?.type ? node.type.toUpperCase() : nodeId;
+  if (rest.includes("Invalid discriminator value")) {
+    return `Paso [${nodeLabel}]: El tipo '${node?.type || nodeId}' no está cargado en esta sesión. Recarga la página (Ctrl+Shift+R).`;
+  }
   const colonIdx = rest.indexOf(": ");
   if (colonIdx !== -1) {
     const message = rest.substring(colonIdx + 2);

@@ -127,7 +127,11 @@ cmd_start() {
     echo -e "\n${C_BOLD}2. Ejecutando migraciones de Laravel...${C_RESET}"
     docker compose exec -u sail laravel.test php artisan migrate --force || true
 
-    echo -e "\n${C_BOLD}3. Iniciando servicios de desarrollo local (Host)...${C_RESET}"
+    echo -e "\n${C_BOLD}3. Compilando paquetes compartidos (@rpa/dsl, @rpa/locator)...${C_RESET}"
+    pnpm --filter @rpa/dsl build
+    pnpm --filter @rpa/locator build
+
+    echo -e "\n${C_BOLD}4. Iniciando servicios de desarrollo local (Host)...${C_RESET}"
     start_background_service "testsite" "env PORT=8099 node testsite/server.js"
     start_background_service "runner" "pnpm --filter @rpa/runner dev"
     start_background_service "web" "pnpm --filter web dev"

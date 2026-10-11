@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  transpilePackages: ["@rpa/dsl", "@rpa/locator"],
   /* config options here */
   cacheComponents: true,
   partialPrefetching: true,

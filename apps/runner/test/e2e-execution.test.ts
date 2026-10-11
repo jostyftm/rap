@@ -28,11 +28,23 @@ beforeAll(async () => {
     });
   });
 
-  await new Promise<void>((resolve) => server.listen(TEST_PORT, () => resolve()));
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", (err: any) => {
+      if (err.code === "EADDRINUSE") {
+        // Testsite ya está corriendo como servicio de fondo en el puerto 8099
+        resolve();
+      } else {
+        reject(err);
+      }
+    });
+    server.listen(TEST_PORT, () => resolve());
+  });
 });
 
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  if (server?.listening) {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });
 
 class MockEventEmitter implements RunnerEventEmitter {
@@ -76,6 +88,28 @@ class MockEventEmitter implements RunnerEventEmitter {
     error?: string
   ): Promise<void> {
     this.events.push({ type: "run.finished", payload: { runId, status, durationMs, error } });
+  }
+  async emitRunLog(
+    runId: string,
+    level: "info" | "warn" | "error" | "success",
+    message: string,
+    nodeId?: string,
+    source?: "runner" | "browser" | "network" | "live",
+    context?: Record<string, unknown>
+  ): Promise<void> {
+    this.events.push({
+      type: "run.log",
+      payload: { runId, level, message, nodeId, source, context },
+    });
+  }
+  async emitRunPaused(runId: string): Promise<void> {
+    this.events.push({ type: "run.paused", payload: { runId } });
+  }
+  async emitRunResumed(runId: string): Promise<void> {
+    this.events.push({ type: "run.resumed", payload: { runId } });
+  }
+  async emitRunStopped(runId: string): Promise<void> {
+    this.events.push({ type: "run.stopped", payload: { runId } });
   }
 }
 

@@ -3,10 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "pnpm --filter @rpa/dsl build && pnpm --filter @rpa/locator build",
     "dev": "next dev",
+    "prebuild": "pnpm --filter @rpa/dsl build && pnpm --filter @rpa/locator build",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
