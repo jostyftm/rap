@@ -150,6 +150,17 @@ const LoopNodeSchema = BaseNodeSchema.extend({
   }),
 });
 
+const ScrollNodeSchema = BaseNodeSchema.extend({
+  type: z.literal("scroll"),
+  locator: LocatorGroupSchema.optional(),
+  params: z.object({
+    mode: z.enum(["element", "coordinates", "top", "bottom"]).default("element"),
+    x: z.number().optional(),
+    y: z.number().optional(),
+    behavior: z.enum(["smooth", "auto"]).default("smooth"),
+  }),
+});
+
 const RecipeNodeSchema = z.discriminatedUnion("type", [
   NavigateNodeSchema,
   ClickNodeSchema,
@@ -161,6 +172,7 @@ const RecipeNodeSchema = z.discriminatedUnion("type", [
   SetVariableNodeSchema,
   ConditionNodeSchema,
   LoopNodeSchema,
+  ScrollNodeSchema,
 ]);
 
 export const RecipeDslSchema = z

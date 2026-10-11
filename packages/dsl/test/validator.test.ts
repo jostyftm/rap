@@ -78,4 +78,31 @@ describe("DSL Validator", () => {
     expect(result.success).toBe(false);
     expect(result.errors?.some((e) => e.includes("maxIterations"))).toBe(true);
   });
+
+  it("valida un nodo de desplazamiento (scroll) correctamente", () => {
+    const scrollRecipe = {
+      schema: "rpa/v1",
+      entry: "node_scroll",
+      nodes: {
+        node_scroll: {
+          id: "node_scroll",
+          type: "scroll",
+          description: "Desplazar vista hacia footer",
+          locator: {
+            primary: { strategy: "css", value: "#footer", score: 85 },
+            fallbacks: [],
+          },
+          params: {
+            mode: "element",
+            behavior: "smooth",
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const result = validateRecipeDsl(scrollRecipe);
+    expect(result.success).toBe(true);
+    expect(result.data?.nodes.node_scroll.type).toBe("scroll");
+  });
 });

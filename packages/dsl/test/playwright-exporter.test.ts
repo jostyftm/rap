@@ -139,4 +139,36 @@ describe("Playwright Exporter", () => {
     expect(code).toContain("variables[\"currentItem\"] = item;");
     expect(code).toContain("await page.waitForTimeout(500);");
   });
+
+  it("exporta nodos de scroll por elemento y por coordenadas", () => {
+    const recipe: RecipeDsl = {
+      schema: "rpa/v1",
+      name: "Flujo de Scroll",
+      entry: "step_scroll_el",
+      nodes: {
+        step_scroll_el: {
+          id: "step_scroll_el",
+          type: "scroll",
+          description: "Ubicar botón de compra",
+          locator: {
+            primary: { strategy: "testid", value: "buy-btn", score: 95 },
+            fallbacks: [],
+          },
+          params: { mode: "element" },
+          next: "step_scroll_px",
+        },
+        step_scroll_px: {
+          id: "step_scroll_px",
+          type: "scroll",
+          description: "Desplazar 600px abajo",
+          params: { mode: "coordinates", x: 0, y: 600, behavior: "smooth" },
+        },
+      },
+      edges: [{ from: "step_scroll_el", to: "step_scroll_px" }],
+    };
+
+    const code = exportToPlaywright(recipe);
+    expect(code).toContain("await loc_step_scroll_el.scrollIntoViewIfNeeded();");
+    expect(code).toContain("window.scrollBy({ left, top, behavior }), { left: 0, top: 600, behavior: \"smooth\" }");
+  });
 });

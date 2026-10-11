@@ -256,6 +256,33 @@ export function exportToPlaywright(recipe: RecipeDsl, options: PlaywrightExportO
         nodeLines.push(`}`);
         break;
       }
+
+      case "scroll": {
+        const mode = node.params.mode || "element";
+        const behavior = node.params.behavior || "smooth";
+        if (mode === "element" && node.locator) {
+          const candidatesJson = getCandidatesJson(node.locator);
+          nodeLines.push(
+            `const loc_${node.id} = await resolveLocator(page, ${candidatesJson}, ${node.timeout || 10000});`,
+            `await loc_${node.id}.scrollIntoViewIfNeeded();`
+          );
+        } else if (mode === "top") {
+          nodeLines.push(
+            `await page.evaluate(() => window.scrollTo({ top: 0, behavior: ${JSON.stringify(behavior)} }));`
+          );
+        } else if (mode === "bottom") {
+          nodeLines.push(
+            `await page.evaluate(() => window.scrollTo({ top: document.body.scrollHeight, behavior: ${JSON.stringify(behavior)} }));`
+          );
+        } else {
+          const x = node.params.x || 0;
+          const y = node.params.y ?? 500;
+          nodeLines.push(
+            `await page.evaluate(({ left, top, behavior }) => window.scrollBy({ left, top, behavior }), { left: ${x}, top: ${y}, behavior: ${JSON.stringify(behavior)} });`
+          );
+        }
+        break;
+      }
     }
 
     // Manejo de onError

@@ -138,6 +138,17 @@ export interface LoopNode extends BaseNode {
   };
 }
 
+export interface ScrollNode extends BaseNode {
+  type: "scroll";
+  locator?: LocatorGroup;
+  params: {
+    mode: "element" | "coordinates" | "top" | "bottom";
+    x?: number;
+    y?: number;
+    behavior?: "smooth" | "auto";
+  };
+}
+
 export type RecipeNode =
   | NavigateNode
   | ClickNode
@@ -148,7 +159,8 @@ export type RecipeNode =
   | ScreenshotNode
   | SetVariableNode
   | ConditionNode
-  | LoopNode;
+  | LoopNode
+  | ScrollNode;
 
 export interface RecipeEdge {
   from: string;
