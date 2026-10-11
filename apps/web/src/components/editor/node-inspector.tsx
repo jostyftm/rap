@@ -9,12 +9,14 @@ import {
   X,
   ChevronDown,
   SlidersHorizontal,
+  AlertTriangle,
 } from "lucide-react";
 import type { RecipeNode, LocatorStrategy, LocatorCandidate } from "@rpa/dsl";
 import { calculateLocatorScore } from "@rpa/locator";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { LiveNodeTools } from "./live-node-tools";
 import { nodeRegistry } from "./nodes";
+import { getFieldLabel } from "./nodes/field-labels";
 
 const STRATEGY_OPTIONS: LocatorStrategy[] = [
   "testid",
@@ -32,6 +34,7 @@ export function NodeInspector() {
   const updateNode = useRecipeStore((s) => s.updateNode);
   const deleteNode = useRecipeStore((s) => s.deleteNode);
   const setEntryNode = useRecipeStore((s) => s.setEntryNode);
+  const nodeIssues = useRecipeStore((s) => s.nodeIssues);
 
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const [newStrategy, setNewStrategy] = useState<LocatorStrategy>("css");
@@ -40,6 +43,8 @@ export function NodeInspector() {
   if (!selectedNodeId || !definition.nodes[selectedNodeId]) {
     return null;
   }
+
+  const issues = nodeIssues[selectedNodeId] || [];
 
   const node: RecipeNode = definition.nodes[selectedNodeId];
   const isEntry = definition.entry === selectedNodeId;
@@ -129,6 +134,24 @@ export function NodeInspector() {
       </div>
 
       <div className="p-3.5 space-y-4 flex-1">
+        {/* Banner de parámetros incompletos con detalles específicos */}
+        {issues.length > 0 && (
+          <div className="bg-rose-950/40 border border-rose-500/30 rounded-lg p-3 space-y-1.5 text-xs text-rose-300">
+            <div className="flex items-center space-x-1.5 font-semibold text-rose-400">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>Parámetros pendientes de configurar:</span>
+            </div>
+            <ul className="list-disc list-inside space-y-1 text-[11px] text-rose-300/90 pl-1">
+              {issues.map((iss, idx) => (
+                <li key={idx}>
+                  <strong className="text-rose-200">{getFieldLabel(iss.field)}:</strong>{" "}
+                  {iss.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {/* Descripción Básica */}
         <div>
           <label className="block text-[11px] font-medium text-neutral-400 mb-1">

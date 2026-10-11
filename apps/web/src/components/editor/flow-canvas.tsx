@@ -26,7 +26,7 @@ export function FlowCanvas() {
   const setSelectedNodeId = useRecipeStore((s) => s.setSelectedNodeId);
   const addEdge = useRecipeStore((s) => s.addEdge);
   const removeEdge = useRecipeStore((s) => s.removeEdge);
-  const validationErrors = useRecipeStore((s) => s.validationErrors);
+  const nodeIssues = useRecipeStore((s) => s.nodeIssues);
 
   // Calcular disposición visual de los nodos (layout automático vertical)
   const nodes: Node[] = useMemo(() => {
@@ -59,7 +59,9 @@ export function FlowCanvas() {
       visited.add(currId);
       const node: RecipeNode = definition.nodes[currId];
       const { highlightParam, locator } = getNodeHighlights(node);
-      const hasErrors = validationErrors.some((e) => e.includes(currId!));
+      const issues = nodeIssues[currId] || [];
+      const hasErrors = issues.length > 0;
+      const firstErrorMessage = issues[0]?.message;
 
       result.push({
         id: currId,
@@ -75,6 +77,8 @@ export function FlowCanvas() {
           locator,
           highlightParam,
           hasErrors,
+          firstErrorMessage,
+          issues,
         },
       });
 
@@ -93,6 +97,9 @@ export function FlowCanvas() {
         unvisitedCol++;
 
         const { highlightParam, locator } = getNodeHighlights(node);
+        const issues = nodeIssues[key] || [];
+        const hasErrors = issues.length > 0;
+        const firstErrorMessage = issues[0]?.message;
 
         result.push({
           id: key,
@@ -107,14 +114,16 @@ export function FlowCanvas() {
             isEntry: definition.entry === key,
             locator,
             highlightParam,
-            hasErrors: validationErrors.some((e) => e.includes(key)),
+            hasErrors,
+            firstErrorMessage,
+            issues,
           },
         });
       }
     }
 
     return result;
-  }, [definition, selectedNodeId, validationErrors]);
+  }, [definition, selectedNodeId, nodeIssues]);
 
   // Convertir aristas del DSL a aristas de React Flow
   const edges: Edge[] = useMemo(() => {

@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import type { RecipeDsl, RecipeNode, RecipeEdge, LocatorGroup } from "@rpa/dsl";
-import { validateRecipeDsl } from "@rpa/dsl";
+import type { RecipeDsl, RecipeNode, RecipeEdge, LocatorGroup, NodeValidationIssue } from "@rpa/dsl";
+import { validateRecipeDslDetailed } from "@rpa/dsl";
 import { calculateLocatorScore } from "@rpa/locator";
 import { nodeRegistry } from "@/components/editor/nodes";
 
@@ -30,6 +30,7 @@ export interface RecipeStoreState {
   recipeVersion: number;
   definition: RecipeDsl;
   validationErrors: string[];
+  nodeIssues: Record<string, NodeValidationIssue[]>;
   selectedNodeId: string | null;
   activeView: EditorView;
   isDirty: boolean;
@@ -136,11 +137,21 @@ function pushHistory(currentHistory: RecipeDsl[], currentIndex: number, newDsl: 
   return { history: updated, historyIndex: updated.length - 1 };
 }
 
-function validateDsl(dsl: RecipeDsl): string[] {
-  const res = validateRecipeDsl(dsl);
-  if (res.success) return [];
-  return res.errors || ["Error de validación en DSL"];
+function validateDsl(dsl: RecipeDsl): {
+  errors: string[];
+  nodeIssues: Record<string, NodeValidationIssue[]>;
+} {
+  const res = validateRecipeDslDetailed(dsl);
+  if (res.success) {
+    return { errors: [], nodeIssues: {} };
+  }
+  return {
+    errors: res.errors || ["Error de validación en DSL"],
+    nodeIssues: res.nodeIssues || {},
+  };
 }
+
+const initialValidation = validateDsl(DEFAULT_INITIAL_DSL);
 
 export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   recipeId: null,
@@ -148,7 +159,8 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   recipeDescription: "",
   recipeVersion: 1,
   definition: DEFAULT_INITIAL_DSL,
-  validationErrors: validateDsl(DEFAULT_INITIAL_DSL),
+  validationErrors: initialValidation.errors,
+  nodeIssues: initialValidation.nodeIssues,
   selectedNodeId: "step_navigate",
   activeView: "canvas",
   isDirty: false,
@@ -168,7 +180,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   historyIndex: 0,
 
   setRecipe: ({ id, name, description, version, definition }) => {
-    const errors = validateDsl(definition);
+    const { errors, nodeIssues } = validateDsl(definition);
     set({
       recipeId: id,
       recipeName: name,
@@ -176,6 +188,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       recipeVersion: version,
       definition,
       validationErrors: errors,
+      nodeIssues,
       selectedNodeId: definition.entry || Object.keys(definition.nodes)[0] || null,
       history: [JSON.parse(JSON.stringify(definition))],
       historyIndex: 0,
@@ -217,12 +230,13 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       edges: updatedEdges,
     };
 
-    const errors = validateDsl(updatedDsl);
+    const { errors, nodeIssues } = validateDsl(updatedDsl);
     const hist = pushHistory(history, historyIndex, updatedDsl);
 
     set({
       definition: updatedDsl,
       validationErrors: errors,
+      nodeIssues,
       selectedNodeId: newId,
       isDirty: true,
       ...hist,
@@ -261,12 +275,13 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       },
     };
 
-    const errors = validateDsl(updatedDsl);
+    const { errors, nodeIssues } = validateDsl(updatedDsl);
     const hist = pushHistory(history, historyIndex, updatedDsl);
 
     set({
       definition: updatedDsl,
       validationErrors: errors,
+      nodeIssues,
       isDirty: true,
       ...hist,
     });
@@ -298,12 +313,13 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       edges: nextEdges,
     };
 
-    const errors = validateDsl(updatedDsl);
+    const { errors, nodeIssues } = validateDsl(updatedDsl);
     const hist = pushHistory(history, historyIndex, updatedDsl);
 
     set({
       definition: updatedDsl,
       validationErrors: errors,
+      nodeIssues,
       selectedNodeId: selectedNodeId === id ? (nextEntry || null) : selectedNodeId,
       isDirty: true,
       ...hist,
@@ -338,12 +354,13 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       edges: newEdges,
     };
 
-    const errors = validateDsl(updatedDsl);
+    const { errors, nodeIssues } = validateDsl(updatedDsl);
     const hist = pushHistory(history, historyIndex, updatedDsl);
 
     set({
       definition: updatedDsl,
       validationErrors: errors,
+      nodeIssues,
       isDirty: true,
       ...hist,
     });
@@ -354,12 +371,13 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     if (!definition.nodes[id]) return;
 
     const updatedDsl = { ...definition, entry: id };
-    const errors = validateDsl(updatedDsl);
+    const { errors, nodeIssues } = validateDsl(updatedDsl);
     const hist = pushHistory(history, historyIndex, updatedDsl);
 
     set({
       definition: updatedDsl,
       validationErrors: errors,
+      nodeIssues,
       isDirty: true,
       ...hist,
     });
@@ -384,12 +402,13 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       edges: [...definition.edges, edge],
     };
 
-    const errors = validateDsl(updatedDsl);
+    const { errors, nodeIssues } = validateDsl(updatedDsl);
     const hist = pushHistory(history, historyIndex, updatedDsl);
 
     set({
       definition: updatedDsl,
       validationErrors: errors,
+      nodeIssues,
       isDirty: true,
       ...hist,
     });
@@ -409,12 +428,13 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       edges: definition.edges.filter((e) => !(e.from === from && e.to === to)),
     };
 
-    const errors = validateDsl(updatedDsl);
+    const { errors, nodeIssues } = validateDsl(updatedDsl);
     const hist = pushHistory(history, historyIndex, updatedDsl);
 
     set({
       definition: updatedDsl,
       validationErrors: errors,
+      nodeIssues,
       isDirty: true,
       ...hist,
     });
@@ -422,12 +442,13 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
 
   setDefinitionFromCode: (dsl) => {
     const { history, historyIndex } = get();
-    const errors = validateDsl(dsl);
+    const { errors, nodeIssues } = validateDsl(dsl);
     const hist = pushHistory(history, historyIndex, dsl);
 
     set({
       definition: dsl,
       validationErrors: errors,
+      nodeIssues,
       isDirty: true,
       ...hist,
     });
@@ -437,9 +458,11 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     const { history, historyIndex } = get();
     if (historyIndex > 0) {
       const prev = history[historyIndex - 1];
+      const { errors, nodeIssues } = validateDsl(prev);
       set({
         definition: prev,
-        validationErrors: validateDsl(prev),
+        validationErrors: errors,
+        nodeIssues,
         historyIndex: historyIndex - 1,
         isDirty: true,
       });
@@ -450,9 +473,11 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     const { history, historyIndex } = get();
     if (historyIndex < history.length - 1) {
       const next = history[historyIndex + 1];
+      const { errors, nodeIssues } = validateDsl(next);
       set({
         definition: next,
-        validationErrors: validateDsl(next),
+        validationErrors: errors,
+        nodeIssues,
         historyIndex: historyIndex + 1,
         isDirty: true,
       });
@@ -588,12 +613,13 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       edges: updatedEdges,
     };
 
-    const errors = validateDsl(updatedDsl);
+    const { errors, nodeIssues } = validateDsl(updatedDsl);
     const hist = pushHistory(history, historyIndex, updatedDsl);
 
     set({
       definition: updatedDsl,
       validationErrors: errors,
+      nodeIssues,
       selectedNodeId: newId,
       isDirty: true,
       recordedActionsCount: recordedActionsCount + 1,

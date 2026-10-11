@@ -43,6 +43,7 @@ export function WaitForInspectorForm({
           ...node.params,
           strategy: newStrategy as any,
         },
+        locator: undefined,
       });
     }
   };

@@ -43,6 +43,7 @@ export function ScrollInspectorForm({
           mode: newMode,
           y: node.params.y ?? (newMode === "coordinates" ? 500 : undefined),
         },
+        locator: undefined,
       });
     }
   };
@@ -130,16 +131,30 @@ export function ScrollInspectorForm({
           </button>
 
           <div>
-            <label className="block text-[11px] font-medium text-neutral-400 mb-1">
-              Selector del elemento objetivo
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[11px] font-medium text-neutral-400">
+                Selector del elemento objetivo
+              </label>
+              {!node.locator?.primary?.value?.trim() && (
+                <span className="text-[10px] text-amber-400 font-medium">Requerido</span>
+              )}
+            </div>
             <input
               type="text"
               value={node.locator?.primary?.value || ""}
               onChange={(e) => handleSelectorValueChange(e.target.value)}
               placeholder="#seccion-productos, footer, o selector CSS"
-              className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 focus:outline-none focus:border-blue-500 font-mono"
+              className={`w-full bg-neutral-950 border rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 focus:outline-none font-mono transition-colors ${
+                !node.locator?.primary?.value?.trim()
+                  ? "border-amber-500/50 focus:border-amber-400"
+                  : "border-neutral-800 focus:border-blue-500"
+              }`}
             />
+            {!node.locator?.primary?.value?.trim() && (
+              <p className="text-[10px] text-neutral-400 mt-1">
+                Escribe el selector o haz clic arriba en <strong className="text-blue-400 font-semibold">🎯 Seleccionar elemento en el sitio</strong>.
+              </p>
+            )}
           </div>
         </div>
       )}

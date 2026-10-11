@@ -38,6 +38,8 @@ export interface CustomNodeData extends Record<string, unknown> {
   };
   highlightParam?: string;
   hasErrors?: boolean;
+  firstErrorMessage?: string;
+  issues?: Array<{ nodeId: string; field: string; message: string }>;
 }
 
 export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selected?: boolean }) {
@@ -177,9 +179,14 @@ export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selec
 
         {/* Indicador de error de validación */}
         {nodeData.hasErrors && (
-          <div className="flex items-center space-x-1 text-[10px] text-rose-400 pt-1">
+          <div
+            className="flex items-center space-x-1 text-[10px] text-rose-400 pt-1"
+            title={nodeData.firstErrorMessage || "Parámetros incompletos"}
+          >
             <AlertTriangle className="w-3 h-3 shrink-0" />
-            <span className="truncate">Parámetros incompletos</span>
+            <span className="truncate">
+              {nodeData.firstErrorMessage || "Parámetros incompletos"}
+            </span>
           </div>
         )}
       </div>

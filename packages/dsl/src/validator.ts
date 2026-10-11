@@ -13,8 +13,16 @@ const LocatorStrategySchema = z.enum([
 
 const LocatorCandidateSchema = z.object({
   strategy: LocatorStrategySchema,
-  value: z.string().min(1),
+  value: z.string().min(1, "El selector del elemento es obligatorio"),
   score: z.number().min(0).max(100),
+});
+
+const LooseLocatorCandidateSchema = z.object({
+  strategy: LocatorStrategySchema,
+  value: z
+    .union([z.string(), z.null(), z.undefined()])
+    .transform((v) => (v === null || v === undefined ? "" : String(v))),
+  score: z.number().min(0).max(100).default(60),
 });
 
 const SemanticFingerprintSchema = z
@@ -42,8 +50,14 @@ const LocatorGroupSchema = z.object({
   fingerprint: SemanticFingerprintSchema,
 });
 
+const LooseLocatorGroupSchema = z.object({
+  primary: LooseLocatorCandidateSchema,
+  fallbacks: z.array(LooseLocatorCandidateSchema).default([]),
+  fingerprint: SemanticFingerprintSchema,
+});
+
 const BaseNodeSchema = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1, "El ID del nodo es obligatorio"),
   description: z.string(),
   timeout: z.number().positive().default(30000),
   onError: z.enum(["fail", "continue", "retry"]).default("fail"),
@@ -54,7 +68,7 @@ const BaseNodeSchema = z.object({
 const NavigateNodeSchema = BaseNodeSchema.extend({
   type: z.literal("navigate"),
   params: z.object({
-    url: z.string().min(1),
+    url: z.string().min(1, "La URL de navegación es obligatoria"),
     waitUntil: z.enum(["load", "domcontentloaded", "networkidle"]).optional(),
   }),
 });
@@ -86,16 +100,16 @@ const SelectNodeSchema = BaseNodeSchema.extend({
   type: z.literal("select"),
   locator: LocatorGroupSchema,
   params: z.object({
-    value: z.string(),
+    value: z.string().min(1, "El valor a seleccionar es obligatorio"),
   }),
 });
 
 const WaitForNodeSchema = BaseNodeSchema.extend({
   type: z.literal("waitFor"),
-  locator: LocatorGroupSchema.optional(),
+  locator: LooseLocatorGroupSchema.nullable().optional(),
   params: z.object({
     strategy: z.enum(["selector", "networkIdle", "url", "text", "timeout"]),
-    value: z.union([z.string(), z.number()]).optional(),
+    value: z.union([z.string(), z.number(), z.null()]).optional(),
   }),
 });
 
@@ -105,13 +119,13 @@ const ExtractNodeSchema = BaseNodeSchema.extend({
   params: z.object({
     extractType: z.enum(["text", "attribute", "list"]),
     attributeName: z.string().optional(),
-    variable: z.string().min(1),
+    variable: z.string().min(1, "El nombre de variable es obligatorio"),
   }),
 });
 
 const ScreenshotNodeSchema = BaseNodeSchema.extend({
   type: z.literal("screenshot"),
-  locator: LocatorGroupSchema.optional(),
+  locator: LooseLocatorGroupSchema.nullable().optional(),
   params: z
     .object({
       fullPage: z.boolean().default(false),
@@ -123,16 +137,16 @@ const ScreenshotNodeSchema = BaseNodeSchema.extend({
 const SetVariableNodeSchema = BaseNodeSchema.extend({
   type: z.literal("setVariable"),
   params: z.object({
-    name: z.string().min(1),
-    expression: z.string().min(1),
+    name: z.string().min(1, "El nombre de variable es obligatorio"),
+    expression: z.string().min(1, "La expresión de la variable es obligatoria"),
   }),
 });
 
 const ConditionNodeSchema = BaseNodeSchema.extend({
   type: z.literal("condition"),
   params: z.object({
-    expression: z.string().min(1),
-    thenNodeId: z.string().min(1),
+    expression: z.string().min(1, "La expresión de la condición es obligatoria"),
+    thenNodeId: z.string().min(1, "El nodo 'thenNodeId' es obligatorio"),
     elseNodeId: z.string().optional(),
   }),
 });
@@ -140,9 +154,9 @@ const ConditionNodeSchema = BaseNodeSchema.extend({
 const LoopNodeSchema = BaseNodeSchema.extend({
   type: z.literal("loop"),
   params: z.object({
-    collectionExpression: z.string().min(1),
-    itemVariable: z.string().min(1),
-    bodyEntryNodeId: z.string().min(1),
+    collectionExpression: z.string().min(1, "La colección del bucle es obligatoria"),
+    itemVariable: z.string().min(1, "La variable de elemento es obligatoria"),
+    bodyEntryNodeId: z.string().min(1, "El nodo de inicio del bucle es obligatorio"),
     maxIterations: z
       .number()
       .int()
@@ -152,11 +166,11 @@ const LoopNodeSchema = BaseNodeSchema.extend({
 
 const ScrollNodeSchema = BaseNodeSchema.extend({
   type: z.literal("scroll"),
-  locator: LocatorGroupSchema.optional(),
+  locator: LooseLocatorGroupSchema.nullable().optional(),
   params: z.object({
     mode: z.enum(["element", "coordinates", "top", "bottom"]).default("element"),
-    x: z.number().optional(),
-    y: z.number().optional(),
+    x: z.number().nullable().optional(),
+    y: z.number().nullable().optional(),
     behavior: z.enum(["smooth", "auto"]).default("smooth"),
   }),
 });
@@ -269,25 +283,135 @@ export const RecipeDslSchema = z
           });
         }
       }
+
+      // 4. Validar reglas específicas según modo o estrategia
+      if (node.type === "scroll") {
+        const mode = node.params?.mode ?? "element";
+        if (mode === "element") {
+          const val = node.locator?.primary?.value?.trim();
+          if (!val) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["nodes", nodeId, "locator", "primary", "value"],
+              message: "Falta el selector CSS o elemento objetivo para el scroll",
+            });
+          }
+        } else if (mode === "coordinates") {
+          const x = node.params?.x;
+          const y = node.params?.y;
+          if (
+            (x === undefined || x === null || Number.isNaN(Number(x))) &&
+            (y === undefined || y === null || Number.isNaN(Number(y)))
+          ) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["nodes", nodeId, "params", "y"],
+              message: "Especifica la distancia en píxeles (Y o X) para desplazar",
+            });
+          }
+        }
+      }
+
+      if (node.type === "waitFor") {
+        const strategy = node.params?.strategy;
+        if (strategy === "selector") {
+          const val = node.locator?.primary?.value?.trim();
+          if (!val) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["nodes", nodeId, "locator", "primary", "value"],
+              message: "Falta el selector del elemento a esperar",
+            });
+          }
+        } else if (strategy === "url") {
+          const val = typeof node.params?.value === "string" ? node.params.value.trim() : "";
+          if (!val) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["nodes", nodeId, "params", "value"],
+              message: "Falta la URL esperada",
+            });
+          }
+        } else if (strategy === "text") {
+          const val = typeof node.params?.value === "string" ? node.params.value.trim() : "";
+          if (!val) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["nodes", nodeId, "params", "value"],
+              message: "Falta el texto esperado",
+            });
+          }
+        } else if (strategy === "timeout") {
+          const num = Number(node.params?.value);
+          if (node.params?.value === undefined || Number.isNaN(num) || num <= 0) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["nodes", nodeId, "params", "value"],
+              message: "El tiempo de espera debe ser mayor a 0 ms",
+            });
+          }
+        }
+      }
     }
   });
+
+export interface NodeValidationIssue {
+  nodeId: string;
+  field: string;
+  message: string;
+}
+
+export interface DslValidationResult {
+  success: boolean;
+  data?: RecipeDsl;
+  errors?: string[];
+  nodeIssues: Record<string, NodeValidationIssue[]>;
+}
+
+export function validateRecipeDslDetailed(data: unknown): DslValidationResult {
+  const result = RecipeDslSchema.safeParse(data);
+  if (!result.success) {
+    const nodeIssues: Record<string, NodeValidationIssue[]> = {};
+    for (const issue of result.error.issues) {
+      if (issue.path[0] === "nodes" && typeof issue.path[1] === "string") {
+        const nodeId = issue.path[1];
+        const field = issue.path.slice(2).join(".");
+        if (!nodeIssues[nodeId]) {
+          nodeIssues[nodeId] = [];
+        }
+        nodeIssues[nodeId].push({
+          nodeId,
+          field,
+          message: issue.message,
+        });
+      }
+    }
+
+    return {
+      success: false,
+      errors: result.error.errors.map(
+        (e) => `${e.path.join(".")}: ${e.message}`
+      ),
+      nodeIssues,
+    };
+  }
+
+  return {
+    success: true,
+    data: result.data as RecipeDsl,
+    nodeIssues: {},
+  };
+}
 
 export function validateRecipeDsl(data: unknown): {
   success: boolean;
   data?: RecipeDsl;
   errors?: string[];
 } {
-  const result = RecipeDslSchema.safeParse(data);
-  if (!result.success) {
-    return {
-      success: false,
-      errors: result.error.errors.map(
-        (e) => `${e.path.join(".")}: ${e.message}`
-      ),
-    };
-  }
+  const detailed = validateRecipeDslDetailed(data);
   return {
-    success: true,
-    data: result.data as RecipeDsl,
+    success: detailed.success,
+    data: detailed.data,
+    errors: detailed.errors,
   };
 }
