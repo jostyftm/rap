@@ -56,6 +56,21 @@ function getInitials(name?: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+function formatValidationError(err: string, nodes: Record<string, any> = {}): string {
+  const match = err.match(/^nodes\.([^.]+)\.(.+)$/);
+  if (!match) return err;
+  const nodeId = match[1];
+  const rest = match[2];
+  const node = nodes[nodeId];
+  const nodeLabel = node?.type ? node.type.toUpperCase() : nodeId;
+  const colonIdx = rest.indexOf(": ");
+  if (colonIdx !== -1) {
+    const message = rest.substring(colonIdx + 2);
+    return `Paso [${nodeLabel}]: ${message}`;
+  }
+  return `Paso [${nodeLabel}]: ${rest}`;
+}
+
 export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
   const recipeName = useRecipeStore((s) => s.recipeName);
   const setName = useRecipeStore((s) => s.setName);
@@ -308,7 +323,7 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
             {/* Alerta si hay errores de validación */}
             {validationErrors.length > 0 && (
               <div
-                title={validationErrors.join("\n")}
+                title={validationErrors.map((e) => formatValidationError(e, definition?.nodes)).join("\n")}
                 className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[11px] font-medium cursor-help shrink-0"
               >
                 <AlertCircle className="w-3.5 h-3.5" />
