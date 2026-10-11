@@ -1,0 +1,319 @@
+#!/usr/bin/env bash
+
+# RPA Studio - Local Development Environment Manager
+# Usage: ./dev [start|stop|restart|status|logs|artisan|bash]
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PID_DIR="$PROJECT_ROOT/.dev/pids"
+LOG_DIR="$PROJECT_ROOT/.dev/logs"
+
+mkdir -p "$PID_DIR" "$LOG_DIR"
+
+# Colors
+C_RESET='\033[0m'
+C_BOLD='\033[1m'
+C_GREEN='\033[32m'
+C_RED='\033[31m'
+C_YELLOW='\033[33m'
+C_CYAN='\033[36m'
+C_BLUE='\033[34m'
+C_MAGENTA='\033[35m'
+
+print_header() {
+    echo -e "${C_CYAN}${C_BOLD}"
+    echo "=========================================================="
+    echo "       RPA Studio - Entorno de Desarrollo Local           "
+    echo "=========================================================="
+    echo -e "${C_RESET}"
+}
+
+is_port_listening() {
+    local port=$1
+    if command -v nc >/dev/null 2>&1; then
+        nc -z localhost "$port" 2>/dev/null
+    elif command -v ss >/dev/null 2>&1; then
+        ss -tuln | grep -q ":$port "
+    else
+        (echo > /dev/tcp/localhost/"$port") >/dev/null 2>&1
+    fi
+}
+
+is_pid_running() {
+    local pid=$1
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+start_background_service() {
+    local name=$1
+    local cmd=$2
+    local pid_file="$PID_DIR/$name.pid"
+    local log_file="$LOG_DIR/$name.log"
+
+    if [ -f "$pid_file" ]; then
+        local existing_pid=$(cat "$pid_file")
+        if is_pid_running "$existing_pid"; then
+            echo -e "  ${C_YELLOW}⚠ $name ya se encuentra en ejecución (PID: $existing_pid)${C_RESET}"
+            return 0
+        fi
+    fi
+
+    echo -ne "  ${C_BLUE}→ Iniciando $name...${C_RESET}"
+    cd "$PROJECT_ROOT"
+    setsid bash -c "$cmd" < /dev/null > "$log_file" 2>&1 &
+    local new_pid=$!
+    echo "$new_pid" > "$pid_file"
+    sleep 2
+
+    if is_pid_running "$new_pid"; then
+        echo -e "\r  ${C_GREEN}✓ $name iniciado (PID: $new_pid)${C_RESET}"
+    else
+        echo -e "\r  ${C_RED}✗ Error iniciando $name. Ver log en: $log_file${C_RESET}"
+    fi
+}
+
+stop_process_by_pid() {
+    local name=$1
+    local pid_file="$PID_DIR/$name.pid"
+
+    if [ -f "$pid_file" ]; then
+        local pid=$(cat "$pid_file")
+        if is_pid_running "$pid"; then
+            echo -ne "  ${C_YELLOW}→ Deteniendo $name (PID: $pid)...${C_RESET}"
+            kill -- "-$pid" 2>/dev/null || pkill -P "$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+            local count=0
+            while is_pid_running "$pid" && [ $count -lt 5 ]; do
+                sleep 0.5
+                count=$((count + 1))
+            done
+            if is_pid_running "$pid"; then
+                kill -9 -- "-$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null || true
+            fi
+            echo -e "\r  ${C_GREEN}✓ $name detenido.${C_RESET}                   "
+        fi
+        rm -f "$pid_file"
+    fi
+}
+
+cmd_start() {
+    print_header
+    echo -e "${C_BOLD}1. Levantando infraestructura con Docker Sail...${C_RESET}"
+    cd "$PROJECT_ROOT"
+    docker compose up -d
+
+    echo -ne "\n${C_BLUE}Esperando disponibilidad de PostgreSQL y Redis...${C_RESET}"
+    local retries=30
+    local ready=0
+    while [ $retries -gt 0 ]; do
+        if docker compose exec -u sail laravel.test php artisan db:show >/dev/null 2>&1; then
+            ready=1
+            break
+        fi
+        sleep 1
+        retries=$((retries - 1))
+        echo -ne "."
+    done
+    echo ""
+
+    if [ $ready -eq 1 ]; then
+        echo -e "${C_GREEN}✓ Infraestructura y base de datos listas.${C_RESET}"
+    else
+        echo -e "${C_YELLOW}⚠ Base de datos tardando en responder. Continuando con las migraciones...${C_RESET}"
+    fi
+
+    echo -e "\n${C_BOLD}2. Ejecutando migraciones de Laravel...${C_RESET}"
+    docker compose exec -u sail laravel.test php artisan migrate --force || true
+
+    echo -e "\n${C_BOLD}3. Iniciando servicios de desarrollo local (Host)...${C_RESET}"
+    start_background_service "testsite" "env PORT=8099 node testsite/server.js"
+    start_background_service "runner" "pnpm --filter @rpa/runner dev"
+    start_background_service "web" "pnpm --filter web dev"
+
+    sleep 2
+    cmd_status
+}
+
+cmd_stop() {
+    print_header
+    echo -e "${C_BOLD}Deteniendo servicios en el Host...${C_RESET}"
+    stop_process_by_pid "web"
+    stop_process_by_pid "runner"
+    stop_process_by_pid "testsite"
+
+    # Limpieza de posibles procesos residuales en puertos clave
+    for p in 3000 8099; do
+        if command -v fuser >/dev/null 2>&1; then
+            fuser -k -n tcp "$p" 2>/dev/null || true
+        fi
+    done
+
+    echo -e "\n${C_BOLD}Deteniendo contenedores Docker Sail...${C_RESET}"
+    cd "$PROJECT_ROOT"
+    docker compose down --remove-orphans
+
+    echo -e "\n${C_GREEN}✓ Todo el entorno ha sido detenido correctamente.${C_RESET}\n"
+}
+
+cmd_status() {
+    echo -e "\n${C_BOLD}================ Estado de los Servicios =================${C_RESET}"
+    printf "%-18s %-10s %-12s %-25s\n" "SERVICIO" "ESTADO" "PUERTO/PID" "URL / DETALLES"
+    echo "----------------------------------------------------------"
+
+    # Laravel API
+    if is_port_listening 8000; then
+        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "Laravel API" "ONLINE" "8000" "http://localhost:8000"
+    else
+        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "Laravel API" "OFFLINE" "8000" "http://localhost:8000"
+    fi
+
+    # Laravel Reverb
+    if is_port_listening 8080; then
+        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "Reverb WS" "ONLINE" "8080" "ws://localhost:8080"
+    else
+        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "Reverb WS" "OFFLINE" "8080" "ws://localhost:8080"
+    fi
+
+    # PostgreSQL
+    if is_port_listening 5432; then
+        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "PostgreSQL" "ONLINE" "5432" "pgsql://rpa_user:***@5432"
+    else
+        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "PostgreSQL" "OFFLINE" "5432" "pgsql://rpa_user:***@5432"
+    fi
+
+    # Redis
+    if is_port_listening 6379; then
+        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "Redis" "ONLINE" "6379" "redis://localhost:6379"
+    else
+        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "Redis" "OFFLINE" "6379" "redis://localhost:6379"
+    fi
+
+    # RustFS (S3)
+    if is_port_listening 9000; then
+        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "RustFS S3" "ONLINE" "9000/9001" "Console: http://localhost:9001"
+    else
+        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "RustFS S3" "OFFLINE" "9000/9001" "http://localhost:9000"
+    fi
+
+    # Web Next.js
+    local web_pid=$(cat "$PID_DIR/web.pid" 2>/dev/null || echo "")
+    if is_port_listening 3000 || is_pid_running "$web_pid"; then
+        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "Next.js Web" "ONLINE" "3000" "http://localhost:3000"
+    else
+        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "Next.js Web" "OFFLINE" "3000" "http://localhost:3000"
+    fi
+
+    # RPA Runner
+    local runner_pid=$(cat "$PID_DIR/runner.pid" 2>/dev/null || echo "")
+    if is_pid_running "$runner_pid"; then
+        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "RPA Runner" "ONLINE" "PID $runner_pid" "tsx watch (Playwright)"
+    else
+        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "RPA Runner" "OFFLINE" "-" "tsx watch"
+    fi
+
+    # Sitio en Vivo (proxy + control del Runner)
+    if is_port_listening 8085; then
+        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "Live Proxy" "ONLINE" "8085" "http://localhost:8085/health"
+    else
+        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "Live Proxy" "OFFLINE" "8085" "http://localhost:8085/health"
+    fi
+
+    # TestSite Mock
+    local test_pid=$(cat "$PID_DIR/testsite.pid" 2>/dev/null || echo "")
+    if is_port_listening 8099 || is_pid_running "$test_pid"; then
+        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "TestSite Mock" "ONLINE" "8099" "http://localhost:8099"
+    else
+        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "TestSite Mock" "OFFLINE" "8099" "http://localhost:8099"
+    fi
+
+    echo "=========================================================="
+    echo -e "${C_CYAN}Comandos útiles:${C_RESET}"
+    echo "  ./dev logs [web|runner|testsite|api|reverb|storage|all] - Ver logs en vivo"
+    echo "  ./dev artisan <comando>                                  - Ejecutar artisan en Sail"
+    echo "  ./dev stop                                               - Detener todo el entorno"
+    echo "==========================================================\n"
+}
+
+cmd_logs() {
+    local target=$1
+    case "$target" in
+        web)
+            tail -f "$LOG_DIR/web.log"
+            ;;
+        runner)
+            tail -f "$LOG_DIR/runner.log"
+            ;;
+        testsite)
+            tail -f "$LOG_DIR/testsite.log"
+            ;;
+        api)
+            docker compose logs -f laravel.test
+            ;;
+        reverb)
+            docker compose logs -f laravel.test
+            ;;
+        db|pgsql)
+            docker compose logs -f pgsql
+            ;;
+        redis)
+            docker compose logs -f redis
+            ;;
+        storage|rustfs|minio)
+            docker compose logs -f rustfs
+            ;;
+        all|"")
+            echo -e "${C_CYAN}Mostrando logs simultáneos de Host (web, runner, testsite). Presiona Ctrl+C para salir.${C_RESET}"
+            tail -f "$LOG_DIR"/*.log
+            ;;
+        *)
+            echo -e "${C_RED}Servicio desconocido: $target${C_RESET}"
+            echo "Opciones disponibles: web, runner, testsite, api, reverb, db, redis, storage, all"
+            exit 1
+            ;;
+    esac
+}
+
+cmd_artisan() {
+    cd "$PROJECT_ROOT"
+    docker compose exec -u sail laravel.test php artisan "$@"
+}
+
+cmd_bash() {
+    cd "$PROJECT_ROOT"
+    docker compose exec -u sail laravel.test bash
+}
+
+# Main routing
+case "$1" in
+    start)
+        cmd_start
+        ;;
+    stop)
+        cmd_stop
+        ;;
+    restart)
+        cmd_stop
+        sleep 1
+        cmd_start
+        ;;
+    status)
+        cmd_status
+        ;;
+    logs)
+        shift
+        cmd_logs "$@"
+        ;;
+    artisan)
+        shift
+        cmd_artisan "$@"
+        ;;
+    bash)
+        cmd_bash
+        ;;
+    *)
+        echo "Uso: ./dev [start|stop|restart|status|logs|artisan|bash]"
+        exit 1
+        ;;
+esac
