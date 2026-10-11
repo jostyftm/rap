@@ -14,7 +14,7 @@ import type { RecipeNode, LocatorStrategy, LocatorCandidate } from "@rpa/dsl";
 import { calculateLocatorScore } from "@rpa/locator";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { LiveNodeTools } from "./live-node-tools";
-import { nodeRegistry } from "@/app/recipes/[id]/edit/components/nodes";
+import { nodeRegistry } from "./nodes";
 
 const STRATEGY_OPTIONS: LocatorStrategy[] = [
   "testid",

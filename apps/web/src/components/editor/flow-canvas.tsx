@@ -14,7 +14,7 @@ import "@xyflow/react/dist/style.css";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { CustomFlowNode } from "./custom-flow-node";
 import type { RecipeNode } from "@rpa/dsl";
-import { nodeRegistry } from "@/app/recipes/[id]/edit/components/nodes";
+import { nodeRegistry } from "./nodes";
 
 const nodeTypes = {
   customNode: CustomFlowNode as any,

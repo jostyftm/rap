@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import type { RecipeNode } from "@rpa/dsl";
 import { useRecipeStore } from "@/stores/use-recipe-store";
-import { nodeRegistry } from "@/app/recipes/[id]/edit/components/nodes";
+import { nodeRegistry } from "./nodes";
 
 export function StepList() {
   const definition = useRecipeStore((s) => s.definition);

@@ -22,7 +22,7 @@ import type { RecipeNode } from "@rpa/dsl";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { useLiveStore } from "@/stores/use-live-store";
 import { useLayoutStore } from "@/stores/use-layout-store";
-import { nodeRegistry } from "@/app/recipes/[id]/edit/components/nodes";
+import { nodeRegistry } from "./nodes";
 
 export interface CustomNodeData extends Record<string, unknown> {
   id: string;

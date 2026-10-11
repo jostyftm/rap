@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { RecipeDsl, RecipeNode, RecipeEdge, LocatorGroup } from "@rpa/dsl";
 import { validateRecipeDsl } from "@rpa/dsl";
 import { calculateLocatorScore } from "@rpa/locator";
-import { nodeRegistry } from "@/app/recipes/[id]/edit/components/nodes";
+import { nodeRegistry } from "@/components/editor/nodes";
 
 export type EditorView = "canvas" | "steps" | "code";
 

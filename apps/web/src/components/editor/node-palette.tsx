@@ -4,14 +4,15 @@ import React, { useState } from "react";
 import { Search, Plus, PanelLeftClose } from "lucide-react";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { useLayoutStore } from "@/stores/use-layout-store";
-import { nodeRegistry } from "@/app/recipes/[id]/edit/components/nodes";
+import { nodeRegistry, ALL_BLOCK_DEFINITIONS } from "./nodes";
 
 export function NodePalette() {
   const [search, setSearch] = useState("");
   const addNode = useRecipeStore((state) => state.addNode);
   const togglePaletteCollapsed = useLayoutStore((state) => state.togglePaletteCollapsed);
 
-  const blockDefinitions = nodeRegistry.getAll();
+  const registered = nodeRegistry.getAll();
+  const blockDefinitions = registered.length > 0 ? registered : ALL_BLOCK_DEFINITIONS;
 
   const filteredBlocks = blockDefinitions.filter(
     (b) =>
