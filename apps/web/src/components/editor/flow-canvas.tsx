@@ -3,6 +3,8 @@
 import React, { useCallback, useEffect, useRef } from "react";
 import {
   ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
   Background,
   useNodesState,
   useEdgesState,
@@ -161,7 +163,55 @@ function buildCanvasEdges(edgesList: RecipeEdge[] = []): Edge[] {
   }));
 }
 
-export function FlowCanvas() {
+/**
+ * Controlador de viewport inteligente:
+ * Si el nodo seleccionado o recién creado se encuentra fuera del área visible,
+ * centra suavemente la cámara para que el usuario no tenga que buscarlo.
+ */
+function CanvasViewportController() {
+  const { setCenter, getNode, getViewport } = useReactFlow();
+  const selectedNodeId = useRecipeStore((s) => s.selectedNodeId);
+  const prevSelectedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedNodeId || selectedNodeId === prevSelectedRef.current) {
+      prevSelectedRef.current = selectedNodeId;
+      return;
+    }
+    prevSelectedRef.current = selectedNodeId;
+
+    const timer = setTimeout(() => {
+      const node = getNode(selectedNodeId);
+      if (!node) return;
+
+      const { x: vpX, y: vpY, zoom } = getViewport();
+      const screenWidth = typeof window !== "undefined" ? window.innerWidth : 1200;
+      const screenHeight = typeof window !== "undefined" ? window.innerHeight : 800;
+
+      const nodeScreenX = node.position.x * zoom + vpX;
+      const nodeScreenY = node.position.y * zoom + vpY;
+
+      const isVisible =
+        nodeScreenX > 80 &&
+        nodeScreenX < screenWidth - 280 &&
+        nodeScreenY > 60 &&
+        nodeScreenY < screenHeight - 120;
+
+      if (!isVisible) {
+        setCenter(node.position.x + 128, node.position.y + 80, {
+          zoom: Math.max(zoom, 0.75),
+          duration: 400,
+        });
+      }
+    }, 60);
+
+    return () => clearTimeout(timer);
+  }, [selectedNodeId, getNode, getViewport, setCenter]);
+
+  return null;
+}
+
+function FlowCanvasInner() {
   const definition = useRecipeStore((s) => s.definition);
   const selectedNodeId = useRecipeStore((s) => s.selectedNodeId);
   const setSelectedNodeId = useRecipeStore((s) => s.setSelectedNodeId);
@@ -264,8 +314,17 @@ export function FlowCanvas() {
         maxZoom={1.8}
         proOptions={{ hideAttribution: true }}
       >
+        <CanvasViewportController />
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#262626" />
       </ReactFlow>
     </div>
+  );
+}
+
+export function FlowCanvas() {
+  return (
+    <ReactFlowProvider>
+      <FlowCanvasInner />
+    </ReactFlowProvider>
   );
 }

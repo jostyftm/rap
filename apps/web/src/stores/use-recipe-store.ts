@@ -156,6 +156,54 @@ function validateDsl(dsl: RecipeDsl): {
   };
 }
 
+function calculateNextNodePosition(
+  definition: RecipeDsl,
+  preferredRefNodeId?: string | null
+): { x: number; y: number } {
+  const nodes = definition.nodes || {};
+  const allNodes = Object.values(nodes);
+
+  if (allNodes.length === 0) {
+    return { x: 180, y: 50 };
+  }
+
+  // 1. Nodo de referencia: el seleccionado si existe, o el nodo con mayor Y en el lienzo
+  let refNode: RecipeNode | null = null;
+  if (preferredRefNodeId && nodes[preferredRefNodeId]) {
+    refNode = nodes[preferredRefNodeId];
+  } else {
+    refNode = allNodes.reduce((lowest, curr) => {
+      const lowestY = lowest.position?.y ?? 0;
+      const currY = curr.position?.y ?? 0;
+      return currY > lowestY ? curr : lowest;
+    }, allNodes[0]);
+  }
+
+  let posX = refNode?.position?.x ?? 180;
+  let posY = (refNode?.position?.y ?? 50) + 220;
+
+  // 2. Evitar solapamientos con nodos existentes cercanos
+  let collision = true;
+  let attempts = 0;
+  while (collision && attempts < 10) {
+    const hasOverlap = allNodes.some((n) => {
+      const nx = n.position?.x ?? 0;
+      const ny = n.position?.y ?? 0;
+      return Math.abs(nx - posX) < 30 && Math.abs(ny - posY) < 50;
+    });
+
+    if (hasOverlap) {
+      posX += 40;
+      posY += 40;
+      attempts++;
+    } else {
+      collision = false;
+    }
+  }
+
+  return { x: Math.round(posX), y: Math.round(posY) };
+}
+
 const initialValidation = validateDsl(DEFAULT_INITIAL_DSL);
 
 export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
@@ -210,9 +258,13 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   setSelectedNodeId: (selectedNodeId) => set({ selectedNodeId }),
 
   addNode: (type) => {
-    const { definition, history, historyIndex } = get();
+    const { definition, history, historyIndex, selectedNodeId } = get();
     const newId = `${type}_${Math.random().toString(36).substring(2, 7)}`;
     const newNode = nodeRegistry.createNode(type, newId);
+
+    // Calcular posición basada en el nodo seleccionado o el último inferior
+    const nextPos = calculateNextNodePosition(definition, selectedNodeId);
+    newNode.position = nextPos;
 
     const updatedNodes = { ...definition.nodes, [newId]: newNode };
     let newEntry = definition.entry;
@@ -221,13 +273,19 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     if (!newEntry || Object.keys(definition.nodes).length === 0) {
       newEntry = newId;
     } else {
-      // Conectar automáticamente con el último nodo si este no tiene next
-      const nodeKeys = Object.keys(definition.nodes);
-      const lastKey = nodeKeys[nodeKeys.length - 1];
-      const lastNode = definition.nodes[lastKey];
-      if (lastNode && !lastNode.next && lastNode.type !== "condition") {
-        updatedNodes[lastKey] = { ...lastNode, next: newId };
-        updatedEdges.push({ from: lastKey, to: newId });
+      // Conectar automáticamente desde el nodo seleccionado si existe y no tiene 'next',
+      // o desde el último nodo disponible sin 'next'
+      const candidateSourceId =
+        selectedNodeId && definition.nodes[selectedNodeId]
+          ? selectedNodeId
+          : Object.keys(definition.nodes).pop();
+
+      if (candidateSourceId) {
+        const sourceNode = definition.nodes[candidateSourceId];
+        if (sourceNode && !sourceNode.next && sourceNode.type !== "condition") {
+          updatedNodes[candidateSourceId] = { ...sourceNode, next: newId };
+          updatedEdges.push({ from: candidateSourceId, to: newId });
+        }
       }
     }
 
@@ -643,9 +701,11 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   },
 
   appendRecordedAction: (action) => {
-    const { definition, history, historyIndex, recordedActionsCount } = get();
+    const { definition, history, historyIndex, selectedNodeId, recordedActionsCount } = get();
     const type = (action.type || "click") as RecipeNode["type"];
     const newId = `rec_${type}_${Math.random().toString(36).substring(2, 7)}`;
+
+    const nextPos = calculateNextNodePosition(definition, selectedNodeId);
 
     const newNode: RecipeNode = {
       id: newId,
@@ -653,6 +713,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       description: action.description || `Acción grabada: ${type}`,
       locator: action.locator,
       params: action.params || {},
+      position: nextPos,
     };
 
     const updatedNodes = { ...definition.nodes, [newId]: newNode };
