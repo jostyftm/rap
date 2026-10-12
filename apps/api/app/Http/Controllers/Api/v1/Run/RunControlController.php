@@ -28,6 +28,7 @@ class RunControlController extends Controller
             Redis::setex($controlKey, 3600, $action);
         } catch (\Throwable $e) {
             report($e);
+
             return response()->json([
                 'type' => 'about:blank',
                 'title' => 'Error de control de ejecución',

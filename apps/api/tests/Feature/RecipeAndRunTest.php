@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\RunnerEventProcessor;
+use Illuminate\Support\Facades\Redis;
 use Laravel\Sanctum\Sanctum;
 
 function createTestRecipePayload(): array
@@ -162,6 +163,11 @@ it('permite pausar, reanudar y consultar logs persistidos de un run', function (
     $runUuid = $response->json('data.id');
 
     // Control: pausar
+    Redis::shouldReceive('setex')
+        ->once()
+        ->with("rpa:run:{$runUuid}:control", 3600, 'pause')
+        ->andReturn(true);
+
     $controlRes = $this->postJson("/api/v1/runs/{$runUuid}/control", ['action' => 'pause']);
     $controlRes->assertOk()->assertJsonPath('action', 'pause');
 
@@ -198,4 +204,3 @@ it('permite pausar, reanudar y consultar logs persistidos de un run', function (
         ->assertJsonCount(1, 'data')
         ->assertJsonPath('data.0.source', 'browser');
 });
-

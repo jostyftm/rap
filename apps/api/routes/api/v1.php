@@ -3,10 +3,10 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Api\v1\Auth\AuthController;
+use App\Http\Controllers\Api\v1\Live\LiveSessionController;
 use App\Http\Controllers\Api\v1\Project\ProjectController;
 use App\Http\Controllers\Api\v1\Recipe\RecipeController;
 use App\Http\Controllers\Api\v1\Recipe\RecipeExportController;
-use App\Http\Controllers\Api\v1\Live\LiveSessionController;
 use App\Http\Controllers\Api\v1\Recorder\RecorderController;
 use App\Http\Controllers\Api\v1\Run\RunControlController;
 use App\Http\Controllers\Api\v1\Run\RunController;
