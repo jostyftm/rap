@@ -458,8 +458,32 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     const { definition, history, historyIndex } = get();
     const sourceNode = definition.nodes[from];
     const updatedNodes = { ...definition.nodes };
-    if (sourceNode && sourceNode.next === to) {
-      updatedNodes[from] = { ...sourceNode, next: undefined };
+    if (sourceNode) {
+      if (sourceNode.next === to) {
+        updatedNodes[from] = { ...sourceNode, next: undefined };
+      }
+      if (sourceNode.type === "condition") {
+        const condNode = sourceNode as any;
+        if (condNode.params?.thenNodeId === to) {
+          updatedNodes[from] = {
+            ...condNode,
+            params: { ...condNode.params, thenNodeId: "" },
+          };
+        } else if (condNode.params?.elseNodeId === to) {
+          updatedNodes[from] = {
+            ...condNode,
+            params: { ...condNode.params, elseNodeId: undefined },
+          };
+        }
+      } else if (sourceNode.type === "loop") {
+        const loopNode = sourceNode as any;
+        if (loopNode.params?.bodyEntryNodeId === to) {
+          updatedNodes[from] = {
+            ...loopNode,
+            params: { ...loopNode.params, bodyEntryNodeId: "" },
+          };
+        }
+      }
     }
 
     const updatedDsl: RecipeDsl = {
