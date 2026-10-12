@@ -105,14 +105,14 @@ export function NodeInspector() {
   };
 
   return (
-    <aside className="w-80 bg-neutral-900 border-l border-neutral-800 flex flex-col h-full select-none overflow-y-auto shrink-0 shadow-2xl">
+    <aside className="w-80 bg-[#0c0c0e] border-l border-zinc-800 flex flex-col h-full select-none overflow-y-auto shrink-0">
       {/* Header del Inspector */}
-      <div className="p-3.5 border-b border-neutral-800 flex items-center justify-between">
+      <div className="p-3 border-b border-zinc-800 flex items-center justify-between">
         <div className="min-w-0 pr-2">
-          <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">
+          <span className="text-[10px] font-mono font-medium text-zinc-500 uppercase tracking-wider">
             Propiedades del Paso
           </span>
-          <h4 className="text-xs font-semibold text-neutral-200 uppercase font-mono mt-0.5 truncate">
+          <h4 className="text-xs font-mono font-medium text-zinc-200 uppercase mt-0.5 truncate">
             {nodeDef?.label || node.type} ({node.id})
           </h4>
         </div>
@@ -120,16 +120,16 @@ export function NodeInspector() {
           <button
             onClick={() => deleteNode(node.id)}
             title="Eliminar este paso"
-            className="p-1.5 rounded-lg text-neutral-500 hover:text-rose-400 hover:bg-neutral-800 transition-colors"
+            className="p-1.5 rounded text-zinc-500 hover:text-rose-400 hover:bg-zinc-800 transition-colors"
           >
-            <Trash2 className="w-4 h-4" />
+            <Trash2 className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => setSelectedNodeId(null)}
             title="Cerrar panel"
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors"
+            className="p-1.5 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
           >
-            <X className="w-4 h-4" />
+            <X className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
@@ -155,7 +155,7 @@ export function NodeInspector() {
 
         {/* Descripción Básica */}
         <div>
-          <label className="block text-[11px] font-medium text-neutral-400 mb-1">
+          <label className="block text-[11px] font-medium text-zinc-400 mb-1">
             Descripción
           </label>
           <input
@@ -163,7 +163,7 @@ export function NodeInspector() {
             value={node.description || ""}
             onChange={(e) => updateNode(node.id, { description: e.target.value })}
             placeholder="¿Qué hace este paso?"
-            className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-blue-500 transition-colors"
+            className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-600 transition-colors"
           />
         </div>
 
@@ -175,7 +175,7 @@ export function NodeInspector() {
             updateNode={(updates) => updateNode(node.id, updates)}
           />
         ) : (
-          <div className="text-xs text-neutral-500 italic p-2 border border-neutral-800 rounded">
+          <div className="text-xs text-zinc-500 italic p-2 border border-zinc-800 rounded">
             Sin propiedades específicas para este bloque.
           </div>
         )}
@@ -186,17 +186,17 @@ export function NodeInspector() {
         {/* ============================================================== */}
         {/* REVELACIÓN PROGRESIVA: Acordeón de Opciones Avanzadas */}
         {/* ============================================================== */}
-        <div className="border-t border-neutral-800/80 pt-3">
+        <div className="border-t border-zinc-800/80 pt-3">
           <button
             onClick={() => setIsAdvancedOpen(!isAdvancedOpen)}
-            className="w-full flex items-center justify-between p-2 rounded-lg bg-neutral-950/80 hover:bg-neutral-950 border border-neutral-800 hover:border-neutral-700 text-xs text-neutral-300 transition-colors"
+            className="w-full flex items-center justify-between p-2 rounded bg-zinc-900/60 hover:bg-zinc-850 border border-zinc-800 hover:border-zinc-700 text-xs text-zinc-300 transition-colors"
           >
             <span className="flex items-center space-x-2 font-medium">
-              <SlidersHorizontal className="w-3.5 h-3.5 text-blue-400" />
+              <SlidersHorizontal className="w-3.5 h-3.5 text-zinc-400" />
               <span>Opciones Avanzadas</span>
             </span>
             <ChevronDown
-              className={`w-3.5 h-3.5 text-neutral-400 transition-transform ${
+              className={`w-3.5 h-3.5 text-zinc-400 transition-transform ${
                 isAdvancedOpen ? "rotate-180" : ""
               }`}
             />

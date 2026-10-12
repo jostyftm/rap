@@ -102,9 +102,9 @@ export function WaitForInspectorForm({
         <select
           value={currentStrategy}
           onChange={(e) => handleStrategyChange(e.target.value)}
-          className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 focus:outline-none focus:border-blue-500 font-medium"
+          className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-600 font-medium"
         >
-          <option value="selector">Elemento visible (selector) 🎯</option>
+          <option value="selector">Elemento visible (selector)</option>
           <option value="networkIdle">Red inactiva (networkidle)</option>
           <option value="timeout">Tiempo fijo (ms)</option>
           <option value="url">URL coincidente</option>
@@ -116,17 +116,17 @@ export function WaitForInspectorForm({
         <button
           type="button"
           onClick={handleSelectElementOnSite}
-          className={`w-full flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-lg text-xs font-bold shadow-md transition-all ${
+          className={`w-full flex items-center justify-center space-x-1.5 py-2 px-3 rounded text-xs font-medium transition-colors ${
             isArmed
-              ? "bg-amber-500 text-black ring-2 ring-amber-400 animate-pulse"
-              : "bg-blue-600 hover:bg-blue-500 text-white"
+              ? "bg-amber-400 text-zinc-950 font-semibold"
+              : "bg-zinc-800 hover:bg-zinc-750 text-zinc-200 border border-zinc-700/60"
           }`}
         >
           <Crosshair className="w-4 h-4" />
           <span>
             {isArmed
               ? "Haz clic en el elemento en el sitio… (cancelar)"
-              : "🎯 Seleccionar elemento en el sitio"}
+              : "Inspeccionar elemento en el sitio"}
           </span>
         </button>
       )}

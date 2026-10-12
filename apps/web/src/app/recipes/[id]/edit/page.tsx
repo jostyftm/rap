@@ -43,15 +43,15 @@ function RecipeEditorContent() {
 
   if (isLoading) {
     return (
-      <div className="h-screen w-screen bg-neutral-950 flex flex-col items-center justify-center text-neutral-400 space-y-3">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-        <p className="text-xs font-medium">Cargando editor RPA Studio...</p>
+      <div className="h-screen w-screen bg-[#09090b] flex flex-col items-center justify-center text-zinc-400 space-y-3">
+        <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
+        <p className="text-xs font-mono">Cargando editor RPA Studio...</p>
       </div>
     );
   }
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-neutral-950 text-neutral-100 overflow-hidden select-none">
+    <div className="h-screen w-screen flex flex-col bg-[#09090b] text-zinc-100 overflow-hidden select-none">
       {/* 1. Header con navegación, vista y controles */}
       <EditorHeader onSave={handleSave} isSaving={isSaving} />
 
@@ -82,11 +82,11 @@ function RecipeEditorContent() {
                   <button
                     onClick={togglePaletteCollapsed}
                     title="Mostrar bloques de automatización (Ctrl+B)"
-                    className="absolute top-3 left-3 z-20 flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-neutral-900/90 hover:bg-neutral-850 text-neutral-200 border border-neutral-800 shadow-xl backdrop-blur transition-all text-xs font-medium hover:border-neutral-700 active:scale-95"
+                    className="absolute top-3 left-3 z-20 flex items-center space-x-1.5 px-2.5 py-1.5 rounded-md bg-zinc-900/90 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 shadow-md backdrop-blur transition-colors text-xs font-medium"
                   >
-                    <Plus className="w-3.5 h-3.5 text-blue-400" />
+                    <Plus className="w-3.5 h-3.5 text-zinc-400" />
                     <span>Bloques</span>
-                    <span className="text-[10px] text-neutral-500 font-mono">Ctrl+B</span>
+                    <span className="text-[10px] text-zinc-500 font-mono">Ctrl+B</span>
                   </button>
                 )}
                 {activeView === "canvas" && (
@@ -105,11 +105,11 @@ function RecipeEditorContent() {
                 onDoubleClick={() => setSplitRatio(50)}
                 className={`w-2 h-full cursor-col-resize flex items-center justify-center transition-colors z-20 shrink-0 ${
                   isDraggingSplit
-                    ? "bg-blue-600 shadow-lg"
-                    : "bg-neutral-900 border-x border-neutral-800 hover:bg-blue-600/60"
+                    ? "bg-zinc-600 shadow-sm"
+                    : "bg-zinc-900 border-x border-zinc-800 hover:bg-zinc-700"
                 }`}
               >
-                <div className="w-0.5 h-8 bg-neutral-500 rounded-full" />
+                <div className="w-0.5 h-8 bg-zinc-600 rounded-full" />
               </div>
 
               {/* Panel Sitio en Vivo */}

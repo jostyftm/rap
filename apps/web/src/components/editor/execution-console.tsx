@@ -268,23 +268,23 @@ export function ExecutionConsole() {
     <>
       {/* Barra o Cajón inferior de Consola */}
       <div
-        className={`border-t border-neutral-800 bg-neutral-950 flex flex-col transition-all duration-200 z-20 ${
+        className={`border-t border-zinc-800 bg-[#0c0c0e] flex flex-col transition-all duration-200 z-20 ${
           isOpen ? "h-64" : "h-9"
         }`}
       >
         {/* Encabezado / Barra Minimizable */}
-        <div className="h-9 px-4 border-b border-neutral-800/80 bg-neutral-900/90 flex items-center justify-between select-none">
+        <div className="h-9 px-4 border-b border-zinc-800 bg-zinc-900 flex items-center justify-between select-none">
           <div className="flex items-center space-x-3">
             <button
               onClick={() => setIsOpen(!isOpen)}
-              className="flex items-center space-x-1.5 text-xs font-semibold text-neutral-300 hover:text-white transition-colors"
+              className="flex items-center space-x-1.5 text-xs font-mono font-medium text-zinc-300 hover:text-white transition-colors"
             >
-              <Terminal className="w-3.5 h-3.5 text-neutral-400" />
+              <Terminal className="w-3.5 h-3.5 text-zinc-400" />
               <span>Consola de Ejecución</span>
               {isOpen ? (
-                <ChevronDown className="w-3.5 h-3.5 text-neutral-500" />
+                <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />
               ) : (
-                <ChevronUp className="w-3.5 h-3.5 text-neutral-500" />
+                <ChevronUp className="w-3.5 h-3.5 text-zinc-500" />
               )}
             </button>
 

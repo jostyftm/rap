@@ -3,39 +3,40 @@
 import { useState } from "react";
 import Link from "next/link";
 import {
-  Bot,
   Play,
+  ArrowRight,
+  Shield,
   Layers,
-  Wrench,
-  ShieldCheck,
-  Zap,
-  Globe,
-  Database,
+  Cpu,
   Terminal,
   LogOut,
   LogIn,
+  CheckCircle2,
+  ExternalLink,
+  GitBranch,
 } from "lucide-react";
 import { useAuth } from "../context/auth-context";
+import { StudioLogo } from "../components/studio-logo";
 
 export default function HomePage() {
-  const [activeTab, setActiveTab] = useState<"overview" | "architecture">("overview");
+  const [activeTab, setActiveTab] = useState<"dsl" | "playwright" | "runner">("dsl");
   const { user, isAuthenticated, logout } = useAuth();
 
   return (
-    <main className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-indigo-500 selection:text-white">
-      {/* Top Header */}
-      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+    <div className="min-h-screen flex flex-col bg-[#09090b] text-zinc-100 selection:bg-zinc-800 selection:text-white">
+      {/* Top Navigation */}
+      <header className="border-b border-zinc-800/80 bg-[#09090b]/80 backdrop-blur-md sticky top-0 z-50">
+        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-lg bg-gradient-to-tr from-indigo-500 to-cyan-400 flex items-center justify-center font-bold text-slate-950 shadow-lg shadow-indigo-500/20">
-              <Bot className="w-5 h-5" />
+            <div className="h-7 w-7 rounded-md bg-zinc-100 text-zinc-950 flex items-center justify-center">
+              <StudioLogo className="w-4 h-4" />
             </div>
-            <div>
-              <span className="font-bold tracking-tight text-white text-lg">
+            <div className="flex items-center gap-2">
+              <span className="font-medium tracking-tight text-zinc-100 text-sm">
                 RPA Studio
               </span>
-              <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono">
-                v0.1.0-alpha
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-900 text-zinc-400 border border-zinc-800 font-mono">
+                v0.1
               </span>
             </div>
           </div>
@@ -45,31 +46,31 @@ export default function HomePage() {
               <div className="flex items-center gap-3">
                 <Link
                   href="/recipes"
-                  className="text-xs font-medium text-slate-200 hover:text-white px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 transition"
+                  className="text-xs font-medium text-zinc-300 hover:text-white px-3 py-1.5 rounded-md hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition-colors"
                 >
-                  Mis Recetas
+                  Recetas
                 </Link>
-                <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-xs">
-                  <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                  <span className="text-slate-300 font-medium max-w-[120px] truncate">
+                <div className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-zinc-900 border border-zinc-800 text-xs">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  <span className="text-zinc-300 font-mono text-[11px] max-w-[140px] truncate">
                     {user.name}
                   </span>
                   <button
                     onClick={() => logout()}
                     title="Cerrar Sesión"
-                    className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-rose-400 transition"
+                    className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
                   >
-                    <LogOut className="w-3.5 h-3.5" />
+                    <LogOut className="w-3 h-3" />
                   </button>
                 </div>
               </div>
             ) : (
               <Link
                 href="/login"
-                className="flex items-center gap-1.5 text-xs font-semibold text-white px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-600/20 transition"
+                className="flex items-center gap-1.5 text-xs font-medium text-zinc-950 px-3 py-1.5 rounded-md bg-zinc-100 hover:bg-white transition-colors"
               >
                 <LogIn className="w-3.5 h-3.5" />
-                <span>Iniciar Sesión</span>
+                <span>Acceder</span>
               </Link>
             )}
           </div>
@@ -77,205 +78,221 @@ export default function HomePage() {
       </header>
 
       {/* Hero Section */}
-      <section className="relative px-6 pt-16 pb-12 max-w-7xl mx-auto w-full">
-        <div className="flex flex-col items-center text-center max-w-3xl mx-auto space-y-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-medium">
-            <Zap className="w-3.5 h-3.5" />
-            La IA crea y repara — La ejecución es determinista y sin costo de LLM
-          </div>
-          <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white leading-tight">
-            Automatización Web Inteligente con{" "}
-            <span className="bg-gradient-to-r from-indigo-400 via-sky-300 to-emerald-400 bg-clip-text text-transparent">
-              Playwright y LLMs
-            </span>
-          </h1>
-          <p className="text-slate-400 text-base sm:text-lg leading-relaxed">
-            Diseña recetas de RPA a partir de lenguaje natural, ejecútalas en un
-            runner aislado y recupera fallos de selectores automáticamente con
-            auto-reparación inteligente.
-          </p>
+      <section className="px-6 pt-20 pb-16 max-w-4xl mx-auto w-full text-center">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-400 text-xs font-mono mb-6">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+          <span>Playwright 1.48 · Heuristic Engine · Isolated Runner</span>
+        </div>
 
-          <div className="flex flex-wrap justify-center gap-3 pt-4">
-            <a
-              href="/recipes"
-              className="px-5 py-2.5 rounded-lg text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/30 transition flex items-center gap-2"
-            >
-              <Play className="w-4 h-4 fill-current" />
-              <span>Abrir Editor Low-Code</span>
-            </a>
-            <button
-              onClick={() => setActiveTab("overview")}
-              className={`px-4 py-2.5 rounded-lg text-sm font-semibold transition ${
-                activeTab === "overview"
-                  ? "bg-slate-700 text-white"
-                  : "bg-slate-800 text-slate-300 hover:bg-slate-700"
-              }`}
-            >
-              Componentes del Sistema
-            </button>
-            <button
-              onClick={() => setActiveTab("architecture")}
-              className={`px-4 py-2.5 rounded-lg text-sm font-semibold transition ${
-                activeTab === "architecture"
-                  ? "bg-slate-700 text-white"
-                  : "bg-slate-800 text-slate-300 hover:bg-slate-700"
-              }`}
-            >
-              Arquitectura & Flujos
-            </button>
-          </div>
+        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-medium tracking-tight text-zinc-100 leading-[1.12] mb-6">
+          Automatización web con <br className="hidden sm:inline" />
+          precisión determinista.
+        </h1>
+
+        <p className="text-zinc-400 text-base sm:text-lg leading-relaxed max-w-2xl mx-auto mb-8 font-normal">
+          Diseña flujos sobre Playwright, auto-repara selectores ante cambios en el
+          DOM y orquesta ejecuciones aisladas con cero coste de LLM en tiempo de ejecución.
+        </p>
+
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <Link
+            href="/recipes"
+            className="px-5 py-2.5 rounded-lg text-sm font-medium bg-zinc-100 hover:bg-white text-zinc-950 transition-colors flex items-center gap-2 shadow-sm"
+          >
+            <Play className="w-3.5 h-3.5 fill-current" />
+            <span>Abrir Estudio</span>
+          </Link>
+          <a
+            href="#architecture"
+            className="px-4 py-2.5 rounded-lg text-sm font-medium bg-zinc-900 hover:bg-zinc-850 text-zinc-300 hover:text-white border border-zinc-800 transition-colors flex items-center gap-1.5"
+          >
+            <span>Ver Especificación</span>
+            <ArrowRight className="w-3.5 h-3.5 text-zinc-500" />
+          </a>
         </div>
       </section>
 
-      {/* Grid Features / Architecture */}
-      <section className="max-w-7xl mx-auto px-6 pb-20 w-full flex-1">
-        {activeTab === "overview" ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
-              <div>
-                <div className="h-10 w-10 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center mb-4">
-                  <Play className="w-5 h-5" />
-                </div>
-                <h3 className="font-semibold text-lg text-white mb-2">
-                  1. Creación por Agente
-                </h3>
-                <p className="text-slate-400 text-sm leading-relaxed mb-4">
-                  El <code>BrowserAgent</code> observa la página real en Playwright,
-                  decide la siguiente acción y graba el árbol de accesibilidad
-                  con identificadores estables y respaldos semánticos.
-                </p>
-              </div>
-              <div className="text-xs text-indigo-400 font-mono">
-                laravel/ai → Gemini 2.5 Flash
-              </div>
+      {/* Interactive Architecture Preview / Spec Console */}
+      <section className="max-w-5xl mx-auto px-6 pb-20 w-full" id="architecture">
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl overflow-hidden">
+          {/* Editor Header Bar */}
+          <div className="flex items-center justify-between border-b border-zinc-800/80 px-4 h-11 bg-zinc-900/60">
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setActiveTab("dsl")}
+                className={`px-3 py-1.5 rounded-md text-xs font-mono transition-colors ${
+                  activeTab === "dsl"
+                    ? "bg-zinc-800 text-zinc-100 font-medium"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                recipe.dsl.json
+              </button>
+              <button
+                onClick={() => setActiveTab("playwright")}
+                className={`px-3 py-1.5 rounded-md text-xs font-mono transition-colors ${
+                  activeTab === "playwright"
+                    ? "bg-zinc-800 text-zinc-100 font-medium"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                playwright-runner.ts
+              </button>
+              <button
+                onClick={() => setActiveTab("runner")}
+                className={`px-3 py-1.5 rounded-md text-xs font-mono transition-colors ${
+                  activeTab === "runner"
+                    ? "bg-zinc-800 text-zinc-100 font-medium"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                topology.spec
+              </button>
             </div>
 
-            <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
-              <div>
-                <div className="h-10 w-10 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center mb-4">
-                  <Layers className="w-5 h-5" />
-                </div>
-                <h3 className="font-semibold text-lg text-white mb-2">
-                  2. Receta Determinista (DSL)
-                </h3>
-                <p className="text-slate-400 text-sm leading-relaxed mb-4">
-                  El <code>CompilerAgent</code> compacta las acciones en un grafo
-                  dirigido versionado (DSL) validado por JSON Schema. La ejecución
-                  normal corre a 0 cost de LLM con auto-wait nativo.
-                </p>
-              </div>
-              <div className="text-xs text-sky-400 font-mono">
-                packages/dsl → JSON Schema + Zod
-              </div>
-            </div>
-
-            <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
-              <div>
-                <div className="h-10 w-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mb-4">
-                  <Wrench className="w-5 h-5" />
-                </div>
-                <h3 className="font-semibold text-lg text-white mb-2">
-                  3. Auto-Reparación Inteligente
-                </h3>
-                <p className="text-slate-400 text-sm leading-relaxed mb-4">
-                  Si un selector falla en producción, se activan los localizadores
-                  de respaldo, la huella semántica y finalmente el{" "}
-                  <code>HealerAgent</code> propone un parche para aprobación humana.
-                </p>
-              </div>
-              <div className="text-xs text-emerald-400 font-mono">
-                HealerAgent + Human-in-the-loop
-              </div>
-            </div>
-
-            <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
-              <div>
-                <div className="h-10 w-10 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center mb-4">
-                  <Globe className="w-5 h-5" />
-                </div>
-                <h3 className="font-semibold text-lg text-white mb-2">
-                  Runner Aislado Node + Playwright
-                </h3>
-                <p className="text-slate-400 text-sm leading-relaxed mb-4">
-                  Laravel orquesta al runner a través de Redis Streams. Cada flujo
-                  se ejecuta en un contexto de navegador efímero sin privilegios y
-                  con protección SSRF estricta.
-                </p>
-              </div>
-              <div className="text-xs text-purple-400 font-mono">
-                apps/runner → Playwright TS
-              </div>
-            </div>
-
-            <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
-              <div>
-                <div className="h-10 w-10 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mb-4">
-                  <Database className="w-5 h-5" />
-                </div>
-                <h3 className="font-semibold text-lg text-white mb-2">
-                  Vault Cifrado & Seguridad
-                </h3>
-                <p className="text-slate-400 text-sm leading-relaxed mb-4">
-                  Los secretos nunca viajan al LLM. El agente solo conoce
-                  placeholders <code>{`{{secret.password}}`}</code> que el runner
-                  resuelve en memoria y enmascara en logs y capturas.
-                </p>
-              </div>
-              <div className="text-xs text-amber-400 font-mono">
-                XChaCha20 + MinIO Artifacts
-              </div>
-            </div>
-
-            <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between">
-              <div>
-                <div className="h-10 w-10 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center mb-4">
-                  <ShieldCheck className="w-5 h-5" />
-                </div>
-                <h3 className="font-semibold text-lg text-white mb-2">
-                  Multi-Workspace & Auditoría
-                </h3>
-                <p className="text-slate-400 text-sm leading-relaxed mb-4">
-                  Espacios de trabajo aislados con roles (Owner, Admin, Editor,
-                  Viewer), límites duros de costo mensual, cuotas de tokens y
-                  registro estructurado de auditoría.
-                </p>
-              </div>
-              <div className="text-xs text-rose-400 font-mono">
-                PostgreSQL + Sanctum SPA
-              </div>
+            <div className="flex items-center gap-2 text-[11px] font-mono text-zinc-500">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              <span>valid</span>
             </div>
           </div>
-        ) : (
-          <div className="p-6 rounded-xl bg-slate-900/80 border border-slate-800 font-mono text-sm space-y-4">
-            <div className="flex items-center gap-2 text-indigo-400 font-semibold">
-              <Terminal className="w-4 h-4" /> Topología de Comunicación & Microservicios
-            </div>
-            <pre className="p-4 rounded-lg bg-slate-950 text-slate-300 overflow-x-auto text-xs leading-relaxed">
-{`[Next.js App Router] ──HTTP/WS──> [Laravel 13 API + Reverb]
-                                      │  ├─ Agentes IA (laravel/ai → Gemini 2.5)
-                                      │  ├─ PostgreSQL (Multi-tenant, UUID, SoftDeletes)
-                                      │  └─ Redis (Horizon Queues, Streams, RateLimit)
+
+          {/* Code Body */}
+          <div className="p-5 font-mono text-xs leading-relaxed overflow-x-auto text-zinc-300 bg-[#0c0c0e]">
+            {activeTab === "dsl" && (
+              <pre>{`{
+  "$schema": "https://rpa.studio/schemas/recipe-v1.json",
+  "name": "Extracción Facturas Proveedores",
+  "version": 1,
+  "entry": "nav_portal",
+  "nodes": {
+    "nav_portal": {
+      "type": "navigate",
+      "params": { "url": "https://proveedores.interno/login", "waitUntil": "domcontentloaded" },
+      "next": "fill_user"
+    },
+    "fill_user": {
+      "type": "type",
+      "locator": {
+        "primary": { "strategy": "testid", "value": "input-username", "score": 100 },
+        "fallbacks": [{ "strategy": "css", "value": "#user-field", "score": 75 }]
+      },
+      "params": { "text": "{{secret.portal_user}}" },
+      "next": "click_submit"
+    }
+  }
+}`}</pre>
+            )}
+
+            {activeTab === "playwright" && (
+              <pre>{`import { test, expect } from '@playwright/test';
+import { executeRecipe, resolveVaultSecrets } from '@rpa/runner';
+
+export async function runAutomation(page: Page, context: BrowserContext) {
+  // Inicialización en contexto aislado sin privilegios
+  const secrets = await resolveVaultSecrets(['portal_user', 'portal_password']);
+
+  // Paso 1: Navegación con auto-wait determinista
+  await page.goto('https://proveedores.interno/login', { waitUntil: 'domcontentloaded' });
+
+  // Paso 2: Resolución heurística con respaldo multi-selector
+  const userLocator = await locateWithFallbacks(page, [
+    { strategy: 'testid', value: 'input-username' },
+    { strategy: 'css', value: '#user-field' }
+  ]);
+  await userLocator.fill(secrets.portal_user);
+}`}</pre>
+            )}
+
+            {activeTab === "runner" && (
+              <pre>{`[Frontend Web Studio] ──HTTP/WS──> [Laravel API + Reverb]
                                       │
                                Redis Streams (rpa:cmd / rpa:evt)
                                       │
                              [Node Runner + Playwright]
                                       │
-                                  MinIO/S3 (Screenshots, Videos, Traces)`}
-            </pre>
-            <div className="text-xs text-slate-400 space-y-1">
-              <p>• <strong>Frontend:</strong> Next.js (App Router), Tailwind CSS, TanStack Query, React Flow, Zustand.</p>
-              <p>• <strong>API & Orquestador:</strong> Laravel 13, Laravel Boost, laravel/ai, Laravel Reverb (WebSockets), Horizon.</p>
-              <p>• <strong>Runner de Automatización:</strong> Node.js con Playwright sobre navegadores aislados en contenedores.</p>
-              <p>• <strong>Almacenamiento:</strong> PostgreSQL 16 (datos relacionales), Redis 7 (mensajería y estado), MinIO (S3).</p>
-            </div>
+                                      ├─ Localizadores heurísticos (@rpa/locator)
+                                      ├─ Ejecución determinista 0 LLM (@rpa/dsl)
+                                      └─ Vault seguro (XChaCha20 en memoria)`}</pre>
+            )}
           </div>
-        )}
+        </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-900 py-6 px-6 text-center text-xs text-slate-500">
-        RPA Studio © 2026 — Plataforma Generadora de RPA para Automatización de Navegación Web
+      {/* Technical Specifications Grid */}
+      <section className="max-w-5xl mx-auto px-6 pb-24 w-full">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="p-6 rounded-xl bg-zinc-900/30 border border-zinc-800/80 hover:border-zinc-700/80 transition-colors flex flex-col justify-between">
+            <div>
+              <div className="h-8 w-8 rounded-md bg-zinc-800/80 text-zinc-200 flex items-center justify-center mb-4 border border-zinc-700/60">
+                <Layers className="w-4 h-4" />
+              </div>
+              <h3 className="font-medium text-sm text-zinc-100 mb-2">
+                Grafo Determinista (DSL)
+              </h3>
+              <p className="text-zinc-400 text-xs leading-relaxed mb-4">
+                Flujos representados en un grafo dirigido versionado y validado
+                por Zod. La ejecución normal no consume LLMs y se ejecuta con
+                tiempos de respuesta nativos en Playwright.
+              </p>
+            </div>
+            <div className="text-[11px] font-mono text-zinc-500">
+              @rpa/dsl · Schema Parity
+            </div>
+          </div>
+
+          <div className="p-6 rounded-xl bg-zinc-900/30 border border-zinc-800/80 hover:border-zinc-700/80 transition-colors flex flex-col justify-between">
+            <div>
+              <div className="h-8 w-8 rounded-md bg-zinc-800/80 text-zinc-200 flex items-center justify-center mb-4 border border-zinc-700/60">
+                <Cpu className="w-4 h-4" />
+              </div>
+              <h3 className="font-medium text-sm text-zinc-100 mb-2">
+                Puntuación de Selectores
+              </h3>
+              <p className="text-zinc-400 text-xs leading-relaxed mb-4">
+                Motor heurístico que califica cada estrategia de selección (testid,
+                role, css, text). Mantiene localizadores de respaldo y registra
+                métricas de estabilidad en producción.
+              </p>
+            </div>
+            <div className="text-[11px] font-mono text-zinc-500">
+              @rpa/locator · Heuristic Score
+            </div>
+          </div>
+
+          <div className="p-6 rounded-xl bg-zinc-900/30 border border-zinc-800/80 hover:border-zinc-700/80 transition-colors flex flex-col justify-between">
+            <div>
+              <div className="h-8 w-8 rounded-md bg-zinc-800/80 text-zinc-200 flex items-center justify-center mb-4 border border-zinc-700/60">
+                <Shield className="w-4 h-4" />
+              </div>
+              <h3 className="font-medium text-sm text-zinc-100 mb-2">
+                Aislamiento y Vault
+              </h3>
+              <p className="text-zinc-400 text-xs leading-relaxed mb-4">
+                Las credenciales se almacenan cifradas en reposo y se resuelven
+                exclusivamente en la memoria del runner, enmascarándose en logs
+                y capturas forenses de error.
+              </p>
+            </div>
+            <div className="text-[11px] font-mono text-zinc-500">
+              apps/runner · XChaCha20
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Minimalist Footer */}
+      <footer className="border-t border-zinc-900 py-8 px-6 text-xs text-zinc-500 font-mono mt-auto">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <StudioLogo className="w-3.5 h-3.5 text-zinc-400" />
+            <span className="text-zinc-400 font-sans font-medium">RPA Studio</span>
+            <span>— Automatización determinista de navegación web</span>
+          </div>
+          <div>
+            <span>Playwright TypeScript Workspace</span>
+          </div>
+        </div>
       </footer>
-    </main>
+    </div>
   );
 }

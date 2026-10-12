@@ -12,7 +12,7 @@ const TARGET_TYPES = ["click", "type", "select", "extract", "scroll"];
 /**
  * Herramientas del nodo seleccionado sobre el sitio en vivo:
  * - Botón universal "Abrir sitio en vivo para este paso" para TODOS los nodos.
- * - Selección de elemento en vivo (🎯) para click, type, select, extract y waitFor (Elemento visible).
+ * - Selección de elemento en vivo para click, type, select, extract y waitFor (Elemento visible).
  * - Pruebas inmediatas de paso (▶) y localización (🔦).
  */
 export function LiveNodeTools({ node }: { node: RecipeNode }) {
@@ -87,19 +87,19 @@ export function LiveNodeTools({ node }: { node: RecipeNode }) {
                 }
               }
             }}
-            className="w-full flex items-center justify-center space-x-1.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-sm transition-all"
+            className="w-full flex items-center justify-center space-x-1.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700/60 text-xs font-medium transition-colors"
             title="Abrir navegador interactivo y activar puntero para seleccionar el elemento"
           >
             <Crosshair className="w-3.5 h-3.5" />
-            <span>🎯 Seleccionar en el sitio</span>
+            <span>Inspeccionar elemento</span>
           </button>
         )}
         <button
           onClick={handleOpenLiveForStep}
-          className={`w-full flex items-center justify-center space-x-1.5 py-2 rounded-lg text-xs font-semibold shadow-sm transition-all ${
+          className={`w-full flex items-center justify-center space-x-1.5 py-1.5 rounded text-xs font-medium transition-colors ${
             hasTarget
-              ? "bg-neutral-850 hover:bg-neutral-800 text-neutral-300 border border-neutral-800"
-              : "bg-blue-600 hover:bg-blue-500 text-white"
+              ? "bg-zinc-900 hover:bg-zinc-850 text-zinc-300 border border-zinc-800"
+              : "bg-zinc-800 hover:bg-zinc-700 text-zinc-100 border border-zinc-700/60"
           }`}
           title="Abrir navegador interactivo al lado del lienzo y precargar la URL"
         >
@@ -118,8 +118,8 @@ export function LiveNodeTools({ node }: { node: RecipeNode }) {
   };
 
   return (
-    <div className="border-t border-neutral-800/80 pt-3 space-y-2">
-      <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">
+    <div className="border-t border-zinc-800/80 pt-3 space-y-2">
+      <span className="text-[10px] font-mono font-medium text-zinc-500 uppercase tracking-wider">
         Sitio en vivo
       </span>
 
@@ -143,29 +143,29 @@ export function LiveNodeTools({ node }: { node: RecipeNode }) {
                 }
               }
             }}
-            className={`w-full flex items-center justify-center space-x-1.5 py-2 rounded-md text-xs font-semibold transition-colors ${
+            className={`w-full flex items-center justify-center space-x-1.5 py-1.5 rounded text-xs font-medium transition-colors ${
               isArmed
-                ? "bg-amber-500 text-black animate-pulse"
-                : "bg-blue-600 hover:bg-blue-500 text-white"
+                ? "bg-amber-400 text-zinc-950 font-semibold"
+                : "bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700/60"
             }`}
           >
             <Crosshair className="w-3.5 h-3.5" />
-            <span>{isArmed ? "Haz clic en el elemento… (cancelar)" : "🎯 Seleccionar en el sitio"}</span>
+            <span>{isArmed ? "Haz clic en el elemento… (cancelar)" : "Inspeccionar elemento"}</span>
           </button>
 
           {node.type === "type" && (
-            <p className="flex items-start space-x-1 text-[10px] text-neutral-500">
+            <p className="flex items-start space-x-1 text-[10px] text-zinc-500">
               <Info className="w-3 h-3 mt-0.5 shrink-0" />
-              <span>1) Selecciona el input en el sitio · 2) escribe el texto en “Texto a escribir” · 3) ▶ Probar.</span>
+              <span>1) Selecciona el input en el sitio · 2) escribe el texto en “Texto a escribir” · 3) Probar.</span>
             </p>
           )}
         </>
       )}
 
       {isWaitForSelector && (
-        <p className="flex items-start space-x-1 text-[10px] text-neutral-500">
+        <p className="flex items-start space-x-1 text-[10px] text-zinc-500">
           <Info className="w-3 h-3 mt-0.5 shrink-0" />
-          <span>1) Usa el botón “🎯 Seleccionar elemento en el sitio” arriba · 2) Haz clic en el elemento.</span>
+          <span>1) Usa el botón “Inspeccionar elemento” arriba · 2) Haz clic en el elemento.</span>
         </p>
       )}
 

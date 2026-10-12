@@ -67,20 +67,20 @@ export function StepList() {
   };
 
   return (
-    <div className="flex-1 h-full bg-neutral-950 p-6 overflow-y-auto select-none">
+    <div className="flex-1 h-full bg-[#09090b] p-6 overflow-y-auto select-none">
       <div className="max-w-4xl mx-auto space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-base font-semibold text-neutral-100">
+            <h2 className="text-sm font-medium text-zinc-100">
               Secuencia de Pasos ({orderedNodes.length})
             </h2>
-            <p className="text-xs text-neutral-400">
+            <p className="text-xs text-zinc-400">
               Visualiza y reordena la secuencia determinista de ejecución del flujo.
             </p>
           </div>
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           {orderedNodes.map((node, index) => {
             const Icon = nodeRegistry.get(node.type)?.icon || Globe;
             const isSelected = selectedNodeId === node.id;
@@ -91,43 +91,43 @@ export function StepList() {
               <div
                 key={node.id}
                 onClick={() => setSelectedNodeId(node.id)}
-                className={`group flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer ${
+                className={`group flex items-center justify-between p-3 rounded-lg border transition-colors cursor-pointer ${
                   isRunning
-                    ? "bg-amber-950/20 border-amber-500/80 ring-2 ring-amber-500/30"
+                    ? "bg-amber-950/20 border-amber-400/80 ring-1 ring-amber-400/30"
                     : isSelected
-                    ? "bg-neutral-900 border-blue-500 ring-1 ring-blue-500/30"
-                    : "bg-neutral-900/60 border-neutral-800 hover:border-neutral-700 hover:bg-neutral-900"
+                    ? "bg-zinc-900 border-zinc-300 ring-1 ring-zinc-300/30"
+                    : "bg-zinc-900/40 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-850/50"
                 }`}
               >
                 <div className="flex items-center space-x-3 min-w-0">
                   {/* Número de paso */}
-                  <span className="w-6 text-center font-mono text-xs font-bold text-neutral-500 group-hover:text-neutral-300">
+                  <span className="w-5 text-center font-mono text-xs text-zinc-500 group-hover:text-zinc-300">
                     {index + 1}
                   </span>
 
                   {/* Icono del nodo */}
-                  <div className="w-8 h-8 rounded-lg bg-neutral-800 flex items-center justify-center text-neutral-200 shrink-0">
-                    <Icon className="w-4 h-4" />
+                  <div className="w-7 h-7 rounded bg-zinc-800 flex items-center justify-center text-zinc-300 border border-zinc-700/60 shrink-0">
+                    <Icon className="w-3.5 h-3.5" />
                   </div>
 
                   {/* Datos del paso */}
                   <div className="min-w-0">
                     <div className="flex items-center space-x-2">
-                      <span className="text-xs font-semibold uppercase tracking-wider text-neutral-200">
+                      <span className="text-xs font-mono font-medium uppercase tracking-wide text-zinc-200">
                         {node.type}
                       </span>
                       {isEntry && (
-                        <span className="flex items-center space-x-1 px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-400 text-[9px] font-bold uppercase">
+                        <span className="flex items-center space-x-1 px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-950 text-[9px] font-mono font-medium uppercase">
                           <Play className="w-2 h-2 fill-current" />
                           <span>Inicio</span>
                         </span>
                       )}
-                      <span className="text-[10px] font-mono text-neutral-500">
+                      <span className="text-[10px] font-mono text-zinc-500">
                         ({node.id})
                       </span>
                     </div>
 
-                    <p className="text-xs text-neutral-400 truncate mt-0.5 max-w-lg">
+                    <p className="text-xs text-zinc-400 truncate mt-0.5 max-w-lg">
                       {node.description || "Paso sin descripción"}
                     </p>
                   </div>

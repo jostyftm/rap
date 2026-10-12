@@ -100,9 +100,9 @@ export function ScrollInspectorForm({
         <select
           value={currentMode}
           onChange={(e) => handleModeChange(e.target.value as any)}
-          className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 focus:outline-none focus:border-blue-500 font-medium"
+          className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-600 font-medium"
         >
-          <option value="element">Hacia un elemento de la vista 🎯</option>
+          <option value="element">Hacia un elemento de la vista</option>
           <option value="coordinates">Por píxeles (distancia vertical/horizontal)</option>
           <option value="bottom">Al final de la página (Bottom)</option>
           <option value="top">Al inicio de la página (Top)</option>
@@ -116,23 +116,23 @@ export function ScrollInspectorForm({
           <button
             type="button"
             onClick={handleSelectElementOnSite}
-            className={`w-full flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-lg text-xs font-bold shadow-md transition-all ${
+            className={`w-full flex items-center justify-center space-x-1.5 py-2 px-3 rounded text-xs font-medium transition-colors ${
               isArmed
-                ? "bg-amber-500 text-black ring-2 ring-amber-400 animate-pulse"
-                : "bg-blue-600 hover:bg-blue-500 text-white"
+                ? "bg-amber-400 text-zinc-950 font-semibold"
+                : "bg-zinc-800 hover:bg-zinc-750 text-zinc-200 border border-zinc-700/60"
             }`}
           >
             <Crosshair className="w-4 h-4" />
             <span>
               {isArmed
                 ? "Haz clic en el elemento en el sitio… (cancelar)"
-                : "🎯 Seleccionar elemento en el sitio"}
+                : "Inspeccionar elemento en el sitio"}
             </span>
           </button>
 
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="text-[11px] font-medium text-neutral-400">
+              <label className="text-[11px] font-medium text-zinc-400">
                 Selector del elemento objetivo
               </label>
               {!node.locator?.primary?.value?.trim() && (
@@ -144,15 +144,15 @@ export function ScrollInspectorForm({
               value={node.locator?.primary?.value || ""}
               onChange={(e) => handleSelectorValueChange(e.target.value)}
               placeholder="#seccion-productos, footer, o selector CSS"
-              className={`w-full bg-neutral-950 border rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 focus:outline-none font-mono transition-colors ${
+              className={`w-full bg-zinc-950 border rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none font-mono transition-colors ${
                 !node.locator?.primary?.value?.trim()
                   ? "border-amber-500/50 focus:border-amber-400"
-                  : "border-neutral-800 focus:border-blue-500"
+                  : "border-zinc-800 focus:border-zinc-600"
               }`}
             />
             {!node.locator?.primary?.value?.trim() && (
-              <p className="text-[10px] text-neutral-400 mt-1">
-                Escribe el selector o haz clic arriba en <strong className="text-blue-400 font-semibold">🎯 Seleccionar elemento en el sitio</strong>.
+              <p className="text-[10px] text-zinc-500 mt-1">
+                Escribe el selector o haz clic arriba en <strong className="text-zinc-300 font-medium">Inspeccionar elemento en el sitio</strong>.
               </p>
             )}
           </div>

@@ -101,7 +101,7 @@ export function ScrollInspectorForm({
           onChange={(e) => handleModeChange(e.target.value as any)}
           className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 focus:outline-none focus:border-blue-500 font-medium"
         >
-          <option value="element">Hacia un elemento de la vista 🎯</option>
+          <option value="element">Hacia un elemento de la vista</option>
           <option value="coordinates">Por píxeles (distancia vertical/horizontal)</option>
           <option value="bottom">Al final de la página (Bottom)</option>
           <option value="top">Al inicio de la página (Top)</option>
@@ -115,17 +115,17 @@ export function ScrollInspectorForm({
           <button
             type="button"
             onClick={handleSelectElementOnSite}
-            className={`w-full flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-lg text-xs font-bold shadow-md transition-all ${
+            className={`w-full flex items-center justify-center space-x-1.5 py-2 px-3 rounded text-xs font-medium transition-colors ${
               isArmed
-                ? "bg-amber-500 text-black ring-2 ring-amber-400 animate-pulse"
-                : "bg-blue-600 hover:bg-blue-500 text-white"
+                ? "bg-amber-400 text-zinc-950 font-semibold"
+                : "bg-zinc-800 hover:bg-zinc-750 text-zinc-200 border border-zinc-700/60"
             }`}
           >
             <Crosshair className="w-4 h-4" />
             <span>
               {isArmed
                 ? "Haz clic en el elemento en el sitio… (cancelar)"
-                : "🎯 Seleccionar elemento en el sitio"}
+                : "Inspeccionar elemento en el sitio"}
             </span>
           </button>
 

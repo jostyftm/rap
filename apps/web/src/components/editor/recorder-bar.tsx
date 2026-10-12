@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { CircleDot, Square, Loader2, Sparkles } from "lucide-react";
+import { Square, Loader2 } from "lucide-react";
 import { useRecipeStore } from "../../stores/use-recipe-store";
 import { apiFetch } from "../../lib/api-client";
 
@@ -34,43 +34,44 @@ export function RecorderBar() {
   };
 
   return (
-    <div className="h-10 bg-gradient-to-r from-rose-950/80 via-neutral-900 to-rose-950/80 border-b border-rose-500/30 px-4 flex items-center justify-between text-xs animate-in slide-in-from-top duration-200 select-none shadow-lg z-30">
+    <div className="h-10 bg-zinc-900 border-b border-zinc-800 px-4 flex items-center justify-between text-xs select-none shadow-sm z-30">
       <div className="flex items-center space-x-3">
-        <div className="flex items-center space-x-1.5 text-rose-400 font-semibold">
-          <span className="relative flex h-2.5 w-2.5">
+        <div className="flex items-center space-x-2 text-rose-400 font-medium">
+          <span className="relative flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
           </span>
-          <span>Grabando acciones en vivo</span>
+          <span className="text-[11px] font-mono tracking-wide">Grabando sesión</span>
         </div>
 
-        <div className="h-4 w-px bg-rose-500/20" />
+        <div className="h-3.5 w-px bg-zinc-800" />
 
-        <div className="flex items-center space-x-1.5 text-neutral-300">
-          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-          <span>
-            <strong className="text-white font-mono">{recordedActionsCount}</strong>{" "}
-            {recordedActionsCount === 1 ? "acción agregada al lienzo" : "acciones agregadas al lienzo"}
+        <div className="flex items-center space-x-1.5 text-zinc-300">
+          <span className="font-mono text-[11px] px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-200 border border-zinc-700/60">
+            {recordedActionsCount}
+          </span>
+          <span className="text-[11px] text-zinc-400">
+            {recordedActionsCount === 1 ? "acción registrada" : "acciones registradas"}
           </span>
         </div>
       </div>
 
-      <div className="flex items-center space-x-2">
-        <span className="text-[11px] text-neutral-400 hidden sm:inline">
-          Interactúa en la página del navegador para capturar clicks y tipeos automáticamente.
+      <div className="flex items-center space-x-3">
+        <span className="text-[11px] text-zinc-500 hidden md:inline">
+          Interactúa en la página del navegador para capturar acciones automáticamente
         </span>
 
         <button
           onClick={handleStop}
           disabled={isStopping}
-          className="flex items-center space-x-1.5 px-3 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white font-semibold transition-all shadow-sm active:scale-95 disabled:opacity-50"
+          className="flex items-center space-x-1.5 px-3 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white font-medium text-xs transition-colors shadow-sm disabled:opacity-50 cursor-pointer"
         >
           {isStopping ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
           ) : (
-            <Square className="w-3.5 h-3.5 fill-current" />
+            <Square className="w-3 h-3 fill-current" />
           )}
-          <span>Finalizar Grabación</span>
+          <span>Finalizar</span>
         </button>
       </div>
     </div>

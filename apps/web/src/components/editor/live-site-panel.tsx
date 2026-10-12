@@ -164,31 +164,31 @@ export function LiveSitePanel() {
   const currentPreset = VIEWPORT_PRESETS[viewportMode];
 
   return (
-    <section className="flex-1 min-w-[320px] h-full flex flex-col bg-neutral-950 overflow-hidden">
+    <section className="flex-1 min-w-[320px] h-full flex flex-col bg-[#09090b] overflow-hidden">
       {/* Barra de navegador */}
-      <div className="h-10 px-2 flex items-center space-x-2 bg-neutral-900 border-b border-neutral-800">
-        <Globe className="w-4 h-4 text-blue-400 shrink-0" />
+      <div className="h-10 px-2 flex items-center space-x-2 bg-[#0c0c0e] border-b border-zinc-800">
+        <Globe className="w-4 h-4 text-zinc-400 shrink-0" />
         <input
           value={urlInput}
           onChange={(e) => setUrlInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && go()}
           placeholder="https://sitio.com"
-          className="flex-1 bg-neutral-950 border border-neutral-800 rounded px-2 py-1 text-xs font-mono text-neutral-200 focus:outline-none focus:border-blue-500"
+          className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-xs font-mono text-zinc-200 focus:outline-none focus:border-zinc-600"
         />
         <button
           onClick={go}
           title="Cargar URL"
-          className="p-1.5 rounded text-neutral-300 hover:bg-neutral-800 transition-colors"
+          className="p-1.5 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
         >
           <RefreshCw className="w-3.5 h-3.5" />
         </button>
 
         {/* Selector de Presets de Viewport con Escala */}
-        <div className="flex items-center space-x-0.5 bg-neutral-950 border border-neutral-800 rounded p-0.5">
+        <div className="flex items-center space-x-0.5 bg-zinc-950 border border-zinc-800 rounded p-0.5">
           <button
             onClick={() => setViewportMode("fit")}
-            className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
-              viewportMode === "fit" ? "bg-blue-600 text-white" : "text-neutral-400 hover:text-white"
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
+              viewportMode === "fit" ? "bg-zinc-800 text-zinc-100 font-medium" : "text-zinc-400 hover:text-white"
             }`}
             title="Ajustar al tamaño del panel"
           >
@@ -196,8 +196,8 @@ export function LiveSitePanel() {
           </button>
           <button
             onClick={() => setViewportMode("desktop")}
-            className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
-              viewportMode === "desktop" ? "bg-blue-600 text-white" : "text-neutral-400 hover:text-white"
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
+              viewportMode === "desktop" ? "bg-zinc-800 text-zinc-100 font-medium" : "text-zinc-400 hover:text-white"
             }`}
             title="Escritorio 1280x800"
           >
@@ -205,8 +205,8 @@ export function LiveSitePanel() {
           </button>
           <button
             onClick={() => setViewportMode("mobile")}
-            className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
-              viewportMode === "mobile" ? "bg-blue-600 text-white" : "text-neutral-400 hover:text-white"
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
+              viewportMode === "mobile" ? "bg-zinc-800 text-zinc-100 font-medium" : "text-zinc-400 hover:text-white"
             }`}
             title="Móvil 390x844"
           >

@@ -14,9 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "RPA Studio — Automatización de Navegación Web con IA",
+  title: "RPA Studio — Automatización de Navegación Web",
   description:
-    "Diseña, graba, compila y auto-repara flujos de navegación deterministas y robustos con Playwright y LLMs.",
+    "Diseño, grabación y ejecución determinista de flujos de navegación sobre Playwright con auto-reparación de selectores.",
 };
 
 export default function RootLayout({
@@ -27,9 +27,9 @@ export default function RootLayout({
   return (
     <html
       lang="es"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full dark antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-slate-950 text-slate-100 font-sans">
+      <body className="min-h-full flex flex-col bg-[#09090b] text-zinc-100 font-sans selection:bg-zinc-800 selection:text-white">
         <Providers>{children}</Providers>
       </body>
     </html>

@@ -15,7 +15,7 @@ export class ExternalBrowserManager {
   private browser: Browser | null = null;
   private sessions = new Map<string, ExternalSession>();
 
-  constructor(private eventEmitter: RedisEventEmitter) {}
+  constructor(private eventEmitter: RedisEventEmitter) { }
 
   private async emit(sessionId: string, recipeId: string, payload: unknown): Promise<void> {
     const emitter = this.eventEmitter as any;

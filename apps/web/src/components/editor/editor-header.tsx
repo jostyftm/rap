@@ -269,7 +269,7 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
     <>
       <header
         ref={headerRef}
-        className="h-14 bg-neutral-900 border-b border-neutral-800 px-4 flex items-center justify-between select-none relative z-40"
+        className="h-13 bg-[#0c0c0e] border-b border-zinc-800 px-4 flex items-center justify-between select-none relative z-40"
       >
         {/* ============================================================== */}
         {/* ZONA 1 (IZQUIERDA): Identidad limpia y Estado sutil de guardado */}
@@ -277,13 +277,13 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
         <div className="flex items-center space-x-3 min-w-0">
           <Link
             href="/recipes"
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors"
+            className="p-1.5 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
             title="Volver a mis recetas"
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ChevronLeft className="w-4 h-4" />
           </Link>
 
-          <div className="h-4 w-px bg-neutral-800" />
+          <div className="h-3.5 w-px bg-zinc-800" />
 
           {/* Título editable in-place */}
           <div className="flex items-center space-x-2 min-w-0">
@@ -292,32 +292,32 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
               value={recipeName}
               onChange={(e) => setName(e.target.value)}
               title="Haz clic para renombrar la receta"
-              className="bg-transparent hover:bg-neutral-950/60 focus:bg-neutral-950 font-medium text-sm text-neutral-100 px-2 py-1 rounded-md border border-transparent hover:border-neutral-800 focus:border-blue-500 transition-all max-w-[150px] sm:max-w-[220px] md:max-w-[320px] truncate outline-none"
+              className="bg-transparent hover:bg-zinc-900/60 focus:bg-zinc-900 font-medium text-xs text-zinc-100 px-2 py-1 rounded border border-transparent hover:border-zinc-800 focus:border-zinc-600 transition-colors max-w-[150px] sm:max-w-[220px] md:max-w-[320px] truncate outline-none"
             />
 
             {/* Estado sutil de guardado / cambios */}
             <div className="flex items-center text-xs shrink-0 pl-1">
               {isSaving ? (
-                <span className="flex items-center space-x-1.5 text-neutral-400">
+                <span className="flex items-center space-x-1.5 text-zinc-400">
                   <Loader2 className="w-3 h-3 animate-spin" />
-                  <span className="hidden sm:inline text-[11px]">Guardando...</span>
+                  <span className="hidden sm:inline text-[11px] font-mono">Guardando...</span>
                 </span>
               ) : saveSuccess ? (
-                <span className="flex items-center space-x-1 text-emerald-400 font-medium">
-                  <Check className="w-3.5 h-3.5" />
+                <span className="flex items-center space-x-1 text-emerald-400 font-medium font-mono">
+                  <Check className="w-3 h-3" />
                   <span className="hidden sm:inline text-[11px]">Guardado</span>
                 </span>
               ) : isDirty ? (
                 <button
                   onClick={handleSaveInternal}
                   title="Guardar cambios (Ctrl+S)"
-                  className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-amber-400/10 hover:bg-amber-400/20 text-amber-400 border border-amber-400/20 transition-colors text-[11px] font-medium"
+                  className="flex items-center space-x-1.5 px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-750 text-amber-400 border border-zinc-700/60 transition-colors text-[11px] font-mono"
                 >
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
                   <span>Guardar</span>
                 </button>
               ) : (
-                <span className="text-[11px] text-neutral-500 font-medium hidden sm:inline">
+                <span className="text-[11px] text-zinc-500 font-mono hidden sm:inline">
                   Guardado
                 </span>
               )}
@@ -327,9 +327,9 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
             {validationErrors.length > 0 && (
               <div
                 title={validationErrors.map((e) => formatValidationError(e, definition?.nodes)).join("\n")}
-                className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[11px] font-medium cursor-help shrink-0"
+                className="flex items-center space-x-1 px-2 py-0.5 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[11px] font-mono cursor-help shrink-0"
               >
-                <AlertCircle className="w-3.5 h-3.5" />
+                <AlertCircle className="w-3 h-3" />
                 <span className="hidden md:inline">
                   {validationErrors.length} {validationErrors.length === 1 ? "error" : "errores"}
                 </span>
@@ -341,13 +341,13 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
         {/* ============================================================== */}
         {/* ZONA 2 (CENTRO): Selector Limpio de Vistas (Lienzo / Código)   */}
         {/* ============================================================== */}
-        <div className="flex items-center rounded-lg bg-neutral-950 border border-neutral-800 p-0.5 shadow-inner">
+        <div className="flex items-center rounded-md bg-zinc-950 border border-zinc-800 p-0.5">
           <button
             onClick={() => setActiveView("canvas")}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-xs font-mono transition-colors ${
               activeView === "canvas" || activeView === "steps"
-                ? "bg-neutral-800 text-white shadow-sm font-semibold"
-                : "text-neutral-400 hover:text-neutral-200"
+                ? "bg-zinc-800 text-zinc-100 font-medium"
+                : "text-zinc-400 hover:text-zinc-200"
             }`}
           >
             <Layout className="w-3.5 h-3.5" />
@@ -355,10 +355,10 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
           </button>
           <button
             onClick={() => setActiveView("code")}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-xs font-mono transition-colors ${
               activeView === "code"
-                ? "bg-neutral-800 text-white shadow-sm font-semibold"
-                : "text-neutral-400 hover:text-neutral-200"
+                ? "bg-zinc-800 text-zinc-100 font-medium"
+                : "text-zinc-400 hover:text-zinc-200"
             }`}
           >
             <Code2 className="w-3.5 h-3.5" />
@@ -373,23 +373,23 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
           {/* 3.1 Botón Sitio Web */}
           <div className="relative">
             <div
-              className={`flex items-center rounded-lg border transition-all ${
+              className={`flex items-center rounded-md border transition-colors ${
                 liveOpen
-                  ? "bg-blue-600/15 border-blue-500/40 text-blue-300"
-                  : "bg-neutral-850 hover:bg-neutral-800 border-neutral-800 text-neutral-300 hover:text-white"
+                  ? "bg-zinc-800 border-zinc-700 text-zinc-100"
+                  : "bg-zinc-900 hover:bg-zinc-850 border-zinc-800 text-zinc-300 hover:text-white"
               }`}
             >
               <button
                 onClick={toggleLivePanel}
-                className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium"
+                className="flex items-center space-x-1.5 px-2.5 py-1 text-xs font-medium"
                 title="Abrir o cerrar navegador interactivo (Ctrl+\)"
               >
-                <Globe className={`w-3.5 h-3.5 ${liveOpen ? "text-blue-400" : ""}`} />
+                <Globe className={`w-3.5 h-3.5 ${liveOpen ? "text-zinc-200" : "text-zinc-400"}`} />
                 <span>Sitio Web</span>
               </button>
               <button
                 onClick={() => setIsLiveMenuOpen(!isLiveMenuOpen)}
-                className="p-1.5 pr-2 text-neutral-400 hover:text-white transition-colors"
+                className="p-1 pr-1.5 text-zinc-400 hover:text-white transition-colors"
                 title="Opciones de pantalla del sitio web (Ctrl+\)"
               >
                 <ChevronDown className="w-3 h-3" />
@@ -397,8 +397,8 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
             </div>
 
             {isLiveMenuOpen && (
-              <div className="absolute right-0 top-full mt-2 w-56 bg-neutral-900 border border-neutral-800 rounded-xl p-1.5 shadow-2xl z-50 animate-in fade-in zoom-in-95 text-xs">
-                <div className="px-2.5 py-1 text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">
+              <div className="absolute right-0 top-full mt-2 w-56 bg-zinc-900 border border-zinc-800 rounded-lg p-1.5 shadow-xl z-50 text-xs">
+                <div className="px-2.5 py-1 text-[10px] font-mono font-semibold text-zinc-400 uppercase tracking-wider">
                   Modo de Pantalla
                 </div>
                 <button
@@ -407,16 +407,16 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
                     setLayoutMode("split");
                     setIsLiveMenuOpen(false);
                   }}
-                  className={`w-full flex items-center space-x-2 px-2.5 py-1.5 rounded-lg text-left transition-colors ${
+                  className={`w-full flex items-center space-x-2 px-2.5 py-1.5 rounded-md text-left transition-colors ${
                     layoutMode === "split" && liveOpen
-                      ? "bg-blue-600/20 text-blue-300 font-medium"
-                      : "text-neutral-300 hover:bg-neutral-800 hover:text-white"
+                      ? "bg-zinc-800 text-zinc-100 font-medium"
+                      : "text-zinc-300 hover:bg-zinc-800/60 hover:text-white"
                   }`}
                 >
-                  <Columns className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                  <Columns className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
                   <div>
                     <div className="font-medium">Lado a Lado (Dividido)</div>
-                    <div className="text-[10px] text-neutral-400">Lienzo y sitio web juntos</div>
+                    <div className="text-[10px] text-zinc-400">Lienzo y sitio web juntos</div>
                   </div>
                 </button>
 
@@ -426,28 +426,28 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
                     setLayoutMode("full_site");
                     setIsLiveMenuOpen(false);
                   }}
-                  className={`w-full flex items-center space-x-2 px-2.5 py-1.5 rounded-lg text-left transition-colors ${
+                  className={`w-full flex items-center space-x-2 px-2.5 py-1.5 rounded-md text-left transition-colors ${
                     layoutMode === "full_site" && liveOpen
-                      ? "bg-blue-600/20 text-blue-300 font-medium"
-                      : "text-neutral-300 hover:bg-neutral-800 hover:text-white"
+                      ? "bg-zinc-800 text-zinc-100 font-medium"
+                      : "text-zinc-300 hover:bg-zinc-800/60 hover:text-white"
                   }`}
                 >
-                  <Maximize2 className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                  <Maximize2 className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
                   <div>
                     <div className="font-medium">Sitio Completo (Enfocado)</div>
-                    <div className="text-[10px] text-neutral-400">Oculta los bloques del flujo</div>
+                    <div className="text-[10px] text-zinc-400">Oculta los bloques del flujo</div>
                   </div>
                 </button>
 
                 {liveOpen && (
                   <>
-                    <div className="h-px bg-neutral-800 my-1" />
+                    <div className="h-px bg-zinc-800 my-1" />
                     <button
                       onClick={() => {
                         toggleLivePanel();
                         setIsLiveMenuOpen(false);
                       }}
-                      className="w-full flex items-center space-x-2 px-2.5 py-1.5 rounded-lg text-left text-neutral-400 hover:bg-neutral-800 hover:text-rose-400 transition-colors"
+                      className="w-full flex items-center space-x-2 px-2.5 py-1.5 rounded-md text-left text-zinc-400 hover:bg-zinc-800 hover:text-rose-400 transition-colors"
                     >
                       <X className="w-3.5 h-3.5 shrink-0" />
                       <span>Ocultar Sitio Web</span>
@@ -753,29 +753,29 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
             )}
           </div>
 
-          <div className="h-4 w-px bg-neutral-800 mx-0.5" />
+          <div className="h-3.5 w-px bg-zinc-800 mx-0.5" />
 
           {/* 3.4 Menú de Usuario */}
           {user ? (
             <div className="relative">
               <button
                 onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                className="w-7 h-7 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-[11px] font-bold text-white shadow ring-1 ring-white/10 hover:ring-2 hover:ring-blue-500/50 transition-all cursor-pointer"
+                className="w-6 h-6 rounded bg-zinc-800 border border-zinc-700/60 flex items-center justify-center text-[10px] font-mono font-medium text-zinc-200 hover:bg-zinc-750 transition-colors cursor-pointer"
                 title={`${user.name} (${user.email})`}
               >
                 {getInitials(user.name)}
               </button>
 
               {isUserMenuOpen && (
-                <div className="absolute right-0 top-full mt-2 w-56 bg-neutral-900 border border-neutral-800 rounded-xl p-1.5 shadow-2xl z-50 animate-in fade-in zoom-in-95 text-xs">
-                  <div className="px-3 py-2 border-b border-neutral-800">
-                    <div className="font-semibold text-neutral-100 truncate">{user.name}</div>
-                    <div className="text-[11px] text-neutral-400 truncate">{user.email}</div>
+                <div className="absolute right-0 top-full mt-2 w-56 bg-zinc-900 border border-zinc-800 rounded-lg p-1.5 shadow-xl z-50 text-xs">
+                  <div className="px-2.5 py-2 border-b border-zinc-800">
+                    <div className="font-medium text-zinc-100 truncate">{user.name}</div>
+                    <div className="text-[11px] font-mono text-zinc-400 truncate">{user.email}</div>
                   </div>
 
                   <button
                     onClick={() => logout()}
-                    className="w-full flex items-center space-x-2 px-3 py-2 text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 rounded-lg transition-colors mt-1"
+                    className="w-full flex items-center space-x-2 px-2.5 py-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-rose-400 rounded-md transition-colors mt-1"
                   >
                     <LogOut className="w-3.5 h-3.5" />
                     <span>Cerrar Sesión</span>
@@ -786,9 +786,9 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
           ) : (
             <Link
               href="/login"
-              className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-blue-600/15 border border-blue-500/30 text-blue-400 hover:text-blue-300 text-xs font-medium transition-colors"
+              className="flex items-center space-x-1 px-2.5 py-1 rounded bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-medium transition-colors shadow-sm"
             >
-              <Key className="w-3.5 h-3.5" />
+              <Key className="w-3 h-3" />
               <span className="hidden sm:inline">Acceder</span>
             </Link>
           )}
