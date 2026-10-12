@@ -23,6 +23,7 @@ export function NodePalette() {
   );
 
   const categories = [
+    { key: "triggers", label: "Disparadores y Webhooks" },
     { key: "interaction", label: "Navegación e Interacción" },
     { key: "waits", label: "Esperas y Sincronización" },
     { key: "data", label: "Datos y Variables" },

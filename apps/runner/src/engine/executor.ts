@@ -242,6 +242,16 @@ export class RecipeExecutor {
           const result = await executeNodeAction(page, node, execContext);
           const stepDurationMs = Date.now() - stepStartTime;
 
+          // Guardar salida de paso en el contexto de variables y pasos
+          if (result.output !== undefined) {
+            execContext.stepResults[node.id] = result.output;
+            execContext.variables[`steps.${node.id}.output`] = result.output;
+            if (!execContext.variables.steps || typeof execContext.variables.steps !== "object") {
+              execContext.variables.steps = {};
+            }
+            (execContext.variables.steps as Record<string, unknown>)[node.id] = { output: result.output };
+          }
+
           // Política de capturas de pantalla
           let finalScreenshotPath = result.screenshotPath;
           if (node.screenshot === "always" && !finalScreenshotPath) {
@@ -272,6 +282,7 @@ export class RecipeExecutor {
               duration_ms: stepDurationMs,
               strategy: result.resolvedLocator?.strategy,
               value: result.resolvedLocator?.value,
+              output: result.output,
             }
           );
 

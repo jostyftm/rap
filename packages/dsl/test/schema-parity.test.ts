@@ -14,6 +14,7 @@ const ALL_SYSTEM_NODE_TYPES: Array<RecipeNode["type"]> = [
   "condition",
   "loop",
   "scroll",
+  "webhook",
 ];
 
 const MINIMAL_VALID_NODES: Record<RecipeNode["type"], any> = {
@@ -104,12 +105,19 @@ const MINIMAL_VALID_NODES: Record<RecipeNode["type"], any> = {
     description: "Desplazar",
     params: { mode: "bottom", behavior: "smooth" },
   },
+  webhook: {
+    id: "node_webhook",
+    type: "webhook",
+    description: "Recepción de webhook",
+    params: { httpMethod: "POST", outputVariable: "webhook" },
+  },
 };
 
 describe("Schema Parity & Discriminator Integrity", () => {
-  it("contiene exactamente los 11 tipos de nodos soportados por RPA Studio", () => {
-    expect(ALL_SYSTEM_NODE_TYPES).toHaveLength(11);
+  it("contiene exactamente los 12 tipos de nodos soportados por RPA Studio", () => {
+    expect(ALL_SYSTEM_NODE_TYPES).toHaveLength(12);
     expect(ALL_SYSTEM_NODE_TYPES).toContain("scroll");
+    expect(ALL_SYSTEM_NODE_TYPES).toContain("webhook");
   });
 
   it("garantiza que NINGÚN tipo de nodo del sistema produzca 'Invalid discriminator value'", () => {

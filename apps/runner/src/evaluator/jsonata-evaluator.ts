@@ -18,6 +18,19 @@ export async function evaluateExpression(
   }
 }
 
+function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+  if (path in obj) return obj[path];
+  const parts = path.split(".");
+  let current: unknown = obj;
+  for (const part of parts) {
+    if (current === null || current === undefined || typeof current !== "object") {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
+}
+
 export function interpolateString(
   template: string,
   variables: Record<string, unknown>,
@@ -29,7 +42,29 @@ export function interpolateString(
       const secretName = key.replace("secret.", "");
       return secrets[secretName] ?? `[SECRET_NOT_FOUND: ${secretName}]`;
     }
-    const val = variables[key];
-    return val !== undefined ? String(val) : `{{${key}}}`;
+
+    // Direct match
+    if (key in variables) {
+      const val = variables[key];
+      return typeof val === "object" && val !== null ? JSON.stringify(val) : String(val ?? "");
+    }
+
+    // If starts with "variables."
+    if (key.startsWith("variables.")) {
+      const varKey = key.slice("variables.".length);
+      const val = getNestedValue(variables, varKey);
+      if (val !== undefined) {
+        return typeof val === "object" && val !== null ? JSON.stringify(val) : String(val);
+      }
+    }
+
+    // Nested dot path search
+    const nested = getNestedValue(variables, key);
+    if (nested !== undefined) {
+      return typeof nested === "object" && nested !== null ? JSON.stringify(nested) : String(nested);
+    }
+
+    return `{{${key}}}`;
   });
 }
+

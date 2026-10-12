@@ -10,6 +10,7 @@ import { setVariableHandler } from "./set-variable.handler.js";
 import { conditionHandler } from "./condition.handler.js";
 import { loopHandler } from "./loop.handler.js";
 import { scrollHandler } from "./scroll.handler.js";
+import { webhookHandler } from "./webhook.handler.js";
 
 export * from "./types.js";
 export * from "./registry.js";
@@ -24,6 +25,7 @@ export { setVariableHandler } from "./set-variable.handler.js";
 export { conditionHandler } from "./condition.handler.js";
 export { loopHandler } from "./loop.handler.js";
 export { scrollHandler } from "./scroll.handler.js";
+export { webhookHandler } from "./webhook.handler.js";
 
 export const defaultActionRegistry = new ActionHandlerRegistry()
   .register(navigateHandler)
@@ -36,4 +38,5 @@ export const defaultActionRegistry = new ActionHandlerRegistry()
   .register(setVariableHandler)
   .register(conditionHandler)
   .register(loopHandler)
-  .register(scrollHandler);
+  .register(scrollHandler)
+  .register(webhookHandler);

@@ -63,6 +63,12 @@ const BaseNodeSchema = z.object({
   onError: z.enum(["fail", "continue", "retry"]).default("fail"),
   screenshot: z.enum(["never", "onError", "always"]).default("onError"),
   next: z.string().optional(),
+  position: z
+    .object({
+      x: z.number(),
+      y: z.number(),
+    })
+    .optional(),
 });
 
 const NavigateNodeSchema = BaseNodeSchema.extend({
@@ -148,6 +154,12 @@ const ConditionNodeSchema = BaseNodeSchema.extend({
     expression: z.string().min(1, "La expresión de la condición es obligatoria"),
     thenNodeId: z.string().min(1, "El nodo 'thenNodeId' es obligatorio"),
     elseNodeId: z.string().optional(),
+    dataType: z
+      .enum(["string", "number", "boolean", "array", "exists", "custom"])
+      .optional(),
+    leftOperand: z.string().optional(),
+    operator: z.string().optional(),
+    rightOperand: z.string().optional(),
   }),
 });
 
@@ -175,6 +187,19 @@ const ScrollNodeSchema = BaseNodeSchema.extend({
   }),
 });
 
+const WebhookNodeSchema = BaseNodeSchema.extend({
+  type: z.literal("webhook"),
+  params: z.object({
+    httpMethod: z
+      .enum(["ANY", "GET", "POST", "PUT", "DELETE", "PATCH"])
+      .default("POST"),
+    path: z.string().optional(),
+    outputVariable: z.string().default("webhook"),
+    responseCode: z.number().int().min(100).max(599).default(200),
+    responseBody: z.string().optional(),
+  }),
+});
+
 const RecipeNodeSchema = z.discriminatedUnion("type", [
   NavigateNodeSchema,
   ClickNodeSchema,
@@ -187,6 +212,7 @@ const RecipeNodeSchema = z.discriminatedUnion("type", [
   ConditionNodeSchema,
   LoopNodeSchema,
   ScrollNodeSchema,
+  WebhookNodeSchema,
 ]);
 
 export const RecipeDslSchema = z

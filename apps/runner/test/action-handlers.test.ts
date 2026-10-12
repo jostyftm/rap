@@ -6,6 +6,7 @@ import type {
   LoopNode,
   NavigateNode,
   ScrollNode,
+  WebhookNode,
   RecipeNode,
 } from "@rpa/dsl";
 import {
@@ -36,7 +37,7 @@ describe("Action Handlers & Strategy Registry", () => {
   };
 
   describe("ActionHandlerRegistry", () => {
-    it("contiene todos los 11 tipos de nodos soportados por defecto", () => {
+    it("contiene todos los 12 tipos de nodos soportados por defecto", () => {
       const types = defaultActionRegistry.getAllTypes();
       expect(types).toContain("navigate");
       expect(types).toContain("click");
@@ -49,7 +50,8 @@ describe("Action Handlers & Strategy Registry", () => {
       expect(types).toContain("condition");
       expect(types).toContain("loop");
       expect(types).toContain("scroll");
-      expect(types.length).toBe(11);
+      expect(types).toContain("webhook");
+      expect(types.length).toBe(12);
     });
 
     it("permite registrar y recuperar manejadores personalizados", async () => {
@@ -237,6 +239,76 @@ describe("Action Handlers & Strategy Registry", () => {
 
       expect(result.success).toBe(true);
       expect(mockPage.evaluate).toHaveBeenCalled();
+    });
+
+    it("webhook inicializa payload y lo asigna a variables y output", async () => {
+      const ctx = createMockContext();
+      const mockPage = createMockPage();
+      const node: WebhookNode = {
+        id: "webhook-1",
+        type: "webhook",
+        description: "Recepción de webhook",
+        params: {
+          httpMethod: "POST",
+          outputVariable: "myWebhook",
+        },
+        next: "step-process",
+      };
+
+      const result = await executeNodeAction(mockPage, node, ctx);
+
+      expect(result.success).toBe(true);
+      expect(result.nextNodeId).toBe("step-process");
+      expect(ctx.variables.myWebhook).toBeDefined();
+      expect((ctx.variables.myWebhook as any).method).toBe("POST");
+      expect(result.output).toEqual(ctx.variables.myWebhook);
+    });
+
+    it("evalúa condición tipada según naturaleza del dato (string contains, number greater_than)", async () => {
+      const ctx = createMockContext({
+        variables: { userRole: "superadmin", totalOrder: 250 },
+      });
+      const mockPage = createMockPage();
+
+      const conditionString: ConditionNode = {
+        id: "cond-1",
+        type: "condition",
+        description: "Verificar rol",
+        params: {
+          expression: "true",
+          dataType: "string",
+          leftOperand: "{{userRole}}",
+          operator: "contains",
+          rightOperand: "admin",
+          thenNodeId: "then-step",
+          elseNodeId: "else-step",
+        },
+      };
+
+      const resultString = await executeNodeAction(mockPage, conditionString, ctx);
+      expect(resultString.success).toBe(true);
+      expect(resultString.output).toBe(true);
+      expect(resultString.nextNodeId).toBe("then-step");
+
+      const conditionNumber: ConditionNode = {
+        id: "cond-2",
+        type: "condition",
+        description: "Verificar monto",
+        params: {
+          expression: "true",
+          dataType: "number",
+          leftOperand: "{{totalOrder}}",
+          operator: "less_than",
+          rightOperand: "100",
+          thenNodeId: "discount-step",
+          elseNodeId: "normal-step",
+        },
+      };
+
+      const resultNumber = await executeNodeAction(mockPage, conditionNumber, ctx);
+      expect(resultNumber.success).toBe(true);
+      expect(resultNumber.output).toBe(false);
+      expect(resultNumber.nextNodeId).toBe("normal-step");
     });
   });
 });

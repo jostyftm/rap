@@ -4,21 +4,30 @@ import React from "react";
 import type { TypeNode } from "@rpa/dsl";
 import type { NodeInspectorProps } from "../types";
 
+import { VariablePicker } from "../../variable-picker";
+
 export function TypeInspectorForm({
   node,
   updateParam,
 }: NodeInspectorProps<TypeNode>) {
   return (
     <div>
-      <label className="block text-[11px] font-medium text-neutral-400 mb-1">
-        Texto a escribir
-      </label>
+      <div className="flex items-center justify-between mb-1">
+        <label className="text-[11px] font-medium text-zinc-400">
+          Texto a escribir
+        </label>
+        <VariablePicker
+          onSelect={(token) =>
+            updateParam("text", `${node.params.text || ""}${token}`)
+          }
+        />
+      </div>
       <input
         type="text"
         value={node.params.text || ""}
         onChange={(e) => updateParam("text", e.target.value)}
-        placeholder="Texto para el campo..."
-        className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 focus:outline-none focus:border-blue-500"
+        placeholder="Texto o variable ej. {{steps.node_1.output}}"
+        className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-200 font-mono focus:outline-none focus:border-zinc-600 transition-colors"
       />
     </div>
   );

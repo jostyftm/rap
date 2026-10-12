@@ -87,6 +87,11 @@ export interface RecipeStoreState {
   finishRun: (status: "success" | "failed") => void;
   clearRunState: () => void;
 
+  // Salidas y contexto de nodos probados/ejecutados
+  nodeOutputs: Record<string, unknown>;
+  setNodeOutput: (nodeId: string, output: unknown) => void;
+  updateNodePosition: (id: string, position: { x: number; y: number }) => void;
+
   // Grabación en vivo
   startRecording: (sessionId: string) => void;
   stopRecording: () => void;
@@ -175,6 +180,8 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   isRecording: false,
   recordingSessionId: null,
   recordedActionsCount: 0,
+
+  nodeOutputs: {},
 
   history: [JSON.parse(JSON.stringify(DEFAULT_INITIAL_DSL))],
   historyIndex: 0,
@@ -286,6 +293,38 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       isDirty: true,
       ...hist,
     });
+  },
+
+  updateNodePosition: (id, position) => {
+    const { definition } = get();
+    const node = definition.nodes[id];
+    if (!node) return;
+    if (node.position?.x === position.x && node.position?.y === position.y) return;
+
+    const updatedDsl: RecipeDsl = {
+      ...definition,
+      nodes: {
+        ...definition.nodes,
+        [id]: {
+          ...node,
+          position,
+        },
+      },
+    };
+
+    set({
+      definition: updatedDsl,
+      isDirty: true,
+    });
+  },
+
+  setNodeOutput: (nodeId, output) => {
+    set((state) => ({
+      nodeOutputs: {
+        ...state.nodeOutputs,
+        [nodeId]: output,
+      },
+    }));
   },
 
   deleteNode: (id) => {
@@ -560,6 +599,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       runningNodeId: null,
       logs: [],
       screenshots: [],
+      nodeOutputs: {},
     });
   },
 

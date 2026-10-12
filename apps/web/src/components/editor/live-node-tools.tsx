@@ -7,15 +7,19 @@ import { useLiveStore } from "../../stores/use-live-store";
 import { useRecipeStore } from "../../stores/use-recipe-store";
 import { useLayoutStore } from "../../stores/use-layout-store";
 
+import { testRecipeNode } from "@/lib/node-tester";
+
 const TARGET_TYPES = ["click", "type", "select", "extract", "scroll"];
+const LOGIC_TYPES = ["webhook", "setVariable", "condition", "loop"];
 
 /**
- * Herramientas del nodo seleccionado sobre el sitio en vivo:
- * - Botón universal "Abrir sitio en vivo para este paso" para TODOS los nodos.
- * - Selección de elemento en vivo para click, type, select, extract y waitFor (Elemento visible).
- * - Pruebas inmediatas de paso (▶) y localización (🔦).
+ * Herramientas del nodo seleccionado sobre el sitio en vivo o en memoria:
+ * - Pruebas inmediatas de paso (▶ Probar paso).
+ * - Selección de elemento en vivo para click, type, select, extract y waitFor.
+ * - Inspección de la salida generada y contexto de variables.
  */
 export function LiveNodeTools({ node }: { node: RecipeNode }) {
+  const [testingLogic, setTestingLogic] = React.useState(false);
   const isOpen = useLiveStore((s) => s.isOpen);
   const status = useLiveStore((s) => s.status);
   const kind = useLiveStore((s) => s.kind);
@@ -30,6 +34,9 @@ export function LiveNodeTools({ node }: { node: RecipeNode }) {
   const startExternal = useLiveStore((s) => s.startExternal);
   const applyCandidates = useLiveStore((s) => s.applyCandidates);
   const recipeId = useRecipeStore((s) => s.recipeId);
+  const nodeOutput = useRecipeStore((s) => s.nodeOutputs[node.id]);
+
+  const isLogicNode = LOGIC_TYPES.includes(node.type);
 
   // Detección de capacidades del nodo
   const isWaitForSelector = node.type === "waitFor" && (node as any).params?.strategy === "selector";
@@ -44,7 +51,16 @@ export function LiveNodeTools({ node }: { node: RecipeNode }) {
   const isArmed = armedNodeId === node.id;
   const pick = lastPick && lastPick.nodeId === node.id ? lastPick : null;
 
-  // Apertura interactiva inteligente para cualquier paso
+  const handleTestLogicStep = async () => {
+    setTestingLogic(true);
+    try {
+      await testRecipeNode(node);
+    } finally {
+      setTestingLogic(false);
+    }
+  };
+
+  // Apertura interactiva para pasos de navegador
   const handleOpenLiveForStep = () => {
     useLiveStore.getState().open();
     useLayoutStore.getState().setMode("split");
@@ -66,11 +82,50 @@ export function LiveNodeTools({ node }: { node: RecipeNode }) {
     }
   };
 
-  // 1. SI EL SITIO ESTÁ CERRADO: Mostrar opción universal y botón de selección directa si aplica
+  // SI ES NODO DE LÓGICA / TRIGGER: Probar directamente en memoria
+  if (isLogicNode) {
+    return (
+      <div className="border-t border-zinc-800/80 pt-3 space-y-2.5">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-mono font-medium text-zinc-500 uppercase tracking-wider">
+            Prueba de Paso
+          </span>
+          {nodeOutput !== undefined && (
+            <span className="text-[10px] font-mono text-emerald-400 font-medium">
+              ✓ Salida disponible
+            </span>
+          )}
+        </div>
+
+        <button
+          type="button"
+          disabled={testingLogic}
+          onClick={handleTestLogicStep}
+          className="w-full flex items-center justify-center space-x-1.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-100 border border-zinc-700/60 text-xs font-medium transition-colors disabled:opacity-50"
+        >
+          <Play className="w-3.5 h-3.5 fill-current" />
+          <span>{testingLogic ? "Probando..." : "Probar este paso"}</span>
+        </button>
+
+        {nodeOutput !== undefined && (
+          <div className="p-2 rounded bg-zinc-950 border border-zinc-800/80 space-y-1">
+            <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wide block">
+              Resultado generado:
+            </span>
+            <pre className="text-[10px] font-mono text-zinc-300 max-h-36 overflow-y-auto whitespace-pre-wrap break-all bg-zinc-900/60 p-1.5 rounded">
+              {typeof nodeOutput === "object" ? JSON.stringify(nodeOutput, null, 2) : String(nodeOutput)}
+            </pre>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // SI EL SITIO EN VIVO ESTÁ CERRADO Y ES NODO DE NAVEGADOR
   if (!isOpen) {
     return (
-      <div className="border-t border-neutral-800/80 pt-3 space-y-2">
-        <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">
+      <div className="border-t border-zinc-800/80 pt-3 space-y-2">
+        <span className="text-[10px] font-mono font-medium text-zinc-500 uppercase tracking-wider">
           Sitio en vivo
         </span>
         {hasTarget && (
@@ -96,15 +151,11 @@ export function LiveNodeTools({ node }: { node: RecipeNode }) {
         )}
         <button
           onClick={handleOpenLiveForStep}
-          className={`w-full flex items-center justify-center space-x-1.5 py-1.5 rounded text-xs font-medium transition-colors ${
-            hasTarget
-              ? "bg-zinc-900 hover:bg-zinc-850 text-zinc-300 border border-zinc-800"
-              : "bg-zinc-800 hover:bg-zinc-700 text-zinc-100 border border-zinc-700/60"
-          }`}
-          title="Abrir navegador interactivo al lado del lienzo y precargar la URL"
+          className="w-full flex items-center justify-center space-x-1.5 py-1.5 rounded text-xs font-medium transition-colors bg-zinc-800 hover:bg-zinc-700 text-zinc-100 border border-zinc-700/60"
+          title="Abrir navegador interactivo al lado del lienzo y probar este paso"
         >
-          <Globe className="w-3.5 h-3.5" />
-          <span>Abrir sitio en vivo para este paso</span>
+          <Play className="w-3.5 h-3.5" />
+          <span>Abrir sitio en vivo y probar paso</span>
         </button>
       </div>
     );

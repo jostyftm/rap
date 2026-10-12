@@ -10,9 +10,11 @@ import { screenshotDefinition } from "./definitions/screenshot";
 import { setVariableDefinition } from "./definitions/set-variable";
 import { conditionDefinition } from "./definitions/condition";
 import { loopDefinition } from "./definitions/loop";
+import { webhookDefinition } from "./definitions/webhook";
 import type { NodeDefinition } from "./types";
 
 export const ALL_BLOCK_DEFINITIONS: NodeDefinition<any>[] = [
+  webhookDefinition,
   navigateDefinition,
   clickDefinition,
   typeDefinition,

@@ -31,6 +31,7 @@ export interface CustomNodeData extends Record<string, unknown> {
   hasErrors?: boolean;
   firstErrorMessage?: string;
   issues?: Array<{ nodeId: string; field: string; message: string }>;
+  output?: unknown;
 }
 
 export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selected?: boolean }) {
@@ -38,8 +39,22 @@ export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selec
   const runningNodeId = useRecipeStore((s) => s.runningNodeId);
   const isRunning = runningNodeId === nodeData.id;
   const isArmed = useLiveStore((s) => s.armedNodeId === nodeData.id);
+  const [isQuickTesting, setIsQuickTesting] = React.useState(false);
 
   const Icon = nodeRegistry.get(nodeData.type)?.icon || Globe;
+
+  const handleQuickTest = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const recipeNode = useRecipeStore.getState().definition.nodes[nodeData.id];
+    if (!recipeNode) return;
+    setIsQuickTesting(true);
+    try {
+      const { testRecipeNode } = await import("@/lib/node-tester");
+      await testRecipeNode(recipeNode);
+    } finally {
+      setIsQuickTesting(false);
+    }
+  };
 
   return (
     <div
@@ -77,9 +92,19 @@ export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selec
             {nodeData.type}
           </span>
         </div>
-        <span className="text-[10px] font-mono text-zinc-500 truncate max-w-[80px]">
-          {nodeData.id}
-        </span>
+        <div className="flex items-center space-x-1.5">
+          <button
+            type="button"
+            title="Probar este paso"
+            onClick={handleQuickTest}
+            className="nodrag p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-emerald-400 transition-colors"
+          >
+            <Play className={`w-2.5 h-2.5 ${isQuickTesting ? "animate-spin" : "fill-current"}`} />
+          </button>
+          <span className="text-[10px] font-mono text-zinc-500 truncate max-w-[70px]">
+            {nodeData.id}
+          </span>
+        </div>
       </div>
 
       {/* Cuerpo del Nodo */}
@@ -92,6 +117,16 @@ export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selec
         {nodeData.highlightParam && (
           <div className="p-1.5 rounded bg-zinc-950 border border-zinc-800/80 text-[11px] font-mono text-zinc-300 truncate">
             {nodeData.highlightParam}
+          </div>
+        )}
+
+        {/* Salida probada o ejecutada */}
+        {nodeData.output !== undefined && (
+          <div className="p-1.5 rounded bg-zinc-950 border border-emerald-500/20 text-[10px] font-mono text-emerald-400 truncate flex items-center justify-between">
+            <span className="text-zinc-500 text-[9px] uppercase shrink-0 mr-1">Salida:</span>
+            <span className="truncate text-right">
+              {typeof nodeData.output === "object" ? JSON.stringify(nodeData.output) : String(nodeData.output)}
+            </span>
           </div>
         )}
 

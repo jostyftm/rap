@@ -44,6 +44,10 @@ export interface BaseNode {
   onError?: OnErrorBehavior;
   screenshot?: ScreenshotPolicy;
   next?: string;
+  position?: {
+    x: number;
+    y: number;
+  };
 }
 
 export interface NavigateNode extends BaseNode {
@@ -119,12 +123,44 @@ export interface SetVariableNode extends BaseNode {
   };
 }
 
+export type ConditionDataType =
+  | "string"
+  | "number"
+  | "boolean"
+  | "array"
+  | "exists"
+  | "custom";
+
+export type ConditionOperator =
+  | "equals"
+  | "not_equals"
+  | "contains"
+  | "not_contains"
+  | "starts_with"
+  | "ends_with"
+  | "regex_match"
+  | "greater_than"
+  | "greater_than_or_equal"
+  | "less_than"
+  | "less_than_or_equal"
+  | "is_true"
+  | "is_false"
+  | "array_contains"
+  | "array_is_empty"
+  | "array_not_empty"
+  | "is_null_or_empty"
+  | "is_not_null_or_empty";
+
 export interface ConditionNode extends BaseNode {
   type: "condition";
   params: {
     expression: string;
     thenNodeId: string;
     elseNodeId?: string;
+    dataType?: ConditionDataType;
+    leftOperand?: string;
+    operator?: ConditionOperator;
+    rightOperand?: string;
   };
 }
 
@@ -149,6 +185,25 @@ export interface ScrollNode extends BaseNode {
   };
 }
 
+export type WebhookHttpMethod =
+  | "ANY"
+  | "GET"
+  | "POST"
+  | "PUT"
+  | "DELETE"
+  | "PATCH";
+
+export interface WebhookNode extends BaseNode {
+  type: "webhook";
+  params: {
+    httpMethod: WebhookHttpMethod;
+    path?: string;
+    outputVariable?: string;
+    responseCode?: number;
+    responseBody?: string;
+  };
+}
+
 export type RecipeNode =
   | NavigateNode
   | ClickNode
@@ -160,7 +215,8 @@ export type RecipeNode =
   | SetVariableNode
   | ConditionNode
   | LoopNode
-  | ScrollNode;
+  | ScrollNode
+  | WebhookNode;
 
 export interface RecipeEdge {
   from: string;

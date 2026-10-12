@@ -12,6 +12,30 @@ describe("JSONata Evaluator & Interpolation", () => {
     expect(result).toBe("https://testsite.local/login?user=operador&token=xyz_secret_99");
   });
 
+  it("interpola rutas anidadas de steps, webhook y prefijos de variables", () => {
+    const template = "User: {{variables.user}}, Step: {{steps.extract_1.output}}, Webhook: {{webhook.body.email}}";
+    const result = interpolateString(
+      template,
+      {
+        user: "admin",
+        steps: { extract_1: { output: "Item $49.99" } },
+        webhook: { body: { email: "lead@example.com" } },
+      }
+    );
+    expect(result).toBe("User: admin, Step: Item $49.99, Webhook: lead@example.com");
+  });
+
+  it("serializa JSON si el valor interpolado es un objeto", () => {
+    const template = "Payload: {{webhook.body}}";
+    const result = interpolateString(
+      template,
+      {
+        webhook: { body: { key: "val" } },
+      }
+    );
+    expect(result).toBe('Payload: {"key":"val"}');
+  });
+
   it("evalúa expresiones condicionales sin eval", async () => {
     const isGreater = await evaluateExpression("score > 80", { score: 95 });
     expect(isGreater).toBe(true);

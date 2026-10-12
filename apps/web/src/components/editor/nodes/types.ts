@@ -9,7 +9,7 @@ export interface NodeInspectorProps<T extends RecipeNode = RecipeNode> {
 export interface NodeDefinition<T extends RecipeNode = RecipeNode> {
   type: T["type"];
   label: string;
-  category: "interaction" | "waits" | "data" | "control";
+  category: "triggers" | "interaction" | "waits" | "data" | "control";
   description: string;
   keywords?: string[];
   icon: React.ComponentType<{ className?: string }>;

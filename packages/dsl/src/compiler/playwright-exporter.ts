@@ -283,6 +283,13 @@ export function exportToPlaywright(recipe: RecipeDsl, options: PlaywrightExportO
         }
         break;
       }
+
+      case "webhook": {
+        const varName = node.params.outputVariable || "webhook";
+        nodeLines.push(`// Webhook trigger payload`);
+        nodeLines.push(`variables[${JSON.stringify(varName)}] = variables[${JSON.stringify(varName)}] || {};`);
+        break;
+      }
     }
 
     // Manejo de onError

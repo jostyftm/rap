@@ -7,6 +7,7 @@ import {
   type Node,
   type Edge,
   type Connection,
+  type OnNodeDrag,
   BackgroundVariant,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -37,8 +38,10 @@ export function FlowCanvas() {
   const addEdge = useRecipeStore((s) => s.addEdge);
   const removeEdge = useRecipeStore((s) => s.removeEdge);
   const nodeIssues = useRecipeStore((s) => s.nodeIssues);
+  const nodeOutputs = useRecipeStore((s) => s.nodeOutputs);
+  const updateNodePosition = useRecipeStore((s) => s.updateNodePosition);
 
-  // Calcular disposición visual de los nodos (layout automático vertical)
+  // Calcular disposición visual de los nodos (respetando posiciones manuales guardadas)
   const nodes: Node[] = useMemo(() => {
     const nodesMap = definition?.nodes ?? {};
     const nodeKeys = Object.keys(nodesMap);
@@ -73,11 +76,12 @@ export function FlowCanvas() {
       const issues = getSafeNodeIssues(nodeIssues, currId);
       const hasErrors = issues.length > 0;
       const firstErrorMessage = issues[0]?.message;
+      const nodePos = node.position ? { x: node.position.x, y: node.position.y } : { x: currentX, y: currentY };
 
       result.push({
         id: currId,
         type: "customNode",
-        position: { x: currentX, y: currentY },
+        position: nodePos,
         selected: selectedNodeId === currId,
         data: {
           id: currId,
@@ -90,6 +94,7 @@ export function FlowCanvas() {
           hasErrors,
           firstErrorMessage,
           issues,
+          output: nodeOutputs[currId],
         },
       });
 
@@ -111,11 +116,12 @@ export function FlowCanvas() {
         const issues = getSafeNodeIssues(nodeIssues, key);
         const hasErrors = issues.length > 0;
         const firstErrorMessage = issues[0]?.message;
+        const nodePos = node.position ? { x: node.position.x, y: node.position.y } : { x: posX, y: posY };
 
         result.push({
           id: key,
           type: "customNode",
-          position: { x: posX, y: posY },
+          position: nodePos,
           selected: selectedNodeId === key,
           data: {
             id: key,
@@ -128,13 +134,14 @@ export function FlowCanvas() {
             hasErrors,
             firstErrorMessage,
             issues,
+            output: nodeOutputs[key],
           },
         });
       }
     }
 
     return result;
-  }, [definition, selectedNodeId, nodeIssues]);
+  }, [definition, selectedNodeId, nodeIssues, nodeOutputs]);
 
   // Convertir aristas del DSL a aristas de React Flow
   const edges: Edge[] = useMemo(() => {
@@ -172,12 +179,24 @@ export function FlowCanvas() {
     setSelectedNodeId(null);
   }, [setSelectedNodeId]);
 
+  const onNodeDragStop: OnNodeDrag = useCallback(
+    (_event, node) => {
+      updateNodePosition(node.id, {
+        x: Math.round(node.position.x),
+        y: Math.round(node.position.y),
+      });
+    },
+    [updateNodePosition]
+  );
+
   return (
     <div className="flex-1 h-full bg-neutral-950 relative">
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        nodesDraggable={true}
+        onNodeDragStop={onNodeDragStop}
         onConnect={onConnect}
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
