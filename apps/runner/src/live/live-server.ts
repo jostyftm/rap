@@ -361,12 +361,66 @@ export class LiveServer {
     const hasBody = !["GET", "HEAD"].includes(req.method || "GET");
     const body = hasBody ? await this.readBody(req) : undefined;
 
-    const upstream = await fetch(targetUrl, {
-      method: req.method,
-      headers,
-      body: body && body.length ? new Uint8Array(body) : undefined,
-      redirect: "manual",
-    });
+    let currentTarget = targetUrl;
+    let upstream: Response | null = null;
+    let redirectCount = 0;
+    const MAX_REDIRECTS = 5;
+    const accumulatedCookies: string[] = [];
+
+    while (redirectCount < MAX_REDIRECTS) {
+      upstream = await fetch(currentTarget, {
+        method: req.method,
+        headers,
+        body: body && body.length ? new Uint8Array(body) : undefined,
+        redirect: "manual",
+      });
+
+      const sc = (upstream.headers as any).getSetCookie?.() as string[] | undefined;
+      if (sc && sc.length) {
+        accumulatedCookies.push(...sc);
+      }
+
+      const location = upstream.headers.get("location");
+      if (upstream.status >= 300 && upstream.status < 400 && location) {
+        try {
+          const abs = new URL(location, currentTarget);
+          const sessionHost = new URL(session.origin).host.toLowerCase();
+          const targetHost = abs.host.toLowerCase();
+
+          const isSameSite =
+            abs.origin === session.origin ||
+            targetHost === sessionHost ||
+            targetHost === `www.${sessionHost}` ||
+            sessionHost === `www.${targetHost}`;
+
+          if (isSameSite) {
+            session.origin = abs.origin;
+            this.originToSession.set(abs.origin, session.id);
+
+            const destLocation = `${proxyOrigin}${abs.pathname}${abs.search}${abs.hash}`;
+            const currentRequestUrl = `${proxyOrigin}${req.url || "/"}`;
+
+            // Si es un auto-redireccionamiento hacia la misma URL en el proxy (ej. solo cambio www o https en la raiz),
+            // lo seguimos internamente en el servidor en lugar de enviar un bucle 301 al navegador.
+            if (destLocation === currentRequestUrl) {
+              currentTarget = abs.href;
+              redirectCount++;
+              continue;
+            }
+          }
+        } catch {
+          // Si falla parsear la URL, salir del bucle
+        }
+      }
+
+      break;
+    }
+
+    if (!upstream) {
+      res.writeHead(502, { "content-type": "text/plain" });
+      res.end("Error al contactar con el sitio upstream");
+      return;
+    }
 
     const outHeaders: Record<string, string | string[]> = {};
     upstream.headers.forEach((value, key) => {
@@ -377,11 +431,11 @@ export class LiveServer {
     // Inyectar siempre cabeceras CORS permisivas
     this.applyCorsHeaders(outHeaders, req);
 
-    // Redirecciones: reconciliar variantes canónicas (youtube.com <-> www.youtube.com)
+    // Redirecciones hacia rutas distintas o dominios externos
     const location = upstream.headers.get("location");
-    if (location) {
+    if (location && upstream.status >= 300 && upstream.status < 400) {
       try {
-        const abs = new URL(location, targetUrl);
+        const abs = new URL(location, currentTarget);
         const sessionHost = new URL(session.origin).host.toLowerCase();
         const targetHost = abs.host.toLowerCase();
 
@@ -392,10 +446,16 @@ export class LiveServer {
           sessionHost === `www.${targetHost}`;
 
         if (isSameSite) {
-          // Mantener el mismo sessionId y actualizar session.origin si cambió canónicamente
           session.origin = abs.origin;
           this.originToSession.set(abs.origin, session.id);
-          outHeaders.location = `${proxyOrigin}${abs.pathname}${abs.search}${abs.hash}`;
+          const destLocation = `${proxyOrigin}${abs.pathname}${abs.search}${abs.hash}`;
+          const currentRequestUrl = `${proxyOrigin}${req.url || "/"}`;
+          if (destLocation !== currentRequestUrl) {
+            outHeaders.location = destLocation;
+          } else {
+            // Evitar enviar auto-redirección si de algún modo sobrevivió
+            delete outHeaders.location;
+          }
         } else {
           // Dominio completamente distinto: sesión proxy propia
           const s = this.sessionFor(abs.origin);
@@ -406,9 +466,8 @@ export class LiveServer {
       }
     }
 
-    const setCookies = (upstream.headers as any).getSetCookie?.() as string[] | undefined;
-    if (setCookies && setCookies.length) {
-      outHeaders["set-cookie"] = setCookies.map((c) =>
+    if (accumulatedCookies.length) {
+      outHeaders["set-cookie"] = accumulatedCookies.map((c) =>
         c
           .replace(/;\s*Domain=[^;]*/gi, "")
           .replace(/;\s*Secure/gi, "")

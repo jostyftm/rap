@@ -51,11 +51,13 @@ export interface RecipeStoreState {
   // Métricas y estado por nodo individual
   nodeExecStatuses: Record<string, "idle" | "running" | "success" | "error">;
   nodeExecDurations: Record<string, number>;
+  nodeExecErrors: Record<string, string>;
   disabledNodeIds: string[];
   setNodeExecState: (
     nodeId: string,
     status: "idle" | "running" | "success" | "error",
-    durationMs?: number
+    durationMs?: number,
+    error?: string
   ) => void;
 
   // Grabación en vivo (Recorder)
@@ -249,14 +251,21 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
 
   nodeExecStatuses: {},
   nodeExecDurations: {},
+  nodeExecErrors: {},
   disabledNodeIds: [],
-  setNodeExecState: (nodeId, status, durationMs) =>
+  setNodeExecState: (nodeId, status, durationMs, error) =>
     set((state) => ({
       nodeExecStatuses: { ...state.nodeExecStatuses, [nodeId]: status },
       nodeExecDurations:
         durationMs !== undefined
           ? { ...state.nodeExecDurations, [nodeId]: durationMs }
           : state.nodeExecDurations,
+      nodeExecErrors:
+        error !== undefined
+          ? { ...state.nodeExecErrors, [nodeId]: error }
+          : status === "running" || status === "success"
+          ? { ...state.nodeExecErrors, [nodeId]: "" }
+          : state.nodeExecErrors,
     })),
 
   isRecording: false,

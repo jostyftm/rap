@@ -1,4 +1,5 @@
 import type { RecipeNode } from "@rpa/dsl";
+import { resolveExpression } from "@rpa/dsl";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { useLiveStore } from "@/stores/use-live-store";
 
@@ -9,7 +10,11 @@ export interface NodeTestResult {
   durationMs: number;
 }
 
-function resolveValue(tokenOrStr: string, variables: Record<string, unknown>, stepResults: Record<string, unknown>): unknown {
+function resolveValue(
+  tokenOrStr: string,
+  variables: Record<string, unknown>,
+  stepResults: Record<string, unknown>
+): unknown {
   if (!tokenOrStr) return "";
   const trimmed = tokenOrStr.trim();
   if (trimmed.startsWith("{{") && trimmed.endsWith("}}")) {
@@ -70,14 +75,17 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
         const rawExpr = node.params.expression || "";
         let evaluated: unknown = rawExpr;
 
-        // Si es interpolación simple o número/texto
         if (rawExpr.includes("{{")) {
           evaluated = rawExpr.replace(/\{\{([^{}]+)\}\}/g, (_, key) => {
             const trimmed = key.trim();
             if (trimmed.startsWith("steps.")) {
               const stepId = trimmed.split(".")[1];
               const out = currentStepOutputs[stepId];
-              return out !== undefined ? (typeof out === "object" ? JSON.stringify(out) : String(out)) : `[${trimmed}]`;
+              return out !== undefined
+                ? typeof out === "object"
+                  ? JSON.stringify(out)
+                  : String(out)
+                : `[${trimmed}]`;
             }
             if (trimmed.startsWith("variables.")) {
               const varName = trimmed.slice("variables.".length);
@@ -146,7 +154,9 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
         const durationMs = Date.now() - startTime;
         const resultOutput = {
           cumpleCondicion: isSatisfied,
-          ramaSiguiente: isSatisfied ? (node.params.thenNodeId || "Rama VERDADERA (then)") : (node.params.elseNodeId || "Rama FALSA (else)"),
+          ramaSiguiente: isSatisfied
+            ? node.params.thenNodeId || "Rama VERDADERA (then)"
+            : node.params.elseNodeId || "Rama FALSA (else)",
           comparacion: `${JSON.stringify(leftVal)} [${operator}] ${JSON.stringify(rightVal)}`,
         };
         store.setNodeOutput(node.id, resultOutput);
@@ -167,10 +177,79 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
           estado: "Bucle configurado correctamente",
         };
         store.setNodeOutput(node.id, output);
+        store.addLog({
+          level: "success",
+          message: `[Test] Bucle '${node.params.itemVariable}' configurado (${durationMs}ms)`,
+          nodeId: node.id,
+        });
         return { ok: true, output, durationMs };
       }
 
-      // Pasos de navegador (navigate, click, type, select, waitFor, extract, screenshot, scroll)
+      // Nodo de Navegación inicial / Navegador
+      case "navigate": {
+        const rawUrl = (node.params as any)?.url || "";
+        let resolvedUrl = rawUrl;
+        if (typeof rawUrl === "string" && rawUrl.includes("{{")) {
+          const evalRes = resolveExpression(rawUrl, {
+            definition: store.definition,
+            nodeOutputs: currentStepOutputs,
+            variables: currentVariables,
+          });
+          resolvedUrl = evalRes.resolvedStr;
+        }
+
+        resolvedUrl = typeof resolvedUrl === "string" ? resolvedUrl.trim() : "";
+        if (!resolvedUrl || !/^https?:\/\//i.test(resolvedUrl)) {
+          const durationMs = Date.now() - startTime;
+          const errMsg = `URL de navegación inválida o vacía: "${rawUrl}"`;
+          store.addLog({
+            level: "error",
+            message: `[Test] ${errMsg}`,
+            nodeId: node.id,
+          });
+          console.error(`[NodeTester] ${errMsg}`);
+          return { ok: false, error: errMsg, durationMs };
+        }
+
+        const live = useLiveStore.getState();
+        const recipeId = store.recipeId || "test_recipe";
+
+        try {
+          if (live.kind === "external") {
+            await live.startExternal(recipeId, resolvedUrl);
+          } else {
+            await live.startEmbedded(recipeId, resolvedUrl);
+          }
+        } catch (navErr: any) {
+          const durationMs = Date.now() - startTime;
+          const errMsg = `Fallo al iniciar navegación: ${navErr?.message || navErr}`;
+          store.addLog({
+            level: "error",
+            message: `[Test] ${errMsg}`,
+            nodeId: node.id,
+          });
+          console.error(`[NodeTester] ${errMsg}`);
+          return { ok: false, error: errMsg, durationMs };
+        }
+
+        const durationMs = Date.now() - startTime;
+        const output = {
+          url: resolvedUrl,
+          status: "Navegación completada",
+          timestamp: new Date().toISOString(),
+        };
+
+        store.setNodeOutput(node.id, output);
+        store.addLog({
+          level: "success",
+          message: `[Test] Navegación a ${resolvedUrl} completada con éxito (${durationMs}ms)`,
+          nodeId: node.id,
+        });
+
+        return { ok: true, output, durationMs };
+      }
+
+      // Pasos de interacción en navegador (click, type, select, waitFor, extract, screenshot, scroll)
       default: {
         const live = useLiveStore.getState();
         if (live.isOpen && live.status === "ready") {
@@ -178,22 +257,44 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
           const liveResult = useLiveStore.getState().execResults[node.id];
           const durationMs = Date.now() - startTime;
           if (liveResult && liveResult.ok) {
-            const out = liveResult.output ?? { status: "Acción completada en navegador", strategy: liveResult.strategy };
+            const out = liveResult.output ?? {
+              status: "Acción completada en navegador",
+              strategy: liveResult.strategy,
+            };
             store.setNodeOutput(node.id, out);
+            store.addLog({
+              level: "success",
+              message: `[Test] Paso '${node.description || node.type}' completado con éxito (${durationMs}ms)`,
+              nodeId: node.id,
+            });
             return { ok: true, output: out, durationMs };
           }
+          const errMsg = liveResult?.error || "Fallo en ejecución del sitio en vivo";
+          store.addLog({
+            level: "error",
+            message: `[Test] Falló paso '${node.description || node.type}': ${errMsg}`,
+            nodeId: node.id,
+          });
+          console.error(`[NodeTester] Falló paso '${node.id}':`, errMsg);
           return {
             ok: false,
-            error: liveResult?.error || "Fallo en ejecución del sitio en vivo",
+            error: errMsg,
             durationMs,
           };
         }
 
-        // Si el sitio no está abierto, abrir e informar
+        // Si el sitio no está abierto o listo
         const durationMs = Date.now() - startTime;
+        const errMsg = "Abre o inicia el sitio en vivo a la derecha para interactuar y probar este paso visualmente.";
+        store.addLog({
+          level: "warn",
+          message: `[Test] ${errMsg}`,
+          nodeId: node.id,
+        });
+        console.warn(`[NodeTester] ${errMsg}`);
         return {
           ok: false,
-          error: "Abre el sitio en vivo a la derecha para interactuar y probar este paso visualmente en el navegador.",
+          error: errMsg,
           durationMs,
         };
       }
@@ -201,6 +302,12 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     const durationMs = Date.now() - startTime;
+    store.addLog({
+      level: "error",
+      message: `[Test] Error inesperado en nodo '${node.description || node.type}': ${errorMsg}`,
+      nodeId: node.id,
+    });
+    console.error(`[NodeTester] Error en testRecipeNode:`, err);
     return { ok: false, error: errorMsg, durationMs };
   }
 }

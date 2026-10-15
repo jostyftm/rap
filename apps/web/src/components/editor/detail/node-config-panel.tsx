@@ -59,11 +59,13 @@ export function NodeConfigPanel({
   const setEntryNode = useRecipeStore((s) => s.setEntryNode);
   const nodeExecStatuses = useRecipeStore((s) => s.nodeExecStatuses);
   const nodeExecDurations = useRecipeStore((s) => s.nodeExecDurations);
+  const nodeExecErrors = useRecipeStore((s) => s.nodeExecErrors);
 
   const isDisabled = disabledNodeIds.includes(node.id);
   const isEntry = definition.entry === node.id;
   const execStatus = nodeExecStatuses[node.id];
   const execDuration = nodeExecDurations[node.id];
+  const execError = nodeExecErrors[node.id];
 
   const nodeDef = nodeRegistry.get(node.type);
   const Icon = nodeDef?.icon || Globe;
@@ -551,9 +553,14 @@ export function NodeConfigPanel({
             </span>
           )}
           {execStatus === "error" && (
-            <span className="flex items-center space-x-1 text-rose-400">
-              <AlertTriangle className="w-3.5 h-3.5" />
-              <span>Falló</span>
+            <span
+              className="flex items-center space-x-1.5 text-rose-400 max-w-[320px]"
+              title={execError || "Error en la ejecución"}
+            >
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">
+                {execError ? `Falló: ${execError}` : "Falló"}
+              </span>
             </span>
           )}
         </div>

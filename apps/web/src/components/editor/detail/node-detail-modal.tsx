@@ -82,10 +82,10 @@ export function NodeDetailModal() {
           setNodeOutput(currentNode.id, result.output);
         }
       } else {
-        setNodeExecState(currentNode.id, "error", result.durationMs);
+        setNodeExecState(currentNode.id, "error", result.durationMs, result.error);
       }
-    } catch {
-      setNodeExecState(currentNode.id, "error");
+    } catch (err: any) {
+      setNodeExecState(currentNode.id, "error", undefined, err?.message || String(err));
     } finally {
       setIsExecuting(false);
     }
