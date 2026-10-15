@@ -12,6 +12,7 @@ import { CodeEditor } from "@/components/editor/code-editor";
 import { ExecutionConsole } from "@/components/editor/execution-console";
 import { RecorderBar } from "@/components/editor/recorder-bar";
 import { LiveSitePanel } from "@/components/editor/live-site-panel";
+import { NodeDetailModal } from "@/components/editor/detail/node-detail-modal";
 import { Loader2, Plus } from "lucide-react";
 import { useRecipeEditor } from "./hooks/use-recipe-editor";
 import { useSplitResizer } from "./hooks/use-split-resizer";
@@ -168,6 +169,9 @@ function RecipeEditorContent() {
 
       {/* 3. Consola de Ejecución en Tiempo Real */}
       <ExecutionConsole />
+
+      {/* 4. Modal de Edición de Nodo Estilo n8n */}
+      <NodeDetailModal />
     </div>
   );
 }

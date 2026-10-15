@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { RecipeDsl, RecipeNode, RecipeEdge, LocatorGroup, NodeValidationIssue } from "@rpa/dsl";
-import { validateRecipeDslDetailed } from "@rpa/dsl";
+import { validateRecipeDslDetailed, reconcileRecipeRoot, analyzeInitializerNodes } from "@rpa/dsl";
 import { calculateLocatorScore } from "@rpa/locator";
 import { nodeRegistry } from "@/components/editor/nodes";
 
@@ -35,6 +35,11 @@ export interface RecipeStoreState {
   activeView: EditorView;
   isDirty: boolean;
 
+  // Vista de detalle de nodo estilo n8n
+  activeDetailNodeId: string | null;
+  openNodeDetail: (nodeId: string) => void;
+  closeNodeDetail: () => void;
+
   // Ejecución en vivo
   runId: string | null;
   runStatus: "idle" | "running" | "success" | "failed";
@@ -42,6 +47,16 @@ export interface RecipeStoreState {
   runningNodeId: string | null;
   logs: ExecutionLog[];
   screenshots: ExecutionScreenshot[];
+
+  // Métricas y estado por nodo individual
+  nodeExecStatuses: Record<string, "idle" | "running" | "success" | "error">;
+  nodeExecDurations: Record<string, number>;
+  disabledNodeIds: string[];
+  setNodeExecState: (
+    nodeId: string,
+    status: "idle" | "running" | "success" | "error",
+    durationMs?: number
+  ) => void;
 
   // Grabación en vivo (Recorder)
   isRecording: boolean;
@@ -68,8 +83,11 @@ export interface RecipeStoreState {
   addNode: (type: RecipeNode["type"]) => string;
   updateNode: (id: string, updates: Partial<RecipeNode>) => void;
   deleteNode: (id: string) => void;
+  duplicateNode: (id: string) => string;
+  toggleNodeDisabled: (id: string) => void;
   reorderNodes: (orderedIds: string[]) => void;
   setEntryNode: (id: string) => void;
+  reconcileRootInitializer: () => void;
 
   addEdge: (edge: RecipeEdge) => void;
   removeEdge: (from: string, to: string) => void;
@@ -218,12 +236,28 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   activeView: "canvas",
   isDirty: false,
 
+  activeDetailNodeId: null,
+  openNodeDetail: (nodeId) => set({ activeDetailNodeId: nodeId, selectedNodeId: nodeId }),
+  closeNodeDetail: () => set({ activeDetailNodeId: null }),
+
   runId: null,
   runStatus: "idle",
   runControlState: "idle",
   runningNodeId: null,
   logs: [],
   screenshots: [],
+
+  nodeExecStatuses: {},
+  nodeExecDurations: {},
+  disabledNodeIds: [],
+  setNodeExecState: (nodeId, status, durationMs) =>
+    set((state) => ({
+      nodeExecStatuses: { ...state.nodeExecStatuses, [nodeId]: status },
+      nodeExecDurations:
+        durationMs !== undefined
+          ? { ...state.nodeExecDurations, [nodeId]: durationMs }
+          : state.nodeExecDurations,
+    })),
 
   isRecording: false,
   recordingSessionId: null,
@@ -235,7 +269,9 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   historyIndex: 0,
 
   setRecipe: ({ id, name, description, version, definition }) => {
-    const safeDef = definition || DEFAULT_INITIAL_DSL;
+    const rawDef = definition || DEFAULT_INITIAL_DSL;
+    // Reconciliar automáticamente el nodo inicializador raíz como principal (entry)
+    const safeDef = reconcileRecipeRoot(rawDef);
     const { errors, nodeIssues } = validateDsl(safeDef);
     set({
       recipeId: id,
@@ -250,6 +286,22 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       historyIndex: 0,
       isDirty: false,
     });
+  },
+
+  reconcileRootInitializer: () => {
+    const { definition, history, historyIndex } = get();
+    const reconciled = reconcileRecipeRoot(definition);
+    if (reconciled.entry !== definition.entry) {
+      const { errors, nodeIssues } = validateDsl(reconciled);
+      const hist = pushHistory(history, historyIndex, reconciled);
+      set({
+        definition: reconciled,
+        validationErrors: errors,
+        nodeIssues,
+        isDirty: true,
+        ...hist,
+      });
+    }
   },
 
   setName: (recipeName) => set({ recipeName, isDirty: true }),
@@ -404,11 +456,52 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       nextEntry = Object.keys(nextNodes)[0] || "";
     }
 
-    const updatedDsl: RecipeDsl = {
+    const rawDsl: RecipeDsl = {
       ...definition,
       entry: nextEntry,
       nodes: nextNodes,
       edges: nextEdges,
+    };
+
+    // Reconciliar si el nodo eliminado era entry para priorizar otro inicializador raíz
+    const updatedDsl = reconcileRecipeRoot(rawDsl);
+    const { errors, nodeIssues } = validateDsl(updatedDsl);
+    const hist = pushHistory(history, historyIndex, updatedDsl);
+
+    const { activeDetailNodeId } = get();
+
+    set({
+      definition: updatedDsl,
+      validationErrors: errors,
+      nodeIssues,
+      selectedNodeId: selectedNodeId === id ? (updatedDsl.entry || null) : selectedNodeId,
+      activeDetailNodeId: activeDetailNodeId === id ? null : activeDetailNodeId,
+      isDirty: true,
+      ...hist,
+    });
+  },
+
+  duplicateNode: (id) => {
+    const { definition, history, historyIndex } = get();
+    const sourceNode = definition.nodes[id];
+    if (!sourceNode) return id;
+
+    const newId = `${sourceNode.type}_${Math.random().toString(36).substring(2, 7)}`;
+    const clonedNode: RecipeNode = JSON.parse(JSON.stringify(sourceNode));
+    clonedNode.id = newId;
+    clonedNode.description = `${sourceNode.description || sourceNode.type} (Copia)`;
+    clonedNode.next = undefined;
+    if (clonedNode.position) {
+      clonedNode.position = {
+        x: clonedNode.position.x + 40,
+        y: clonedNode.position.y + 40,
+      };
+    }
+
+    const updatedNodes = { ...definition.nodes, [newId]: clonedNode };
+    const updatedDsl: RecipeDsl = {
+      ...definition,
+      nodes: updatedNodes,
     };
 
     const { errors, nodeIssues } = validateDsl(updatedDsl);
@@ -418,9 +511,23 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       definition: updatedDsl,
       validationErrors: errors,
       nodeIssues,
-      selectedNodeId: selectedNodeId === id ? (nextEntry || null) : selectedNodeId,
+      selectedNodeId: newId,
+      activeDetailNodeId: newId,
       isDirty: true,
       ...hist,
+    });
+
+    return newId;
+  },
+
+  toggleNodeDisabled: (id) => {
+    set((state) => {
+      const exists = state.disabledNodeIds.includes(id);
+      return {
+        disabledNodeIds: exists
+          ? state.disabledNodeIds.filter((x) => x !== id)
+          : [...state.disabledNodeIds, id],
+      };
     });
   },
 

@@ -11,6 +11,7 @@ export const navigateDefinition: NodeDefinition<NavigateNode> = {
   label: "Navegar (goto)",
   category: "interaction",
   description: "Cargar una dirección URL en el navegador",
+  isInitializer: true,
   icon: Globe,
   color: "bg-blue-500/10 text-blue-600 border-blue-500/20",
   hasTarget: false,

@@ -20,6 +20,7 @@ import { useRecipeStore } from "@/stores/use-recipe-store";
 import { CustomFlowNode } from "./custom-flow-node";
 import { CustomFlowEdge } from "./custom-flow-edge";
 import type { RecipeDsl, RecipeNode, RecipeEdge, NodeValidationIssue } from "@rpa/dsl";
+import { analyzeInitializerNodes } from "@rpa/dsl";
 import { nodeRegistry } from "./nodes";
 
 export function getSafeNodeIssues(
@@ -45,12 +46,17 @@ function buildCanvasNodes(
   selectedNodeId: string | null,
   nodeIssues: unknown,
   nodeOutputs: Record<string, unknown>,
-  existingNodesMap?: Map<string, { x: number; y: number }>
+  existingNodesMap?: Map<string, { x: number; y: number }>,
+  disabledNodeIds: string[] = []
 ): Node[] {
   const nodesMap = definition?.nodes ?? {};
   const nodeKeys = Object.keys(nodesMap);
   const result: Node[] = [];
   const visited = new Set<string>();
+
+  const initAnalysis = definition
+    ? analyzeInitializerNodes(definition)
+    : { primaryRootId: null, initializers: [] };
 
   let currentY = 20;
   let currentX = 180;
@@ -87,6 +93,9 @@ function buildCanvasNodes(
     const firstErrorMessage = issues[0]?.message;
     const nodePos = resolvePosition(node, { x: currentX, y: currentY });
 
+    const initInfo = initAnalysis.initializers.find((i) => i.id === currId);
+    const isInit = !!initInfo || nodeRegistry.get(node.type)?.isInitializer === true;
+
     result.push({
       id: currId,
       type: "customNode",
@@ -98,6 +107,10 @@ function buildCanvasNodes(
         strategy: (node as any).params?.strategy,
         description: node.description,
         isEntry: definition?.entry === currId,
+        isInitializer: isInit,
+        isRoot: initInfo ? initInfo.isRoot : false,
+        isPrincipal: definition?.entry === currId,
+        isDisabled: disabledNodeIds.includes(currId),
         locator,
         highlightParam,
         hasErrors,
@@ -127,6 +140,9 @@ function buildCanvasNodes(
       const firstErrorMessage = issues[0]?.message;
       const nodePos = resolvePosition(node, { x: posX, y: posY });
 
+      const initInfo = initAnalysis.initializers.find((i) => i.id === key);
+      const isInit = !!initInfo || nodeRegistry.get(node.type)?.isInitializer === true;
+
       result.push({
         id: key,
         type: "customNode",
@@ -138,6 +154,10 @@ function buildCanvasNodes(
           strategy: (node as any).params?.strategy,
           description: node.description,
           isEntry: definition?.entry === key,
+          isInitializer: isInit,
+          isRoot: initInfo ? initInfo.isRoot : false,
+          isPrincipal: definition?.entry === key,
+          isDisabled: disabledNodeIds.includes(key),
           locator,
           highlightParam,
           hasErrors,
@@ -220,6 +240,8 @@ function FlowCanvasInner() {
   const nodeIssues = useRecipeStore((s) => s.nodeIssues);
   const nodeOutputs = useRecipeStore((s) => s.nodeOutputs);
   const updateNodePosition = useRecipeStore((s) => s.updateNodePosition);
+  const disabledNodeIds = useRecipeStore((s) => s.disabledNodeIds);
+  const openNodeDetail = useRecipeStore((s) => s.openNodeDetail);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -233,14 +255,42 @@ function FlowCanvasInner() {
       for (const n of prevNodes) {
         existingMap.set(n.id, n.position);
       }
-      return buildCanvasNodes(definition, selectedNodeId, nodeIssues, nodeOutputs, existingMap);
+      return buildCanvasNodes(
+        definition,
+        selectedNodeId,
+        nodeIssues,
+        nodeOutputs,
+        existingMap,
+        disabledNodeIds
+      );
     });
-  }, [definition, selectedNodeId, nodeIssues, nodeOutputs, setNodes]);
+  }, [definition, selectedNodeId, nodeIssues, nodeOutputs, disabledNodeIds, setNodes]);
 
   // Sincronizar aristas cuando cambia la definición
   useEffect(() => {
     setEdges(buildCanvasEdges(definition?.edges || []));
   }, [definition?.edges, setEdges]);
+
+  // Atajo de teclado: Enter o Espacio para abrir la vista detallada del nodo seleccionado
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isInput =
+        activeEl instanceof HTMLInputElement ||
+        activeEl instanceof HTMLTextAreaElement ||
+        activeEl?.getAttribute("contenteditable") === "true";
+
+      if (isInput) return;
+
+      if ((e.key === "Enter" || e.key === " ") && selectedNodeId) {
+        e.preventDefault();
+        openNodeDetail(selectedNodeId);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedNodeId, openNodeDetail]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -260,6 +310,13 @@ function FlowCanvasInner() {
       setSelectedNodeId(node.id);
     },
     [setSelectedNodeId]
+  );
+
+  const onNodeDoubleClick = useCallback(
+    (_: React.MouseEvent, node: Node) => {
+      openNodeDetail(node.id);
+    },
+    [openNodeDetail]
   );
 
   const onPaneClick = useCallback(() => {
@@ -307,6 +364,7 @@ function FlowCanvasInner() {
         onEdgesDelete={onEdgesDelete}
         onConnect={onConnect}
         onNodeClick={onNodeClick}
+        onNodeDoubleClick={onNodeDoubleClick}
         onPaneClick={onPaneClick}
         fitView
         fitViewOptions={{ padding: 0.2 }}

@@ -44,6 +44,7 @@ export interface BaseNode {
   onError?: OnErrorBehavior;
   screenshot?: ScreenshotPolicy;
   next?: string;
+  isInitializer?: boolean;
   position?: {
     x: number;
     y: number;
@@ -241,4 +242,11 @@ export interface RecipeDsl {
   entry: string;
   nodes: Record<string, RecipeNode>;
   edges: RecipeEdge[];
+}
+
+export const INITIALIZER_NODE_TYPES = ["navigate", "webhook"] as const;
+export type InitializerNodeType = (typeof INITIALIZER_NODE_TYPES)[number];
+
+export function isInitializerNodeType(type: string): type is InitializerNodeType {
+  return (INITIALIZER_NODE_TYPES as readonly string[]).includes(type);
 }

@@ -63,6 +63,7 @@ const BaseNodeSchema = z.object({
   onError: z.enum(["fail", "continue", "retry"]).default("fail"),
   screenshot: z.enum(["never", "onError", "always"]).default("onError"),
   next: z.string().optional(),
+  isInitializer: z.boolean().optional(),
   position: z
     .object({
       x: z.number(),

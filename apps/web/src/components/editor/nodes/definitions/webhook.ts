@@ -8,6 +8,7 @@ export const webhookDefinition: NodeDefinition<WebhookNode> = {
   label: "Webhook (HTTP Trigger)",
   category: "triggers",
   description: "Recibe peticiones HTTP (GET, POST, etc.)",
+  isInitializer: true,
   keywords: ["webhook", "http", "api", "trigger", "post", "get", "rest", "payload"],
   icon: Webhook,
   color: "bg-purple-500/10 text-purple-400 border-purple-500/20",

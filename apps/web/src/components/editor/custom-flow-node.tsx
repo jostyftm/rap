@@ -8,6 +8,8 @@ import {
   ShieldCheck,
   AlertTriangle,
   Crosshair,
+  Maximize2,
+  Sparkles,
 } from "lucide-react";
 import type { RecipeNode } from "@rpa/dsl";
 import { useRecipeStore } from "@/stores/use-recipe-store";
@@ -21,6 +23,10 @@ export interface CustomNodeData extends Record<string, unknown> {
   strategy?: string;
   description: string;
   isEntry: boolean;
+  isInitializer?: boolean;
+  isRoot?: boolean;
+  isPrincipal?: boolean;
+  isDisabled?: boolean;
   locator?: {
     strategy: string;
     value: string;
@@ -56,11 +62,19 @@ export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selec
     }
   };
 
+  const handleOpenDetail = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    useRecipeStore.getState().openNodeDetail(nodeData.id);
+  };
+
   return (
     <div
       onClick={() => useRecipeStore.getState().setSelectedNodeId(nodeData.id)}
-      className={`relative w-64 rounded-lg border bg-zinc-900/95 transition-colors cursor-pointer select-none shadow-sm ${
-        isRunning
+      onDoubleClick={handleOpenDetail}
+      className={`relative w-64 rounded-lg border bg-zinc-900/95 transition-all cursor-pointer select-none shadow-sm ${
+        nodeData.isDisabled
+          ? "opacity-50 grayscale"
+          : isRunning
           ? "border-amber-400 ring-2 ring-amber-400/20"
           : selected
           ? "border-zinc-300 ring-1 ring-zinc-300/30"
@@ -74,13 +88,26 @@ export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selec
         className="!w-2.5 !h-2.5 !bg-zinc-500 !border-2 !border-zinc-900 hover:!bg-zinc-200 transition-colors"
       />
 
-      {/* Badge de Entrada Inicial */}
-      {nodeData.isEntry && (
-        <div className="absolute -top-2.5 left-3 flex items-center space-x-1 px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-950 text-[9px] font-mono font-medium uppercase tracking-wider">
+      {/* Badges de Entrada / Inicializador */}
+      {nodeData.isEntry ? (
+        <div className="absolute -top-2.5 left-3 flex items-center space-x-1 px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-950 text-[9px] font-mono font-semibold uppercase tracking-wider shadow-sm">
           <Play className="w-2.5 h-2.5 fill-current" />
-          <span>Inicio</span>
+          <span>{nodeData.isInitializer ? "Trigger Principal" : "Inicio"}</span>
         </div>
-      )}
+      ) : nodeData.isInitializer && nodeData.isRoot ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            useRecipeStore.getState().setEntryNode(nodeData.id);
+          }}
+          title="Hacer este nodo el trigger/inicio principal del flujo"
+          className="nodrag absolute -top-2.5 left-3 flex items-center space-x-1 px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 text-[9px] font-mono transition-colors shadow-sm"
+        >
+          <Sparkles className="w-2.5 h-2.5 text-amber-400" />
+          <span>Trigger · Hacer Principal</span>
+        </button>
+      ) : null}
 
       {/* Encabezado del Nodo */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800/80">
@@ -92,7 +119,15 @@ export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selec
             {nodeData.type}
           </span>
         </div>
-        <div className="flex items-center space-x-1.5">
+        <div className="flex items-center space-x-1">
+          <button
+            type="button"
+            title="Abrir vista de edición completa (Doble clic)"
+            onClick={handleOpenDetail}
+            className="nodrag p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
+          >
+            <Maximize2 className="w-3 h-3" />
+          </button>
           <button
             type="button"
             title="Probar este paso"
@@ -101,7 +136,7 @@ export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selec
           >
             <Play className={`w-2.5 h-2.5 ${isQuickTesting ? "animate-spin" : "fill-current"}`} />
           </button>
-          <span className="text-[10px] font-mono text-zinc-500 truncate max-w-[70px]">
+          <span className="text-[10px] font-mono text-zinc-500 truncate max-w-[60px]">
             {nodeData.id}
           </span>
         </div>

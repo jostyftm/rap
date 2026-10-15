@@ -11,6 +11,7 @@ export interface NodeDefinition<T extends RecipeNode = RecipeNode> {
   label: string;
   category: "triggers" | "interaction" | "waits" | "data" | "control";
   description: string;
+  isInitializer?: boolean;
   keywords?: string[];
   icon: React.ComponentType<{ className?: string }>;
   color: string;

@@ -10,6 +10,7 @@ import {
   ChevronDown,
   SlidersHorizontal,
   AlertTriangle,
+  Maximize2,
 } from "lucide-react";
 import type { RecipeNode, LocatorStrategy, LocatorCandidate } from "@rpa/dsl";
 import { calculateLocatorScore } from "@rpa/locator";
@@ -117,6 +118,13 @@ export function NodeInspector() {
           </h4>
         </div>
         <div className="flex items-center space-x-1 shrink-0">
+          <button
+            onClick={() => useRecipeStore.getState().openNodeDetail(node.id)}
+            title="Abrir vista de edición completa (Estilo n8n)"
+            className="p-1.5 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
+          </button>
           <button
             onClick={() => deleteNode(node.id)}
             title="Eliminar este paso"
