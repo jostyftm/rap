@@ -253,8 +253,26 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
       default: {
         const live = useLiveStore.getState();
         if (live.isOpen && live.status === "ready") {
-          await live.exec(node);
-          const liveResult = useLiveStore.getState().execResults[node.id];
+          // Evaluar variables en params si contienen expresiones {{ ... }}
+          let resolvedNode = node;
+          if (node.params) {
+            const resolvedParams: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(node.params as Record<string, unknown>)) {
+              if (typeof v === "string" && v.includes("{{")) {
+                const evalRes = resolveExpression(v, {
+                  definition: store.definition,
+                  nodeOutputs: currentStepOutputs,
+                  variables: currentVariables,
+                });
+                resolvedParams[k] = evalRes.resolvedStr;
+              } else {
+                resolvedParams[k] = v;
+              }
+            }
+            resolvedNode = { ...node, params: resolvedParams } as any;
+          }
+
+          const liveResult = await live.exec(resolvedNode);
           const durationMs = Date.now() - startTime;
           if (liveResult && liveResult.ok) {
             const out = liveResult.output ?? {
@@ -285,7 +303,10 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
 
         // Si el sitio no está abierto o listo
         const durationMs = Date.now() - startTime;
-        const errMsg = "Abre o inicia el sitio en vivo a la derecha para interactuar y probar este paso visualmente.";
+        const errMsg =
+          live.status === "starting"
+            ? "El sitio en vivo se está iniciando. Espera a que termine de cargar para probar este paso."
+            : "Abre o inicia el sitio en vivo a la derecha para interactuar y probar este paso visualmente.";
         store.addLog({
           level: "warn",
           message: `[Test] ${errMsg}`,

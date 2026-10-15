@@ -100,30 +100,8 @@ export async function runRecipeInLivePanel(
           // Esperar un momento a que el frame cargue
           await new Promise((r) => setTimeout(r, 1200));
         }
-      } else if ("locator" in node && (node as any).locator) {
-        // Enviar comando exec al iframe del panel
-        const reqId = `${node.id}-${Date.now()}`;
-        const execPromise = new Promise<{ ok: boolean; error?: string; strategy?: string; output?: unknown }>(
-          (resolve, reject) => {
-            const timeout = setTimeout(() => {
-              window.removeEventListener("message", handler);
-              reject(new Error(`Timeout de 10s esperando ejecución de [${node.id}]`));
-            }, 10000);
-
-            const handler = (e: MessageEvent) => {
-              if (e.data && e.data.type === "rpa:exec:result" && e.data.nodeId === node.id) {
-                clearTimeout(timeout);
-                window.removeEventListener("message", handler);
-                resolve(e.data);
-              }
-            };
-
-            window.addEventListener("message", handler);
-            liveStore.exec(node);
-          }
-        );
-
-        const result = await execPromise;
+      } else {
+        const result = await liveStore.exec(node);
         const duration = Date.now() - startTime;
 
         if (!result.ok) {
@@ -132,7 +110,7 @@ export async function runRecipeInLivePanel(
 
         recipeStore.addLog({
           level: "success",
-          message: `Paso [${node.id}] completado en ${duration}ms (usó ${result.strategy || "selector"})`,
+          message: `Paso [${node.id}] completado en ${duration}ms (usó ${result.strategy || "acción"})`,
           nodeId: node.id,
         });
       }

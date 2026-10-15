@@ -60,7 +60,7 @@ interface LiveState {
   arm: (nodeId: string) => void;
   disarm: () => void;
   openAndArm: (nodeId: string) => void;
-  exec: (node: RecipeNode) => void;
+  exec: (node: RecipeNode, timeoutMs?: number) => Promise<LiveExecResult>;
   locate: (node: RecipeNode) => void;
   applyCandidates: (nodeId: string, primary: PickCandidate, others: PickCandidate[]) => void;
 }
@@ -75,6 +75,8 @@ function withScores(list: PickCandidate[]): LocatorCandidate[] {
     ),
   }));
 }
+
+const pendingExecResolvers = new Map<string, (res: LiveExecResult) => void>();
 
 export const useLiveStore = create<LiveState>((set, get) => ({
   isOpen: false,
@@ -173,6 +175,14 @@ export const useLiveStore = create<LiveState>((set, get) => ({
         break;
       }
       case "rpa:closed":
+        pendingExecResolvers.forEach((cb, key) => {
+          cb({
+            nodeId: key,
+            ok: false,
+            error: "Conexión con el navegador cerrada",
+          });
+        });
+        pendingExecResolvers.clear();
         set({ status: "idle", sessionId: null, armedNodeId: null });
         break;
       case "rpa:disarmed":
@@ -194,20 +204,30 @@ export const useLiveStore = create<LiveState>((set, get) => ({
         set({ lastPick: { ...pick, candidates: scored }, armedNodeId: null });
         break;
       }
-      case "rpa:exec:result":
+      case "rpa:exec:result": {
+        const res: LiveExecResult = {
+          nodeId: msg.nodeId,
+          ok: !!msg.ok,
+          error: msg.error,
+          strategy: msg.strategy,
+          output: msg.output,
+        };
         set((s) => ({
           execResults: {
             ...s.execResults,
-            [msg.nodeId]: {
-              nodeId: msg.nodeId,
-              ok: !!msg.ok,
-              error: msg.error,
-              strategy: msg.strategy,
-              output: msg.output,
-            },
+            [msg.nodeId]: res,
           },
         }));
+        const resolver =
+          (msg.reqId && pendingExecResolvers.get(msg.reqId)) ||
+          pendingExecResolvers.get(msg.nodeId);
+        if (resolver) {
+          if (msg.reqId) pendingExecResolvers.delete(msg.reqId);
+          pendingExecResolvers.delete(msg.nodeId);
+          resolver(res);
+        }
         break;
+      }
     }
   },
 
@@ -232,21 +252,65 @@ export const useLiveStore = create<LiveState>((set, get) => ({
     set({ isOpen: true, pendingArmNodeId: nodeId });
   },
 
-  exec: (node) => {
-    const { sender } = get();
-    if (!sender) return;
+  exec: (node, timeoutMs = 10000) => {
+    const { sender, isOpen, status } = get();
     const n: any = node;
+
+    if (!isOpen || status !== "ready" || !sender) {
+      const errRes: LiveExecResult = {
+        nodeId: node.id,
+        ok: false,
+        error: "Navegador no conectado o no listo para ejecutar comandos.",
+      };
+      set((s) => ({
+        execResults: { ...s.execResults, [node.id]: errRes },
+      }));
+      return Promise.resolve(errRes);
+    }
+
     set((s) => {
       const { [node.id]: _removed, ...rest } = s.execResults;
       return { execResults: rest };
     });
-    sender({
-      type: "rpa:exec",
-      reqId: `${node.id}-${Date.now()}`,
-      nodeId: node.id,
-      action: node.type,
-      locator: n.locator,
-      params: n.params,
+
+    const reqId = `${node.id}-${Date.now()}`;
+
+    return new Promise<LiveExecResult>((resolve) => {
+      let resolved = false;
+      const timer = setTimeout(() => {
+        if (resolved) return;
+        resolved = true;
+        pendingExecResolvers.delete(node.id);
+        pendingExecResolvers.delete(reqId);
+        const timeoutRes: LiveExecResult = {
+          nodeId: node.id,
+          ok: false,
+          error: `Tiempo de espera agotado (${Math.round(timeoutMs / 1000)}s) esperando respuesta del navegador`,
+        };
+        set((s) => ({
+          execResults: { ...s.execResults, [node.id]: timeoutRes },
+        }));
+        resolve(timeoutRes);
+      }, timeoutMs);
+
+      const handler = (res: LiveExecResult) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timer);
+        resolve(res);
+      };
+
+      pendingExecResolvers.set(node.id, handler);
+      pendingExecResolvers.set(reqId, handler);
+
+      sender({
+        type: "rpa:exec",
+        reqId,
+        nodeId: node.id,
+        action: node.type,
+        locator: n.locator,
+        params: n.params,
+      });
     });
   },
 

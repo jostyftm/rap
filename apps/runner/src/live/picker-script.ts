@@ -282,12 +282,98 @@ export const PICKER_JS = String.raw`
   }
 
   // ---------- Ejecución de pasos de prueba ----------
-  function execAction(cmd) {
+  async function execAction(cmd) {
     var res = { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action };
+
+    // Caso especial: waitFor (soporta timeout, networkIdle, url, text y selector)
+    if (cmd.action === 'waitFor') {
+      var strat = (cmd.params && cmd.params.strategy) || (cmd.locator ? 'selector' : 'timeout');
+      var val = cmd.params ? cmd.params.value : null;
+
+      if (strat === 'timeout') {
+        var ms = Number(val) || 1000;
+        await new Promise(function (r) { setTimeout(r, ms); });
+        return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: true, strategy: 'timeout', output: 'Pausa de ' + ms + 'ms completada' };
+      }
+
+      if (strat === 'networkIdle') {
+        await new Promise(function (r) { setTimeout(r, 600); });
+        return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: true, strategy: 'networkIdle', output: 'Red inactiva' };
+      }
+
+      if (strat === 'url') {
+        var targetUrl = String(val || '').toLowerCase();
+        var uStart = Date.now();
+        while (Date.now() - uStart < 5000) {
+          if (!targetUrl || realUrl().toLowerCase().indexOf(targetUrl) !== -1) {
+            return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: true, strategy: 'url', output: realUrl() };
+          }
+          await new Promise(function (r) { setTimeout(r, 200); });
+        }
+        if (!targetUrl || realUrl().toLowerCase().indexOf(targetUrl) !== -1) {
+          return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: true, strategy: 'url', output: realUrl() };
+        }
+        return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: false, strategy: 'url', error: 'Timeout esperando URL: ' + val };
+      }
+
+      if (strat === 'text') {
+        var needle = String(val || '').trim();
+        if (!needle) {
+          return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: true, strategy: 'text', output: 'Texto vacío' };
+        }
+        var tStart = Date.now();
+        while (Date.now() - tStart < 5000) {
+          var textEl = deepestWithText(needle);
+          if (textEl && isVisible(textEl)) {
+            textEl.scrollIntoView({ block: 'center', inline: 'center' });
+            highlight(textEl, 'encontrado: "' + needle.slice(0, 15) + '"', '#10b981');
+            setTimeout(hideOverlay, 1000);
+            return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: true, strategy: 'text', output: 'Texto visible: ' + needle };
+          }
+          await new Promise(function (r) { setTimeout(r, 200); });
+        }
+        return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: false, strategy: 'text', error: 'Timeout esperando texto: ' + needle };
+      }
+
+      // strat === 'selector' o fallback
+      var sStart = Date.now();
+      while (Date.now() - sStart < 5000) {
+        var foundEl = null;
+        var foundStrat = 'selector';
+        if (cmd.locator) {
+          var g = resolveGroup(cmd.locator);
+          if (g && isVisible(g.el)) {
+            foundEl = g.el;
+            foundStrat = g.strategy;
+          }
+        }
+        if (!foundEl && val) {
+          try {
+            var raw = String(val).trim();
+            var elCand = (raw.indexOf('//') === 0 || raw.indexOf('(') === 0)
+              ? document.evaluate(raw, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue
+              : document.querySelector(raw);
+            if (elCand && isVisible(elCand)) {
+              foundEl = elCand;
+              foundStrat = raw.indexOf('//') === 0 ? 'xpath' : 'css';
+            }
+          } catch (e) {}
+        }
+        if (foundEl) {
+          foundEl.scrollIntoView({ block: 'center', inline: 'center' });
+          highlight(foundEl, 'visible (' + foundStrat + ')', '#10b981');
+          setTimeout(hideOverlay, 1000);
+          return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: true, strategy: foundStrat, output: 'Elemento visible en pantalla' };
+        }
+        await new Promise(function (r) { setTimeout(r, 200); });
+      }
+      return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: false, error: 'Elemento no encontrado tras esperar 5s' };
+    }
+
     var found = resolveGroup(cmd.locator);
     if (!found) {
-      if (cmd.action === 'waitFor' && cmd.params && cmd.params.strategy === 'timeout') {
-        return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: true, strategy: 'timeout', output: 'Pausa completada' };
+      if (cmd.action === 'screenshot') {
+        return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: true, strategy: 'fullPage', output: 'Captura de pantalla simulada' };
       }
       if (cmd.action === 'scroll' && cmd.params && cmd.params.mode !== 'element') {
         var sp = cmd.params || {};
@@ -325,8 +411,6 @@ export const PICKER_JS = String.raw`
         el.dispatchEvent(new Event('change', { bubbles: true }));
       } else if (cmd.action === 'extract') {
         res.output = (p.extractType === 'attribute' && p.attributeName) ? el.getAttribute(p.attributeName) : (el.innerText || el.textContent || '').trim();
-      } else if (cmd.action === 'waitFor') {
-        res.output = 'Elemento visible en pantalla';
       } else if (cmd.action === 'scroll') {
         el.scrollIntoView({ behavior: (p && p.behavior) || 'smooth', block: 'center', inline: 'center' });
         res.output = 'Desplazado hasta el elemento';
@@ -404,9 +488,20 @@ export const PICKER_JS = String.raw`
       armed = null; hideOverlay();
       document.documentElement.style.cursor = '';
     } else if (cmd.type === 'rpa:exec') {
-      var r = execAction(cmd);
-      r.type = 'rpa:exec:result';
-      send(r);
+      Promise.resolve(execAction(cmd)).then(function (r) {
+        if (!r) r = { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: false, error: 'Sin respuesta de ejecución' };
+        r.type = 'rpa:exec:result';
+        send(r);
+      }).catch(function (err) {
+        send({
+          type: 'rpa:exec:result',
+          reqId: cmd.reqId,
+          nodeId: cmd.nodeId,
+          action: cmd.action,
+          ok: false,
+          error: String(err && err.message || err)
+        });
+      });
     } else if (cmd.type === 'rpa:locate') {
       var f = resolveGroup(cmd.locator);
       if (f) { f.el.scrollIntoView({ block: 'center' }); highlight(f.el, 'localizado (' + f.strategy + ')', '#f59e0b'); setTimeout(hideOverlay, 2000); }
