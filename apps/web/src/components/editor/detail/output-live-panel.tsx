@@ -32,8 +32,16 @@ export function OutputLivePanel({
   isExecuting,
   className = "",
 }: OutputLivePanelProps) {
-  const [activeTab, setActiveTab] = useState<"live" | "output">("output");
-  const [copied, setCopied] = useState(false);
+  const isBrowserAction = [
+    "navigate",
+    "click",
+    "type",
+    "select",
+    "waitFor",
+    "extract",
+    "screenshot",
+    "scroll",
+  ].includes(node.type);
 
   const nodeOutputs = useRecipeStore((s) => s.nodeOutputs);
   const nodeExecDurations = useRecipeStore((s) => s.nodeExecDurations);
@@ -43,6 +51,18 @@ export function OutputLivePanel({
   const outputData = nodeOutputs[node.id];
   const duration = nodeExecDurations[node.id];
   const execStatus = nodeExecStatuses[node.id];
+
+  const [activeTab, setActiveTab] = useState<"live" | "output">(() => {
+    return isBrowserAction && outputData === undefined ? "live" : "output";
+  });
+  const [copied, setCopied] = useState(false);
+
+  // Al ejecutar una acción de navegador, mostrar la pestaña del navegador en vivo para feedback en tiempo real
+  useEffect(() => {
+    if (isExecuting && isBrowserAction) {
+      setActiveTab("live");
+    }
+  }, [isExecuting, isBrowserAction]);
 
   // Si el nodo usa selectores, solicitar resaltado en el navegador en vivo
   useEffect(() => {
@@ -147,9 +167,10 @@ export function OutputLivePanel({
       </div>
 
       {/* Contenido según pestaña */}
-      <div className="flex-1 overflow-hidden flex flex-col">
-        {activeTab === "output" ? (
-          outputData !== undefined ? (
+      <div className="flex-1 overflow-hidden flex flex-col relative">
+        {/* Pestaña: Salida estructurada */}
+        <div className={`flex-1 h-full overflow-hidden flex flex-col ${activeTab === "output" ? "" : "hidden"}`}>
+          {outputData !== undefined ? (
             <DataViewer
               data={outputData}
               baseTokenPrefix={`{{steps.${node.id}.output`}
@@ -192,13 +213,13 @@ export function OutputLivePanel({
                 )}
               </button>
             </div>
-          )
-        ) : (
-          /* Pestaña: Navegador en vivo integrado */
-          <div className="flex-1 h-full overflow-hidden flex">
-            <LiveSitePanel />
-          </div>
-        )}
+          )}
+        </div>
+
+        {/* Pestaña: Navegador en vivo integrado (se mantiene siempre montado para preservar la sesión e iframe) */}
+        <div className={`flex-1 h-full overflow-hidden flex ${activeTab === "live" ? "" : "hidden"}`}>
+          <LiveSitePanel />
+        </div>
       </div>
     </div>
   );

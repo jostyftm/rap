@@ -251,7 +251,41 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
 
       // Pasos de interacción en navegador (click, type, select, waitFor, extract, screenshot, scroll)
       default: {
-        const live = useLiveStore.getState();
+        let live = useLiveStore.getState();
+        const recipeId = store.recipeId || "current";
+
+        // Si el sitio no está abierto o listo aún, intentar iniciarlo con la URL del nodo navegador de la receta
+        if (!live.isOpen || live.status === "idle" || !live.proxyUrl) {
+          const navNode = Object.values(store.definition.nodes).find((n) => n.type === "navigate");
+          const entryNode = store.definition.entry ? store.definition.nodes[store.definition.entry] : null;
+          const targetUrl = (navNode as any)?.params?.url || (entryNode as any)?.params?.url;
+          if (targetUrl) {
+            let resolvedUrl = targetUrl;
+            if (typeof targetUrl === "string" && targetUrl.includes("{{")) {
+              const evalRes = resolveExpression(targetUrl, {
+                definition: store.definition,
+                nodeOutputs: currentStepOutputs,
+                variables: currentVariables,
+              });
+              resolvedUrl = evalRes.resolvedStr;
+            }
+            if (/^https?:\/\//i.test(resolvedUrl)) {
+              store.addLog({
+                level: "info",
+                message: `[Test] Iniciando navegador en vivo en ${resolvedUrl}...`,
+                nodeId: node.id,
+              });
+              await live.startEmbedded(recipeId, resolvedUrl);
+              let waited = 0;
+              while (waited < 3000 && useLiveStore.getState().status !== "ready") {
+                await new Promise((r) => setTimeout(r, 200));
+                waited += 200;
+              }
+              live = useLiveStore.getState();
+            }
+          }
+        }
+
         if (live.isOpen && live.status === "ready") {
           // Evaluar variables en params si contienen expresiones {{ ... }}
           let resolvedNode = node;

@@ -137,7 +137,6 @@ export function LiveSitePanel() {
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       if (kind !== "embedded") return;
-      if (e.source !== iframeRef.current?.contentWindow) return;
       if (!e.data || !e.data.__rpa) return;
       handleMessage(e.data);
     };

@@ -8,7 +8,9 @@ export const PICKER_JS = String.raw`
 (function () {
   if (window.__rpaPicker) return;
   var isTop = window.top === window;
-  var isEditorFrame = window.name === 'rpa-live-frame';
+  var isDirectFrame = false;
+  try { isDirectFrame = window.parent === window.top; } catch (e) { isDirectFrame = true; }
+  var isEditorFrame = window.name === 'rpa-live-frame' || isDirectFrame;
   if (!isTop && !isEditorFrame) return;
   window.__rpaPicker = true;
 
@@ -512,7 +514,7 @@ export const PICKER_JS = String.raw`
   }
   window.__rpaReceive = handle;
   window.addEventListener('message', function (e) {
-    if (!isTop && e.source !== window.parent) return;
+    if (!e.data || typeof e.data.type !== 'string' || e.data.type.indexOf('rpa:') !== 0) return;
     handle(e.data);
   });
 

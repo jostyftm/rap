@@ -12,6 +12,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { useRecipeStore } from "@/stores/use-recipe-store";
+import { useLiveStore } from "@/stores/use-live-store";
 import { ThreePanelLayout } from "./three-panel-layout";
 import { InputDataPanel } from "./input-data-panel";
 import { NodeConfigPanel } from "./node-config-panel";
@@ -135,6 +136,13 @@ export function NodeDetailModal() {
     nextNode,
     openNodeDetail,
   ]);
+
+  // Asegurar que el estado live esté abierto cuando se abre el modal
+  useEffect(() => {
+    if (activeDetailNodeId && !useLiveStore.getState().isOpen) {
+      useLiveStore.getState().open();
+    }
+  }, [activeDetailNodeId]);
 
   if (!activeDetailNodeId || !currentNode) {
     return null;
