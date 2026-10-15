@@ -1,6 +1,7 @@
 import http from "node:http";
 import { randomBytes } from "node:crypto";
 import { PICKER_JS } from "./picker-script.js";
+import { PROXY_CLIENT_JS } from "./proxy-client-script.js";
 import type { ExternalBrowserManager } from "./external-browser.js";
 
 interface LiveSession {
@@ -14,6 +15,13 @@ const STRIP_RESPONSE_HEADERS = new Set([
   "x-frame-options",
   "content-security-policy",
   "content-security-policy-report-only",
+  "cross-origin-resource-policy",
+  "cross-origin-embedder-policy",
+  "cross-origin-opener-policy",
+  "access-control-allow-origin",
+  "access-control-allow-credentials",
+  "access-control-allow-methods",
+  "access-control-allow-headers",
   "content-encoding",
   "content-length",
   "transfer-encoding",
@@ -80,19 +88,42 @@ export class LiveServer {
     return `http://${sid}.localhost:${this.port}`;
   }
 
+  private applyCorsHeaders(
+    outHeaders: Record<string, string | string[]>,
+    req: http.IncomingMessage
+  ): void {
+    outHeaders["access-control-allow-origin"] = req.headers.origin || "*";
+    outHeaders["access-control-allow-credentials"] = "true";
+    outHeaders["access-control-allow-methods"] = "GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD";
+    outHeaders["access-control-allow-headers"] =
+      (req.headers["access-control-request-headers"] as string) || "*";
+    outHeaders["access-control-max-age"] = "86400";
+  }
+
   private async route(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-    const host = (req.headers.host || "").toLowerCase();
+    const rawHost = (req.headers["x-forwarded-host"] as string) || req.headers.host || "";
+    const host = rawHost.toLowerCase();
     const urlPath = req.url || "/";
 
     if (urlPath.startsWith("/__rpa/picker.js")) {
-      res.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" });
+      const headers: Record<string, string | string[]> = {
+        "content-type": "text/javascript; charset=utf-8",
+        "cache-control": "no-store",
+      };
+      this.applyCorsHeaders(headers, req);
+      res.writeHead(200, headers);
       res.end(PICKER_JS);
       return;
     }
 
     const match = host.match(/^([a-f0-9]{12})\.localhost(?::\d+)?$/);
     if (match) {
-      await this.handleProxy(match[1], req, res);
+      const sid = match[1];
+      if (urlPath.startsWith("/__rpa_proxy")) {
+        await this.handleRpaProxy(sid, req, res);
+        return;
+      }
+      await this.handleProxy(sid, req, res);
       return;
     }
     await this.handleControl(req, res);
@@ -167,9 +198,126 @@ export class LiveServer {
 
   // ------------------------------------------------------------------ Reverse proxy
   private rewriteText(text: string, origin: string, proxyOrigin: string): string {
-    const host = new URL(origin).host;
-    const proxyHost = new URL(proxyOrigin).host;
-    return text.split(origin).join(proxyOrigin).split(`//${host}`).join(`//${proxyHost}`);
+    let result = text;
+    try {
+      const u = new URL(origin);
+      const host = u.host;
+      const proxyHost = new URL(proxyOrigin).host;
+
+      // Reemplazo del origen base
+      result = result.split(origin).join(proxyOrigin).split(`//${host}`).join(`//${proxyHost}`);
+
+      // Reemplazo de variante www o sin-www
+      const altHost = host.startsWith("www.") ? host.slice(4) : `www.${host}`;
+      const altOrigin = `${u.protocol}//${altHost}`;
+      result = result.split(altOrigin).join(proxyOrigin).split(`//${altHost}`).join(`//${proxyHost}`);
+    } catch {
+      result = text.split(origin).join(proxyOrigin);
+    }
+
+    // Despojar atributos restrictivos en el HTML que causan bloqueos CORS o fallos SRI
+    result = result
+      .replace(/\s+crossorigin(?:="[^"]*"|='[^']*')?/gi, "")
+      .replace(/\s+integrity=(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+
+    return result;
+  }
+
+  /**
+   * Endpoint /__rpa_proxy?url=...
+   * Descarga cualquier recurso de terceros (ej. gstatic.com) libre de restricciones CORS de navegador
+   */
+  private async handleRpaProxy(
+    sid: string,
+    req: http.IncomingMessage,
+    res: http.ServerResponse
+  ): Promise<void> {
+    const proxyOrigin = this.proxyOrigin(sid);
+
+    if (req.method === "OPTIONS") {
+      const corsHeaders: Record<string, string | string[]> = {};
+      this.applyCorsHeaders(corsHeaders, req);
+      res.writeHead(204, corsHeaders);
+      res.end();
+      return;
+    }
+
+    let targetParam: string | null = null;
+    try {
+      const parsed = new URL(req.url || "/", proxyOrigin);
+      targetParam = parsed.searchParams.get("url");
+    } catch {
+      targetParam = null;
+    }
+
+    if (!targetParam) {
+      res.writeHead(400, { "content-type": "text/plain" });
+      res.end("Parámetro url faltante en __rpa_proxy");
+      return;
+    }
+
+    let targetUrl: URL;
+    try {
+      targetUrl = new URL(targetParam);
+      if (!/^https?:$/.test(targetUrl.protocol)) {
+        throw new Error("Protocolo no soportado");
+      }
+    } catch {
+      res.writeHead(400, { "content-type": "text/plain" });
+      res.end("URL inválida en __rpa_proxy");
+      return;
+    }
+
+    const headers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(req.headers)) {
+      if (v === undefined) continue;
+      const key = k.toLowerCase();
+      if (
+        ["host", "connection", "accept-encoding", "if-none-match", "if-modified-since", "content-length"].includes(
+          key
+        )
+      ) {
+        continue;
+      }
+      headers[key] = Array.isArray(v) ? v.join(", ") : v;
+    }
+    headers["accept-encoding"] = "identity";
+    headers.origin = targetUrl.origin;
+    headers.referer = targetUrl.origin + "/";
+
+    const hasBody = !["GET", "HEAD"].includes(req.method || "GET");
+    const body = hasBody ? await this.readBody(req) : undefined;
+
+    try {
+      const upstream = await fetch(targetUrl.href, {
+        method: req.method,
+        headers,
+        body: body && body.length ? new Uint8Array(body) : undefined,
+        redirect: "follow",
+      });
+
+      const outHeaders: Record<string, string | string[]> = {};
+      upstream.headers.forEach((value, key) => {
+        if (STRIP_RESPONSE_HEADERS.has(key.toLowerCase())) return;
+        outHeaders[key] = value;
+      });
+
+      this.applyCorsHeaders(outHeaders, req);
+
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      outHeaders["content-length"] = String(buf.length);
+
+      res.writeHead(upstream.status, outHeaders);
+      res.end(buf);
+    } catch (err: any) {
+      console.warn(`[LiveServer] Error en __rpa_proxy para ${targetUrl.href}:`, err?.message || err);
+      const errHeaders: Record<string, string | string[]> = {
+        "content-type": "text/plain",
+      };
+      this.applyCorsHeaders(errHeaders, req);
+      res.writeHead(502, errHeaders);
+      res.end(`Error al conectar con ${targetUrl.href}: ${err?.message || err}`);
+    }
   }
 
   private async handleProxy(sid: string, req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
@@ -181,13 +329,29 @@ export class LiveServer {
     }
     session.lastUsed = Date.now();
     const proxyOrigin = this.proxyOrigin(sid);
+
+    // Responder preflight OPTIONS inmediatamente con cabeceras CORS
+    if (req.method === "OPTIONS") {
+      const corsHeaders: Record<string, string | string[]> = {};
+      this.applyCorsHeaders(corsHeaders, req);
+      res.writeHead(204, corsHeaders);
+      res.end();
+      return;
+    }
+
     const targetUrl = session.origin + (req.url || "/");
 
     const headers: Record<string, string> = {};
     for (const [k, v] of Object.entries(req.headers)) {
       if (v === undefined) continue;
       const key = k.toLowerCase();
-      if (["host", "connection", "accept-encoding", "if-none-match", "if-modified-since", "content-length"].includes(key)) continue;
+      if (
+        ["host", "connection", "accept-encoding", "if-none-match", "if-modified-since", "content-length"].includes(
+          key
+        )
+      ) {
+        continue;
+      }
       headers[key] = Array.isArray(v) ? v.join(", ") : v;
     }
     headers["accept-encoding"] = "identity";
@@ -210,13 +374,33 @@ export class LiveServer {
       outHeaders[key] = value;
     });
 
-    // Redirecciones: mismo origen -> proxy actual; otro origen -> su propia sesión proxy
+    // Inyectar siempre cabeceras CORS permisivas
+    this.applyCorsHeaders(outHeaders, req);
+
+    // Redirecciones: reconciliar variantes canónicas (youtube.com <-> www.youtube.com)
     const location = upstream.headers.get("location");
     if (location) {
       try {
         const abs = new URL(location, targetUrl);
-        const s = abs.origin === session.origin ? session : this.sessionFor(abs.origin);
-        outHeaders.location = `${this.proxyOrigin(s.id)}${abs.pathname}${abs.search}${abs.hash}`;
+        const sessionHost = new URL(session.origin).host.toLowerCase();
+        const targetHost = abs.host.toLowerCase();
+
+        const isSameSite =
+          abs.origin === session.origin ||
+          targetHost === sessionHost ||
+          targetHost === `www.${sessionHost}` ||
+          sessionHost === `www.${targetHost}`;
+
+        if (isSameSite) {
+          // Mantener el mismo sessionId y actualizar session.origin si cambió canónicamente
+          session.origin = abs.origin;
+          this.originToSession.set(abs.origin, session.id);
+          outHeaders.location = `${proxyOrigin}${abs.pathname}${abs.search}${abs.hash}`;
+        } else {
+          // Dominio completamente distinto: sesión proxy propia
+          const s = this.sessionFor(abs.origin);
+          outHeaders.location = `${this.proxyOrigin(s.id)}${abs.pathname}${abs.search}${abs.hash}`;
+        }
       } catch {
         // dejar location tal cual
       }
@@ -239,8 +423,9 @@ export class LiveServer {
       let text = buf.toString("utf8");
       text = this.rewriteText(text, session.origin, proxyOrigin);
       if (/text\/html/i.test(contentType)) {
+        // Inyectar interceptor síncrono al inicio de <head> antes de que corran scripts de la página
         const inject =
-          `<script>window.__RPA_ORIGIN__=${JSON.stringify(session.origin)};</script>` +
+          `<script>window.__RPA_ORIGIN__=${JSON.stringify(session.origin)};\n${PROXY_CLIENT_JS}</script>` +
           `<script src="/__rpa/picker.js"></script>`;
         text = /<head[^>]*>/i.test(text)
           ? text.replace(/<head[^>]*>/i, (m) => m + inject)

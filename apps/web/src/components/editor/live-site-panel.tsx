@@ -11,13 +11,22 @@ import {
   AlertCircle,
   Smartphone,
   Monitor,
+  Laptop,
+  Tv,
   Maximize2,
-  Layout,
   Columns,
+  Shrink,
+  ZoomIn,
+  ShieldCheck,
 } from "lucide-react";
 import { useLiveStore } from "../../stores/use-live-store";
 import { useRecipeStore } from "../../stores/use-recipe-store";
-import { useLayoutStore, VIEWPORT_PRESETS, type LiveViewportMode } from "../../stores/use-layout-store";
+import {
+  useLayoutStore,
+  VIEWPORT_PRESETS,
+  type LiveViewportMode,
+  type ViewportScaleMode,
+} from "../../stores/use-layout-store";
 import { apiFetch } from "../../lib/api-client";
 import { getEcho } from "../../lib/echo";
 
@@ -52,6 +61,8 @@ export function LiveSitePanel() {
   const setLayoutMode = useLayoutStore((s) => s.setMode);
   const viewportMode = useLayoutStore((s) => s.viewportMode);
   const setViewportMode = useLayoutStore((s) => s.setViewportMode);
+  const viewportScaleMode = useLayoutStore((s) => s.viewportScaleMode);
+  const setViewportScaleMode = useLayoutStore((s) => s.setViewportScaleMode);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -92,7 +103,7 @@ export function LiveSitePanel() {
   // Calcular escala según preset y dimensiones del contenedor
   useEffect(() => {
     const preset = VIEWPORT_PRESETS[viewportMode];
-    if (!preset) {
+    if (!preset || viewportScaleMode === "actual_size") {
       setScale(1);
       return;
     }
@@ -101,11 +112,11 @@ export function LiveSitePanel() {
     if (cW <= 0 || cH <= 0) return;
 
     // Calcular factor de escala para que quepa completamente sin scroll
-    const scaleX = (cW - 16) / preset.width;
-    const scaleY = (cH - 16) / preset.height;
+    const scaleX = (cW - 24) / preset.width;
+    const scaleY = (cH - 24) / preset.height;
     const newScale = Math.min(scaleX, scaleY, 1);
-    setScale(Math.max(0.2, newScale));
-  }, [viewportMode, containerSize]);
+    setScale(Math.max(0.15, newScale));
+  }, [viewportMode, viewportScaleMode, containerSize]);
 
   // Emisor hacia el sitio: iframe (postMessage) o Chromium externo (API -> Runner)
   useEffect(() => {
@@ -162,63 +173,121 @@ export function LiveSitePanel() {
   };
 
   const currentPreset = VIEWPORT_PRESETS[viewportMode];
+  const isPlaywrightParity = viewportMode === "desktop";
 
   return (
     <section className="flex-1 min-w-[320px] h-full flex flex-col bg-[#09090b] overflow-hidden">
-      {/* Barra de navegador */}
-      <div className="h-10 px-2 flex items-center space-x-2 bg-[#0c0c0e] border-b border-zinc-800">
+      {/* Barra superior del navegador */}
+      <div className="h-10 px-2 flex items-center space-x-1.5 bg-[#0c0c0e] border-b border-zinc-800 shrink-0">
         <Globe className="w-4 h-4 text-zinc-400 shrink-0" />
         <input
           value={urlInput}
           onChange={(e) => setUrlInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && go()}
           placeholder="https://sitio.com"
-          className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-xs font-mono text-zinc-200 focus:outline-none focus:border-zinc-600"
+          className="flex-1 min-w-0 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-xs font-mono text-zinc-200 focus:outline-none focus:border-zinc-600 truncate"
         />
         <button
           onClick={go}
           title="Cargar URL"
-          className="p-1.5 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+          className="p-1.5 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors shrink-0"
         >
           <RefreshCw className="w-3.5 h-3.5" />
         </button>
 
-        {/* Selector de Presets de Viewport con Escala */}
-        <div className="flex items-center space-x-0.5 bg-zinc-950 border border-zinc-800 rounded p-0.5">
-          <button
-            onClick={() => setViewportMode("fit")}
-            className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
-              viewportMode === "fit" ? "bg-zinc-800 text-zinc-100 font-medium" : "text-zinc-400 hover:text-white"
-            }`}
-            title="Ajustar al tamaño del panel"
-          >
-            Ajustar
-          </button>
+        {/* Selector de Presets de Viewport (Garantiza Versión Web Responsive) */}
+        <div className="flex items-center space-x-0.5 bg-zinc-950 border border-zinc-800 rounded p-0.5 shrink-0">
           <button
             onClick={() => setViewportMode("desktop")}
-            className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
-              viewportMode === "desktop" ? "bg-zinc-800 text-zinc-100 font-medium" : "text-zinc-400 hover:text-white"
+            className={`flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
+              viewportMode === "desktop"
+                ? "bg-amber-400/20 text-amber-300 font-semibold border border-amber-400/30"
+                : "text-zinc-400 hover:text-white"
             }`}
-            title="Escritorio 1280x800"
+            title="Versión Web Escritorio (1280×800) - Coincide con Playwright"
           >
-            <Monitor className="w-3 h-3" />
+            <Monitor className="w-3 h-3 text-amber-400" />
+            <span className="hidden sm:inline">Web (1280)</span>
+          </button>
+          <button
+            onClick={() => setViewportMode("laptop")}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
+              viewportMode === "laptop"
+                ? "bg-zinc-800 text-zinc-100 font-medium"
+                : "text-zinc-400 hover:text-white"
+            }`}
+            title="Laptop Web (1366×768)"
+          >
+            <Laptop className="w-3 h-3" />
+          </button>
+          <button
+            onClick={() => setViewportMode("full_hd")}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
+              viewportMode === "full_hd"
+                ? "bg-zinc-800 text-zinc-100 font-medium"
+                : "text-zinc-400 hover:text-white"
+            }`}
+            title="Full HD (1920×1080)"
+          >
+            <Tv className="w-3 h-3" />
           </button>
           <button
             onClick={() => setViewportMode("mobile")}
             className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
-              viewportMode === "mobile" ? "bg-zinc-800 text-zinc-100 font-medium" : "text-zinc-400 hover:text-white"
+              viewportMode === "mobile"
+                ? "bg-zinc-800 text-zinc-100 font-medium"
+                : "text-zinc-400 hover:text-white"
             }`}
-            title="Móvil 390x844"
+            title="Móvil (390×844)"
           >
             <Smartphone className="w-3 h-3" />
           </button>
+          <button
+            onClick={() => setViewportMode("fit")}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
+              viewportMode === "fit"
+                ? "bg-zinc-800 text-zinc-100 font-medium"
+                : "text-zinc-400 hover:text-white"
+            }`}
+            title="Fluido (se ajusta al tamaño exacto de la ventana)"
+          >
+            Fluido
+          </button>
         </div>
+
+        {/* Alternador de Modo de Escala: Auto-ajuste vs 100% Tamaño Real */}
+        {currentPreset && (
+          <div className="flex items-center space-x-0.5 bg-zinc-950 border border-zinc-800 rounded p-0.5 shrink-0">
+            <button
+              onClick={() => setViewportScaleMode("fit_scale")}
+              className={`p-1 rounded text-[10px] transition-colors ${
+                viewportScaleMode === "fit_scale"
+                  ? "bg-zinc-800 text-zinc-100"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+              title="Ajustar sitio web al panel (auto-escalado sin scroll)"
+            >
+              <Shrink className="w-3 h-3" />
+            </button>
+            <button
+              onClick={() => setViewportScaleMode("actual_size")}
+              className={`p-1 rounded text-[10px] transition-colors ${
+                viewportScaleMode === "actual_size"
+                  ? "bg-zinc-800 text-zinc-100"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+              title="Tamaño real 1:1 con scrollbars (resolución completa nítida)"
+            >
+              <ZoomIn className="w-3 h-3" />
+            </button>
+          </div>
+        )}
 
         {/* Toggle para ocultar el flujo o ver dividido */}
         <button
           onClick={() => setLayoutMode(layoutMode === "full_site" ? "split" : "full_site")}
           title={layoutMode === "full_site" ? "Mostrar flujo (modo dividido)" : "Ocultar flujo (sitio completo)"}
-          className={`p-1.5 rounded transition-colors ${
+          className={`p-1.5 rounded transition-colors shrink-0 ${
             layoutMode === "full_site" ? "bg-blue-600 text-white" : "text-neutral-300 hover:bg-neutral-800"
           }`}
         >
@@ -227,8 +296,8 @@ export function LiveSitePanel() {
 
         <button
           onClick={openExternal}
-          title="Abrir en Chromium externo (ventana real de escritorio)"
-          className={`p-1.5 rounded hover:bg-neutral-800 transition-colors ${
+          title="Abrir en Chromium externo (ventana real de escritorio, sin proxy)"
+          className={`p-1.5 rounded hover:bg-neutral-800 transition-colors shrink-0 ${
             kind === "external" ? "text-emerald-400" : "text-neutral-300"
           }`}
         >
@@ -237,22 +306,35 @@ export function LiveSitePanel() {
         <button
           onClick={() => close(recipeId)}
           title="Cerrar sitio en vivo"
-          className="p-1.5 rounded text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors"
+          className="p-1.5 rounded text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors shrink-0"
         >
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
 
-      {/* Estado / selección */}
-      <div className="h-7 px-3 flex items-center justify-between text-[11px] bg-neutral-900/60 border-b border-neutral-800 select-none">
-        <span className="truncate text-neutral-400 flex items-center space-x-1.5">
+      {/* Sub-barra de Estado, Selección y Paridad con el Runner */}
+      <div className="h-7 px-3 flex items-center justify-between text-[11px] bg-neutral-900/60 border-b border-neutral-800 select-none shrink-0">
+        <div className="truncate text-neutral-400 flex items-center space-x-2">
           <span>{kind === "external" ? "🖥️ Chromium externo" : "🌐 Embebido"}</span>
           <span>·</span>
-          <span className="truncate max-w-[200px]">{pageTitle || "—"}</span>
-          {currentPreset && scale < 1 && (
+          {isPlaywrightParity && (
+            <span
+              className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/40 text-[10px] font-mono"
+              title="Esta resolución (1280×800) coincide exactamente con la que usará Playwright al ejecutar tu receta"
+            >
+              <ShieldCheck className="w-3 h-3 text-emerald-400" />
+              <span>Paridad Runner (1280×800)</span>
+            </span>
+          )}
+          <span className="truncate max-w-[180px]">{pageTitle || "—"}</span>
+          {currentPreset && viewportScaleMode === "fit_scale" && scale < 1 && (
             <span className="text-[10px] text-blue-400 font-mono">({Math.round(scale * 100)}% escala)</span>
           )}
-        </span>
+          {currentPreset && viewportScaleMode === "actual_size" && (
+            <span className="text-[10px] text-zinc-400 font-mono">(100% tamaño real)</span>
+          )}
+        </div>
+
         {armedNodeId ? (
           <button
             onClick={disarm}
@@ -268,10 +350,14 @@ export function LiveSitePanel() {
         )}
       </div>
 
-      {/* Contenido con Auto-Escalado Responsive */}
+      {/* Contenido con Auto-Escalado Responsive o Scroll 1:1 */}
       <div
         ref={containerRef}
-        className="flex-1 relative bg-neutral-900/40 overflow-hidden flex items-center justify-center p-2"
+        className={`flex-1 relative bg-neutral-950/60 p-2 ${
+          viewportScaleMode === "actual_size" && currentPreset
+            ? "overflow-auto flex items-start justify-start"
+            : "overflow-hidden flex items-center justify-center"
+        }`}
       >
         {status === "starting" && (
           <div className="absolute inset-0 bg-neutral-950 flex items-center justify-center text-neutral-400 z-10">
@@ -280,12 +366,27 @@ export function LiveSitePanel() {
         )}
 
         {status === "error" && (
-          <div className="absolute inset-0 bg-neutral-950 flex flex-col items-center justify-center text-center p-6 space-y-2 z-10">
-            <AlertCircle className="w-7 h-7 text-rose-400" />
-            <p className="text-xs text-rose-300">{error}</p>
-            <button onClick={go} className="text-xs px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700">
-              Reintentar
-            </button>
+          <div className="absolute inset-0 bg-neutral-950 flex flex-col items-center justify-center text-center p-6 space-y-3 z-10">
+            <AlertCircle className="w-8 h-8 text-rose-400" />
+            <div className="space-y-1">
+              <h4 className="text-sm font-semibold text-rose-200">Error al cargar en visor embebido</h4>
+              <p className="text-xs text-rose-300 max-w-sm">{error}</p>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                onClick={go}
+                className="text-xs px-3 py-1.5 rounded bg-neutral-800 hover:bg-neutral-700 text-zinc-200 transition-colors"
+              >
+                Reintentar
+              </button>
+              <button
+                onClick={openExternal}
+                className="text-xs px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium flex items-center space-x-1.5 transition-colors shadow-sm"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Abrir en Chromium Externo</span>
+              </button>
+            </div>
           </div>
         )}
 
@@ -301,12 +402,16 @@ export function LiveSitePanel() {
 
         {kind === "embedded" && proxyUrl && (
           <div
-            className="transition-all duration-150 flex items-center justify-center shadow-2xl rounded-md overflow-hidden bg-white"
+            className="transition-all duration-150 flex items-center justify-center shadow-2xl rounded-md overflow-hidden bg-white shrink-0"
             style={{
               width: currentPreset ? `${currentPreset.width}px` : "100%",
               height: currentPreset ? `${currentPreset.height}px` : "100%",
-              transform: currentPreset && scale < 1 ? `scale(${scale})` : undefined,
-              transformOrigin: "center center",
+              transform:
+                currentPreset && viewportScaleMode === "fit_scale" && scale < 1
+                  ? `scale(${scale})`
+                  : undefined,
+              transformOrigin:
+                viewportScaleMode === "actual_size" ? "top left" : "center center",
             }}
           >
             <iframe
