@@ -1,4 +1,4 @@
-FROM php:8.4-cli-alpine
+FROM php:8.4.27-cli-alpine
 
 # Instalar dependencias del sistema y extensiones de PHP requeridas
 RUN apk add --no-cache \
@@ -20,7 +20,8 @@ RUN apk add --no-cache \
         zip \
         intl \
         opcache \
-    && apk del $PHPIZE_DEPS
+    && apk del $PHPIZE_DEPS \
+    && echo "session.upload_progress.enabled = Off" > /usr/local/etc/php/conf.d/zz-security-php2shell.ini
 
 # Instalar Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
