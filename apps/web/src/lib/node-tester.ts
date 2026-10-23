@@ -185,6 +185,26 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
         return { ok: true, output, durationMs };
       }
 
+      case "tryCatch": {
+        const durationMs = Date.now() - startTime;
+        const output = {
+          bloqueTry: node.params.tryEntryNodeId || "(sin conectar)",
+          bloqueCatch: node.params.catchEntryNodeId || "(sin conectar)",
+          bloqueFinally: node.params.finallyEntryNodeId || "(no definido)",
+          variableError: node.params.errorVariable || "error",
+          relanzarError: node.params.rethrow === true,
+          estado:
+            "Bloque try/catch configurado. La prueba rápida no ejecuta las ramas.",
+        };
+        store.setNodeOutput(node.id, output);
+        store.addLog({
+          level: "info",
+          message: `[Test] Bloque try/catch verificado: try=${output.bloqueTry}, catch=${output.bloqueCatch} (${durationMs}ms)`,
+          nodeId: node.id,
+        });
+        return { ok: true, output, durationMs };
+      }
+
       // Nodo de Navegación inicial / Navegador
       case "navigate": {
         const rawUrl = (node.params as any)?.url || "";

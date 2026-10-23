@@ -11,6 +11,7 @@ import { setVariableDefinition } from "./definitions/set-variable";
 import { conditionDefinition } from "./definitions/condition";
 import { loopDefinition } from "./definitions/loop";
 import { webhookDefinition } from "./definitions/webhook";
+import { tryCatchDefinition } from "./definitions/try-catch";
 import type { NodeDefinition } from "./types";
 
 export const ALL_BLOCK_DEFINITIONS: NodeDefinition<any>[] = [
@@ -26,6 +27,7 @@ export const ALL_BLOCK_DEFINITIONS: NodeDefinition<any>[] = [
   setVariableDefinition,
   conditionDefinition,
   loopDefinition,
+  tryCatchDefinition,
 ];
 
 // Registrar todos los nodos en el Registry

@@ -255,6 +255,16 @@ export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selec
         )}
       </div>
 
+      {/* Etiquetas de salidas del bloque tryCatch */}
+      {nodeData.type === "tryCatch" && (
+        <div className="flex items-center justify-between px-3 pb-1 text-[8px] font-mono uppercase tracking-wider">
+          <span className="text-amber-400">try</span>
+          <span className="text-rose-400">catch</span>
+          <span className="text-violet-400">finally</span>
+          <span className="text-zinc-500">next</span>
+        </div>
+      )}
+
       {/* Handles inferiores de salida */}
       {nodeData.type === "condition" ? (
         <>
@@ -269,6 +279,36 @@ export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selec
             type="source"
             position={Position.Bottom}
             className="!left-[70%] !w-2.5 !h-2.5 !bg-rose-500 !border-2 !border-zinc-900"
+          />
+        </>
+      ) : nodeData.type === "tryCatch" ? (
+        <>
+          <Handle
+            id="try"
+            type="source"
+            position={Position.Bottom}
+            title="Bloque try"
+            className="!left-[12%] !w-2.5 !h-2.5 !bg-amber-500 !border-2 !border-zinc-900"
+          />
+          <Handle
+            id="catch"
+            type="source"
+            position={Position.Bottom}
+            title="Bloque catch"
+            className="!left-[37%] !w-2.5 !h-2.5 !bg-rose-500 !border-2 !border-zinc-900"
+          />
+          <Handle
+            id="finally"
+            type="source"
+            position={Position.Bottom}
+            title="Bloque finally"
+            className="!left-[62%] !w-2.5 !h-2.5 !bg-violet-500 !border-2 !border-zinc-900"
+          />
+          <Handle
+            type="source"
+            position={Position.Bottom}
+            title="Continuación tras el bloque"
+            className="!left-[87%] !w-2.5 !h-2.5 !bg-zinc-500 !border-2 !border-zinc-900 hover:!bg-zinc-200 transition-colors"
           />
         </>
       ) : (

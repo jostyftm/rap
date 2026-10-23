@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { nodeRegistry } from "../nodes";
+import { RetryPolicyFields } from "../nodes/retry-policy-fields";
 import { ExpressionField } from "./expression-field";
 import type { RecipeNode, LocatorStrategy, LocatorCandidate } from "@rpa/dsl";
 import { calculateLocatorScore } from "@rpa/locator";
@@ -421,9 +422,15 @@ export function NodeConfigPanel({
                 >
                   <option value="fail">Detener ejecución (fail)</option>
                   <option value="continue">Ignorar y continuar (continue)</option>
-                  <option value="retry">Reintentar con auto-repair (retry)</option>
+                  <option value="retry">Reintentar con política (retry)</option>
                 </select>
               </div>
+
+              <RetryPolicyFields
+                node={node}
+                updateNode={(updates) => updateNode(node.id, updates)}
+                variant="default"
+              />
             </div>
 
             {/* Localizadores y Fallbacks si el nodo interactúa con elementos */}

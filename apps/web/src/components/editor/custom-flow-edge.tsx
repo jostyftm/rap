@@ -24,6 +24,7 @@ export function CustomFlowEdge({
   markerEnd,
   label,
   selected,
+  sourceHandleId,
 }: EdgeProps) {
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
@@ -38,11 +39,18 @@ export function CustomFlowEdge({
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
-    removeEdge(source, target);
+    removeEdge(
+      source,
+      target,
+      sourceHandleId && sourceHandleId !== "next" ? sourceHandleId : undefined
+    );
   };
 
   const isElse = label === "false";
   const isThen = label === "true";
+  const isTry = label === "try";
+  const isCatch = label === "catch";
+  const isFinally = label === "finally";
 
   return (
     <>
@@ -57,6 +65,12 @@ export function CustomFlowEdge({
             ? "#f43f5e"
             : isThen
             ? "#10b981"
+            : isTry
+            ? "#f59e0b"
+            : isCatch
+            ? "#f43f5e"
+            : isFinally
+            ? "#8b5cf6"
             : "#52525b",
           strokeWidth: selected ? 2.5 : 1.75,
           transition: "stroke 0.15s ease, stroke-width 0.15s ease",
@@ -74,10 +88,14 @@ export function CustomFlowEdge({
           {label && (
             <span
               className={`px-1.5 py-0.5 rounded text-[10px] font-mono border ${
-                isElse
+                isElse || isCatch
                   ? "bg-rose-950/90 text-rose-300 border-rose-800/80"
                   : isThen
                   ? "bg-emerald-950/90 text-emerald-300 border-emerald-800/80"
+                  : isTry
+                  ? "bg-amber-950/90 text-amber-300 border-amber-800/80"
+                  : isFinally
+                  ? "bg-violet-950/90 text-violet-300 border-violet-800/80"
                   : "bg-zinc-900/90 text-zinc-300 border-zinc-800"
               }`}
             >

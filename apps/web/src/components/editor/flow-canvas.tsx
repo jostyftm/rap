@@ -172,15 +172,46 @@ function buildCanvasNodes(
   return result;
 }
 
-function buildCanvasEdges(edgesList: RecipeEdge[] = []): Edge[] {
-  return edgesList.map((e) => ({
-    id: `edge_${e.from}_${e.to}`,
-    source: e.from,
-    target: e.to,
-    type: "customEdge",
-    animated: true,
-    label: e.condition || e.label,
-  }));
+function resolveEdgeHandle(
+  edge: RecipeEdge,
+  nodes?: Record<string, RecipeNode>
+): string | undefined {
+  if (edge.condition === "true") return "then";
+  if (edge.condition === "false") return "else";
+  if (edge.label === "try" || edge.label === "catch" || edge.label === "finally") {
+    return edge.label;
+  }
+
+  const source = nodes?.[edge.from];
+  if (source?.type === "condition") {
+    if (source.params.thenNodeId === edge.to) return "then";
+    if (source.params.elseNodeId === edge.to) return "else";
+  }
+  if (source?.type === "tryCatch") {
+    if (source.params.tryEntryNodeId === edge.to) return "try";
+    if (source.params.catchEntryNodeId === edge.to) return "catch";
+    if (source.params.finallyEntryNodeId === edge.to) return "finally";
+  }
+
+  return undefined;
+}
+
+function buildCanvasEdges(
+  edgesList: RecipeEdge[] = [],
+  nodes?: Record<string, RecipeNode>
+): Edge[] {
+  return edgesList.map((e) => {
+    const handle = resolveEdgeHandle(e, nodes);
+    return {
+      id: `edge_${e.from}_${e.to}_${handle ?? "next"}`,
+      source: e.from,
+      target: e.to,
+      sourceHandle: handle,
+      type: "customEdge",
+      animated: true,
+      label: e.condition || e.label,
+    };
+  });
 }
 
 /**
@@ -268,8 +299,8 @@ function FlowCanvasInner() {
 
   // Sincronizar aristas cuando cambia la definición
   useEffect(() => {
-    setEdges(buildCanvasEdges(definition?.edges || []));
-  }, [definition?.edges, setEdges]);
+    setEdges(buildCanvasEdges(definition?.edges || [], definition?.nodes));
+  }, [definition?.edges, definition?.nodes, setEdges]);
 
   // Atajo de teclado: Enter o Espacio para abrir la vista detallada del nodo seleccionado
   useEffect(() => {
@@ -294,13 +325,23 @@ function FlowCanvasInner() {
 
   const onConnect = useCallback(
     (connection: Connection) => {
-      if (connection.source && connection.target) {
-        addEdge({
-          from: connection.source,
-          to: connection.target,
-          condition: connection.sourceHandle === "else" ? "false" : undefined,
-        });
+      if (!connection.source || !connection.target) return;
+
+      const handle = connection.sourceHandle;
+      const edge: RecipeEdge = {
+        from: connection.source,
+        to: connection.target,
+      };
+
+      if (handle === "then") {
+        edge.condition = "true";
+      } else if (handle === "else") {
+        edge.condition = "false";
+      } else if (handle === "try" || handle === "catch" || handle === "finally") {
+        edge.label = handle;
       }
+
+      addEdge(edge);
     },
     [addEdge]
   );

@@ -18,6 +18,7 @@ import { useRecipeStore } from "@/stores/use-recipe-store";
 import { LiveNodeTools } from "./live-node-tools";
 import { nodeRegistry } from "./nodes";
 import { getFieldLabel } from "./nodes/field-labels";
+import { RetryPolicyFields } from "./nodes/retry-policy-fields";
 import { getSafeNodeIssues } from "./flow-canvas";
 
 const STRATEGY_OPTIONS: LocatorStrategy[] = [
@@ -404,9 +405,13 @@ export function NodeInspector() {
                   >
                     <option value="fail">Detener ejecución (fail)</option>
                     <option value="continue">Ignorar y continuar (continue)</option>
-                    <option value="retry">Reintentar con auto-repair (retry)</option>
+                    <option value="retry">Reintentar con política (retry)</option>
                   </select>
                 </div>
+                <RetryPolicyFields
+                  node={node}
+                  updateNode={(updates) => updateNode(node.id, updates)}
+                />
               </div>
             </div>
           )}

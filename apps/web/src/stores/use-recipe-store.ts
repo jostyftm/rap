@@ -4,6 +4,29 @@ import { validateRecipeDslDetailed, reconcileRecipeRoot, analyzeInitializerNodes
 import { calculateLocatorScore } from "@rpa/locator";
 import { nodeRegistry } from "@/components/editor/nodes";
 
+/**
+ * Identifica la salida lógica de una arista.
+ * `undefined` representa la continuación por defecto (`next`).
+ */
+function edgeHandle(edge: RecipeEdge): string | undefined {
+  if (edge.condition === "true") return "then";
+  if (edge.condition === "false") return "else";
+  if (edge.label === "try" || edge.label === "catch" || edge.label === "finally") {
+    return edge.label;
+  }
+  return undefined;
+}
+
+const BRANCH_PARAM_KEYS = [
+  "thenNodeId",
+  "elseNodeId",
+  "bodyEntryNodeId",
+  "tryEntryNodeId",
+  "catchEntryNodeId",
+  "finallyEntryNodeId",
+] as const;
+
+
 export type EditorView = "canvas" | "steps" | "code";
 
 export interface ExecutionLog {
@@ -92,7 +115,12 @@ export interface RecipeStoreState {
   reconcileRootInitializer: () => void;
 
   addEdge: (edge: RecipeEdge) => void;
-  removeEdge: (from: string, to: string) => void;
+  removeEdge: (from: string, to: string, handle?: string) => void;
+  setBranchTarget: (
+    nodeId: string,
+    handle: "try" | "catch" | "finally",
+    targetId: string | undefined
+  ) => void;
 
   setDefinitionFromCode: (dsl: RecipeDsl) => void;
   undo: () => void;
@@ -451,10 +479,35 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     const nextNodes = { ...definition.nodes };
     delete nextNodes[id];
 
-    // Limpiar referencias 'next' hacia este nodo
+    // Limpiar todas las referencias (continuación y ramas) hacia este nodo
     for (const key of Object.keys(nextNodes)) {
-      if (nextNodes[key].next === id) {
-        nextNodes[key] = { ...nextNodes[key], next: undefined };
+      const targetNode = nextNodes[key] as any;
+      let changed = false;
+      const cloned: any = { ...targetNode };
+
+      if (cloned.next === id) {
+        cloned.next = undefined;
+        changed = true;
+      }
+
+      if (cloned.params && typeof cloned.params === "object") {
+        const params = { ...cloned.params };
+        for (const paramKey of BRANCH_PARAM_KEYS) {
+          if (params[paramKey] === id) {
+            params[paramKey] =
+              paramKey === "elseNodeId" || paramKey === "finallyEntryNodeId"
+                ? undefined
+                : "";
+            changed = true;
+          }
+        }
+        if (changed) {
+          cloned.params = params;
+        }
+      }
+
+      if (changed) {
+        nextNodes[key] = cloned;
       }
     }
 
@@ -599,21 +652,52 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
 
   addEdge: (edge) => {
     const { definition, history, historyIndex } = get();
-    // Evitar duplicados
-    const exists = definition.edges.some((e) => e.from === edge.from && e.to === edge.to);
-    if (exists) return;
-
-    // Actualizar también el 'next' del nodo de origen
     const sourceNode = definition.nodes[edge.from];
+    if (!sourceNode) return;
+
+    const handle = edgeHandle(edge);
+    const isConditionBranch = handle === "then" || handle === "else";
+    const isTryCatchBranch =
+      handle === "try" || handle === "catch" || handle === "finally";
+
+    if (isConditionBranch && sourceNode.type !== "condition") return;
+    if (isTryCatchBranch && sourceNode.type !== "tryCatch") return;
+
     const updatedNodes = { ...definition.nodes };
-    if (sourceNode && !edge.condition) {
-      updatedNodes[edge.from] = { ...sourceNode, next: edge.to };
+
+    if (handle === "then") {
+      updatedNodes[edge.from] = {
+        ...sourceNode,
+        params: { ...(sourceNode as any).params, thenNodeId: edge.to },
+      } as RecipeNode;
+    } else if (handle === "else") {
+      updatedNodes[edge.from] = {
+        ...sourceNode,
+        params: { ...(sourceNode as any).params, elseNodeId: edge.to },
+      } as RecipeNode;
+    } else if (isTryCatchBranch) {
+      const paramKey = `${handle}EntryNodeId`;
+      updatedNodes[edge.from] = {
+        ...sourceNode,
+        params: { ...(sourceNode as any).params, [paramKey]: edge.to },
+      } as RecipeNode;
+    } else {
+      if (sourceNode.type === "condition") return;
+      updatedNodes[edge.from] = { ...sourceNode, next: edge.to } as RecipeNode;
     }
+
+    // Reemplazar la arista previa de la misma salida lógica
+    const updatedEdges = [
+      ...definition.edges.filter(
+        (existing) => !(existing.from === edge.from && edgeHandle(existing) === handle)
+      ),
+      edge,
+    ];
 
     const updatedDsl: RecipeDsl = {
       ...definition,
       nodes: updatedNodes,
-      edges: [...definition.edges, edge],
+      edges: updatedEdges,
     };
 
     const { errors, nodeIssues } = validateDsl(updatedDsl);
@@ -628,42 +712,106 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     });
   },
 
-  removeEdge: (from, to) => {
+  removeEdge: (from, to, handle) => {
     const { definition, history, historyIndex } = get();
     const sourceNode = definition.nodes[from];
     const updatedNodes = { ...definition.nodes };
+
     if (sourceNode) {
-      if (sourceNode.next === to) {
-        updatedNodes[from] = { ...sourceNode, next: undefined };
+      const cloned: any = { ...sourceNode };
+      let changed = false;
+
+      if (handle === undefined && cloned.next === to) {
+        cloned.next = undefined;
+        changed = true;
       }
-      if (sourceNode.type === "condition") {
-        const condNode = sourceNode as any;
-        if (condNode.params?.thenNodeId === to) {
-          updatedNodes[from] = {
-            ...condNode,
-            params: { ...condNode.params, thenNodeId: "" },
-          };
-        } else if (condNode.params?.elseNodeId === to) {
-          updatedNodes[from] = {
-            ...condNode,
-            params: { ...condNode.params, elseNodeId: undefined },
-          };
+
+      const branchKeyByHandle: Record<string, string> = {
+        then: "thenNodeId",
+        else: "elseNodeId",
+        try: "tryEntryNodeId",
+        catch: "catchEntryNodeId",
+        finally: "finallyEntryNodeId",
+      };
+
+      if (cloned.params && typeof cloned.params === "object") {
+        const params = { ...cloned.params };
+        const keysToCheck = handle
+          ? [branchKeyByHandle[handle]].filter(Boolean)
+          : [...BRANCH_PARAM_KEYS];
+
+        for (const key of keysToCheck) {
+          if (params[key] === to) {
+            params[key] =
+              key === "elseNodeId" || key === "finallyEntryNodeId" ? undefined : "";
+            changed = true;
+          }
         }
-      } else if (sourceNode.type === "loop") {
-        const loopNode = sourceNode as any;
-        if (loopNode.params?.bodyEntryNodeId === to) {
-          updatedNodes[from] = {
-            ...loopNode,
-            params: { ...loopNode.params, bodyEntryNodeId: "" },
-          };
+
+        if (changed) {
+          cloned.params = params;
         }
+      }
+
+      if (changed) {
+        updatedNodes[from] = cloned as RecipeNode;
       }
     }
 
     const updatedDsl: RecipeDsl = {
       ...definition,
       nodes: updatedNodes,
-      edges: definition.edges.filter((e) => !(e.from === from && e.to === to)),
+      edges: definition.edges.filter(
+        (e) =>
+          !(
+            e.from === from &&
+            e.to === to &&
+            (handle === undefined || edgeHandle(e) === handle)
+          )
+      ),
+    };
+
+    const { errors, nodeIssues } = validateDsl(updatedDsl);
+    const hist = pushHistory(history, historyIndex, updatedDsl);
+
+    set({
+      definition: updatedDsl,
+      validationErrors: errors,
+      nodeIssues,
+      isDirty: true,
+      ...hist,
+    });
+  },
+
+  setBranchTarget: (nodeId, handle, targetId) => {
+    const { definition, history, historyIndex } = get();
+    const sourceNode = definition.nodes[nodeId];
+    if (!sourceNode || sourceNode.type !== "tryCatch") return;
+
+    const paramKey = `${handle}EntryNodeId`;
+    const params = {
+      ...sourceNode.params,
+      [paramKey]: targetId,
+    } as any;
+
+    if (targetId === undefined) {
+      params[paramKey] = undefined;
+    }
+
+    const updatedDsl: RecipeDsl = {
+      ...definition,
+      nodes: {
+        ...definition.nodes,
+        [nodeId]: { ...sourceNode, params },
+      },
+      edges: [
+        ...definition.edges.filter(
+          (e) => !(e.from === nodeId && edgeHandle(e) === handle)
+        ),
+        ...(targetId
+          ? [{ from: nodeId, to: targetId, label: handle }]
+          : []),
+      ],
     };
 
     const { errors, nodeIssues } = validateDsl(updatedDsl);
