@@ -27,9 +27,10 @@ El repositorio utiliza `pnpm workspaces` y `turborepo`:
 
 ## 3. Paridad de Esquemas y Nodos (Regla Crítica)
 
-1. **Paridad UI ↔ DSL ↔ Zod**:
-   - Todo nuevo bloque registrado en `apps/web/src/components/editor/nodes/` DEBE tener su respectivo esquema en `packages/dsl/src/validator.ts` y estar incluido en el discriminador `RecipeNodeSchema = z.discriminatedUnion("type", [...])`.
-   - La suite de tests `packages/dsl/test/schema-parity.test.ts` valida automáticamente que todos los 11 tipos de nodos reconocidos por la UI pasen la validación Zod sin errores de discriminador.
+1. **Paridad UI ↔ DSL ↔ Zod ↔ JSON Schema ↔ Runner ↔ Exporter**:
+   - Todo nuevo bloque registrado en `apps/web/src/components/editor/nodes/` DEBE tener su respectivo esquema en `packages/dsl/src/validator.ts`, estar incluido en el discriminador `RecipeNodeSchema = z.discriminatedUnion("type", [...])`, figurar en el enum de `packages/dsl/schema/recipe.json`, tener un handler en `apps/runner/src/engine/handlers/` y estar contemplado en `packages/dsl/src/compiler/playwright-exporter.ts`.
+   - La lista canónica de tipos vive en `SYSTEM_NODE_TYPES` (`packages/dsl/src/types.ts`). Actualmente son **13**: `navigate`, `click`, `type`, `select`, `waitFor`, `extract`, `screenshot`, `setVariable`, `condition`, `loop`, `scroll`, `webhook`, `tryCatch`.
+   - La suite `packages/dsl/test/schema-parity.test.ts` valida que `SYSTEM_NODE_TYPES`, el enum del JSON Schema y los nodos mínimos coincidan exactamente, y que ningún tipo produzca `Invalid discriminator value`.
 2. **Ejecutar tests antes de finalizar cualquier tarea**:
    ```bash
    pnpm --filter @rpa/dsl test

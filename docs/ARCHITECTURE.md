@@ -37,14 +37,18 @@ Next.js ──HTTP/WS──> Laravel (API + Reverb)
 
 ## 5. DSL de la receta (resumen)
 ```jsonc
-{ "schema": "rpa/1", "variables": [...], "inputs": [...], "secrets": ["portal_password"],
+{ "schema": "rpa/v1", "variables": [...], "secrets": ["portal_password"],
   "entry": "n1",
   "nodes": { "n1": { "id":"n1","type":"navigate","params":{"url":"{{base_url}}"},
-      "description":"…","timeout":30000,"onError":"fail","outputs":[],"screenshot":"onError",
-      "locator": null, "next":"n2" } },
+      "description":"…","timeout":30000,"onError":"retry",
+      "retry":{"maxAttempts":3,"delayMs":1000,"backoff":"exponential"},
+      "screenshot":"onError","locator":null,"next":"n2" } },
   "edges": [{"from":"n2","to":"n3","label":"then"}] }
 ```
-- Bloques con hijos (`loop`, `condition`, `try/catch`, `retry`) referencian sub-grafos por `body`/`then`/`else`/`catch`/`finally` (listas de ids de nodo) → lista, lienzo y JSON son proyecciones del mismo grafo.
+- **Control de flujo por continuación**: `condition`, `loop` y `tryCatch` referencian sus ramas por id (`thenNodeId`/`elseNodeId`, `bodyEntryNodeId`, `tryEntryNodeId`/`catchEntryNodeId`/`finallyEntryNodeId`). Cada rama se ejecuta siguiendo `next` hasta el `next` del nodo de control (o hasta `null`); no se guardan listas explícitas de ids. Lienzo, lista y JSON son proyecciones del mismo grafo.
+- **`retry` por nodo**: solo se aplica con `onError: "retry"`. `maxAttempts` 1–10 (por defecto 3), `delayMs` 0–60000 (1000), `backoff` `fixed`|`exponential` (exponencial). Los reintentos ocurren antes de propagar el error; `onError: "continue"` lo absorbe antes de llegar a un `tryCatch`.
+- **Semántica de `tryCatch`**: captura `{ message, nodeId, type }` en `variables[errorVariable]` (por defecto `error`). `catch` solo corre si el bloque try falla; `finally` corre siempre salvo parada del usuario. Un fallo dentro de `catch` se propaga después de `finally`; `rethrow: true` relanza el error original tras catch y finally. Los logs de fase usan el contexto `{ scope: "tryCatch", phase: "try"|"catch"|"finally" }`.
+- **Limitación conocida**: las ramas comparten la continuación del nodo de control. El validador rechaza solapamientos entre ramas, ciclos de `next`, reentradas al propio bloque y continuaciones que coinciden con el inicio de una rama.
 - `locator`: `{ candidates:[{strategy,value,score}], fingerprint:{role,name,text,attrs,neighbors,container,relPos}, stats }`.
 - Expresiones: **JSONata** (sin `eval`; librería madura en Node y PHP vía puerto en runner — la evaluación ocurre solo en el runner; Laravel solo valida sintaxis llamando al runner/paquete).
   *Justificación frente a CEL:* mejor soporte para transformar JSON y existe implementación JS oficial.
