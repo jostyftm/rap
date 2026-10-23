@@ -43,6 +43,7 @@ import { SecretsModal } from "./secrets-modal";
 import { useLiveStore } from "../../stores/use-live-store";
 import { dispatchRunControl } from "../../lib/execution-control";
 import { runRecipeInLivePanel } from "../../lib/live-runner";
+import { ThemeToggle } from "../theme-toggle";
 
 interface EditorHeaderProps {
   onSave?: () => Promise<boolean | void>;
@@ -339,9 +340,9 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
                 <button
                   onClick={handleSaveInternal}
                   title="Guardar cambios (Ctrl+S)"
-                  className="flex items-center space-x-1.5 px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-750 text-amber-400 border border-zinc-700/60 transition-colors text-[11px] font-mono"
+                  className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-400 text-zinc-950 font-semibold shadow-sm transition-colors text-[11px] font-mono cursor-pointer active:scale-95"
                 >
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  <Save className="w-3 h-3" />
                   <span>Guardar</span>
                 </button>
               ) : (
@@ -780,6 +781,11 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
               </div>
             )}
           </div>
+
+          <div className="h-3.5 w-px bg-zinc-800 mx-0.5" />
+
+          {/* Toggle de Modo Claro / Oscuro */}
+          <ThemeToggle variant="button" />
 
           <div className="h-3.5 w-px bg-zinc-800 mx-0.5" />
 

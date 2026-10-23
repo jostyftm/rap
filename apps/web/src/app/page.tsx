@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/auth-context";
 import { StudioLogo } from "../components/studio-logo";
+import { ThemeToggle } from "../components/theme-toggle";
 
 export default function HomePage() {
   const [activeTab, setActiveTab] = useState<"dsl" | "playwright" | "runner">("dsl");
@@ -42,6 +43,8 @@ export default function HomePage() {
           </div>
 
           <div className="flex items-center gap-3">
+            <ThemeToggle variant="button" />
+
             {isAuthenticated && user ? (
               <div className="flex items-center gap-3">
                 <Link

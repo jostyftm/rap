@@ -8,6 +8,79 @@
   --surface-3: #222226;
   --border-subtle: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.16);
+
+  /* Semantic UI Colors mapped to dark theme by default */
+  --color-zinc-950: #09090b;
+  --color-zinc-900: #121215;
+  --color-zinc-850: #18181c;
+  --color-zinc-800: #27272a;
+  --color-zinc-750: #323238;
+  --color-zinc-700: #3f3f46;
+  --color-zinc-600: #52525b;
+  --color-zinc-500: #71717a;
+  --color-zinc-400: #a1a1aa;
+  --color-zinc-300: #d4d4d8;
+  --color-zinc-200: #e4e4e7;
+  --color-zinc-100: #f4f4f5;
+
+  --color-neutral-950: #0a0a0a;
+  --color-neutral-900: #141414;
+  --color-neutral-850: #1c1c1c;
+  --color-neutral-800: #262626;
+  --color-neutral-700: #404040;
+  --color-neutral-600: #525252;
+  --color-neutral-400: #a3a3a3;
+  --color-neutral-300: #d4d4d4;
+  --color-neutral-200: #e5e5e5;
+  --color-neutral-100: #f5f5f5;
+}
+
+html.light {
+  --background: #ffffff;
+  --foreground: #09090b;
+  --surface-1: #ffffff;
+  --surface-2: #f4f4f5;
+  --surface-3: #e4e4e7;
+  --border-subtle: #e4e4e7;
+  --border-strong: #d4d4d8;
+
+  /* In light mode:
+     zinc-950: pure card/input white surface (#ffffff)
+     zinc-900: subtle soft background / panels (#f4f4f5)
+     zinc-850: clean light hover state (#e4e4e7)
+     zinc-800: standard light borders and distinct hover (#e4e4e7)
+     zinc-750: active state (#d4d4d8)
+     zinc-700: medium border (#d4d4d8)
+     zinc-600: subtle border / secondary icon (#a1a1aa)
+     zinc-500: muted subtitle text (#71717a)
+     zinc-400: secondary body text - high contrast (#52525b)
+     zinc-300: primary content text (#27272a)
+     zinc-200: heading text (#18181b)
+     zinc-100: highest emphasis text (#09090b)
+  */
+  --color-zinc-950: #ffffff;
+  --color-zinc-900: #f4f4f5;
+  --color-zinc-850: #ebebef;
+  --color-zinc-800: #e4e4e7;
+  --color-zinc-750: #d4d4d8;
+  --color-zinc-700: #d4d4d8;
+  --color-zinc-600: #a1a1aa;
+  --color-zinc-500: #71717a;
+  --color-zinc-400: #52525b;
+  --color-zinc-300: #27272a;
+  --color-zinc-200: #18181b;
+  --color-zinc-100: #09090b;
+
+  --color-neutral-950: #ffffff;
+  --color-neutral-900: #f4f4f5;
+  --color-neutral-850: #ebebef;
+  --color-neutral-800: #e4e4e7;
+  --color-neutral-700: #d4d4d8;
+  --color-neutral-600: #a1a1aa;
+  --color-neutral-400: #52525b;
+  --color-neutral-300: #27272a;
+  --color-neutral-200: #18181b;
+  --color-neutral-100: #09090b;
 }
 
 @theme inline {
@@ -15,6 +88,30 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  --color-zinc-950: var(--color-zinc-950);
+  --color-zinc-900: var(--color-zinc-900);
+  --color-zinc-850: var(--color-zinc-850);
+  --color-zinc-800: var(--color-zinc-800);
+  --color-zinc-750: var(--color-zinc-750);
+  --color-zinc-700: var(--color-zinc-700);
+  --color-zinc-600: var(--color-zinc-600);
+  --color-zinc-500: var(--color-zinc-500);
+  --color-zinc-400: var(--color-zinc-400);
+  --color-zinc-300: var(--color-zinc-300);
+  --color-zinc-200: var(--color-zinc-200);
+  --color-zinc-100: var(--color-zinc-100);
+
+  --color-neutral-950: var(--color-neutral-950);
+  --color-neutral-900: var(--color-neutral-900);
+  --color-neutral-850: var(--color-neutral-850);
+  --color-neutral-800: var(--color-neutral-800);
+  --color-neutral-700: var(--color-neutral-700);
+  --color-neutral-600: var(--color-neutral-600);
+  --color-neutral-400: var(--color-neutral-400);
+  --color-neutral-300: var(--color-neutral-300);
+  --color-neutral-200: var(--color-neutral-200);
+  --color-neutral-100: var(--color-neutral-100);
 }
 
 body {
@@ -22,8 +119,211 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   letter-spacing: -0.011em;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 code, pre, kbd {
   font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* ========================================================
+   LIGHT THEME OVERRIDES (Consistencias, Contrastes y Modales)
+   ======================================================== */
+
+html.light .bg-\[\#09090b\] {
+  background-color: #ffffff !important;
+}
+
+html.light .bg-\[\#0c0c0e\] {
+  background-color: #ffffff !important;
+}
+
+html.light .bg-\[\#09090b\]\/80 {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.light .bg-\[\#09090b\]\/90 {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+}
+
+html.light .selection\:bg-zinc-800 {
+  --tw-selection-bg: #e4e4e7 !important;
+}
+
+html.light .selection\:text-white {
+  --tw-selection-text: #09090b !important;
+}
+
+html.light .react-flow__background {
+  background-color: #f8fafc !important;
+}
+
+html.light .react-flow__background pattern circle {
+  fill: #cbd5e1 !important;
+}
+
+/* Hover de botones y enlaces en modo claro para que no se confundan con el background */
+html.light .hover\:bg-zinc-900:hover,
+html.light .hover\:bg-zinc-850:hover,
+html.light .hover\:bg-zinc-800:hover,
+html.light .hover\:bg-neutral-800:hover {
+  background-color: #e4e4e7 !important;
+  color: #09090b !important;
+}
+
+html.light .hover\:bg-zinc-800\/80:hover,
+html.light .hover\:bg-zinc-800\/60:hover {
+  background-color: #ebebef !important;
+  color: #09090b !important;
+}
+
+html.light .hover\:bg-zinc-700:hover {
+  background-color: #d4d4d8 !important;
+  color: #09090b !important;
+}
+
+/* Console logs y badges legibles en modo claro */
+html.light .bg-blue-950\/60 {
+  background-color: #dbeafe !important;
+  color: #1d4ed8 !important;
+}
+
+html.light .bg-amber-950\/60,
+html.light .bg-amber-950\/30,
+html.light .bg-amber-400\/15,
+html.light .bg-amber-400\/10 {
+  background-color: #fef3c7 !important;
+  color: #b45309 !important;
+  border-color: #fde68a !important;
+}
+
+html.light .text-amber-400,
+html.light .text-amber-300 {
+  color: #b45309 !important;
+}
+
+html.light .bg-rose-950\/60,
+html.light .bg-rose-950\/40,
+html.light .bg-rose-500\/10 {
+  background-color: #ffe4e6 !important;
+  color: #be123c !important;
+  border-color: #fecdd3 !important;
+}
+
+html.light .text-rose-400,
+html.light .text-rose-300 {
+  color: #be123c !important;
+}
+
+html.light .bg-emerald-950\/60,
+html.light .bg-emerald-500\/10 {
+  background-color: #dcfce7 !important;
+  color: #15803d !important;
+  border-color: #bbf7d0 !important;
+}
+
+html.light .text-emerald-400,
+html.light .text-emerald-300 {
+  color: #15803d !important;
+}
+
+html.light .bg-purple-950\/80 {
+  background-color: #f3e8ff !important;
+  color: #7e22ce !important;
+  border-color: #e9d5ff !important;
+}
+
+html.light .text-purple-300 {
+  color: #7e22ce !important;
+}
+
+html.light .bg-cyan-950\/80 {
+  background-color: #cffafe !important;
+  color: #0e7490 !important;
+  border-color: #a5f3fc !important;
+}
+
+html.light .text-cyan-300 {
+  color: #0e7490 !important;
+}
+
+/* Fondo y textos de la consola de logs */
+html.light .text-neutral-500 {
+  color: #64748b !important;
+}
+
+html.light .text-neutral-400 {
+  color: #475569 !important;
+}
+
+html.light .text-neutral-300 {
+  color: #1e293b !important;
+}
+
+html.light .text-neutral-200 {
+  color: #0f172a !important;
+}
+
+/* Modal de edición de nodo en modo claro */
+html.light .fixed.inset-0.bg-black\/80 {
+  background-color: rgba(15, 23, 42, 0.45) !important;
+  backdrop-filter: blur(4px) !important;
+}
+
+html.light .bg-zinc-950\/90,
+html.light .bg-zinc-950\/80,
+html.light .bg-zinc-950\/70,
+html.light .bg-zinc-950\/60 {
+  background-color: #f8fafc !important;
+}
+
+/* ========================================================
+   ADAPTIVE HOVER & INTERACTIVE STATES (Modo Claro vs Modo Oscuro)
+   ======================================================== */
+
+/* En modo claro, hover:text-white se adapta al color de texto principal oscuro */
+html.light [class*="hover:text-white"]:hover,
+html.light [class*="group-hover:text-white"],
+html.light .group:hover .group-hover\:text-white {
+  color: #09090b !important;
+}
+
+/* En modo claro, los botones con bg-zinc-100 hover:bg-white text-zinc-950 se vuelven botones sólidos oscuros con hover suave */
+html.light .bg-zinc-100.text-zinc-950 {
+  background-color: #18181b !important;
+  color: #ffffff !important;
+}
+
+html.light .bg-zinc-100.text-zinc-950:hover,
+html.light .hover\:bg-white:hover {
+  background-color: #27272a !important;
+  color: #ffffff !important;
+}
+
+/* Bordes y fondos en hover para listas, enlaces y menús */
+html.light a:hover {
+  color: #09090b;
+}
+
+html.light button:not(:disabled):hover {
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+/* Scrollbars adaptativos según el modo */
+html.light ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+html.light ::-webkit-scrollbar-track {
+  background: #f4f4f5;
+}
+
+html.light ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+html.light ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }

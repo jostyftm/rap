@@ -1,8 +1,9 @@
 import React from "react";
 import Link from "next/link";
-import { Plus, Loader2, LogOut, User as UserIcon } from "lucide-react";
+import { Plus, Loader2, LogOut } from "lucide-react";
 import type { AuthUser } from "../../../types/auth.types";
 import { StudioLogo } from "../../../components/studio-logo";
+import { ThemeToggle } from "../../../components/theme-toggle";
 
 export function RecipesHeader({
   user,
@@ -52,6 +53,8 @@ export function RecipesHeader({
             )}
             <span>Nueva Receta</span>
           </button>
+
+          <ThemeToggle variant="button" />
 
           <button
             onClick={onLogout}
