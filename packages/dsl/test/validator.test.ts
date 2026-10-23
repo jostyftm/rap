@@ -372,4 +372,112 @@ describe("DSL Validator", () => {
       expect(result.errors?.some((e) => e.includes("continuación del tryCatch"))).toBe(true);
     });
   });
+
+  describe("loop", () => {
+    function loopRecipe(overrides: {
+      params?: Record<string, unknown>;
+      next?: string;
+      extraNodes?: Record<string, unknown>;
+    } = {}) {
+      return {
+        schema: "rpa/v1",
+        entry: "loop_1",
+        nodes: {
+          loop_1: {
+            id: "loop_1",
+            type: "loop",
+            description: "Iterar elementos",
+            params: {
+              collectionExpression: "variables.items",
+              itemVariable: "item",
+              bodyEntryNodeId: "body_1",
+              maxIterations: 5,
+              ...overrides.params,
+            },
+            ...(overrides.next ? { next: overrides.next } : {}),
+          },
+          body_1: {
+            id: "body_1",
+            type: "setVariable",
+            description: "Cuerpo",
+            params: { name: "total", expression: "total + item" },
+            next: overrides.next,
+          },
+          after: {
+            id: "after",
+            type: "setVariable",
+            description: "Después del bucle",
+            params: { name: "done", expression: "true" },
+          },
+          ...(overrides.extraNodes ?? {}),
+        },
+        edges: [],
+      };
+    }
+
+    it("acepta un bucle con cuerpo y continuación válidos", () => {
+      const result = validateRecipeDsl(loopRecipe({ next: "after" }));
+      expect(result.success).toBe(true);
+    });
+
+    it("rechaza un cuerpo inexistente", () => {
+      const result = validateRecipeDsl(
+        loopRecipe({ params: { bodyEntryNodeId: "missing" } })
+      );
+      expect(result.success).toBe(false);
+      expect(result.errors?.some((e) => e.includes("bodyEntryNodeId"))).toBe(true);
+    });
+
+    it("rechaza que el cuerpo empiece en el propio nodo loop", () => {
+      const result = validateRecipeDsl(
+        loopRecipe({ params: { bodyEntryNodeId: "loop_1" } })
+      );
+      expect(result.success).toBe(false);
+      expect(result.errors?.some((e) => e.includes("propio nodo loop"))).toBe(true);
+    });
+
+    it("rechaza un ciclo de 'next' dentro del cuerpo", () => {
+      const result = validateRecipeDsl(
+        loopRecipe({
+          next: "after",
+          extraNodes: {
+            body_1: {
+              id: "body_1",
+              type: "setVariable",
+              description: "Cuerpo con ciclo",
+              params: { name: "total", expression: "total + item" },
+              next: "body_1",
+            },
+          },
+        })
+      );
+      expect(result.success).toBe(false);
+      expect(result.errors?.some((e) => e.includes("ciclo de 'next'"))).toBe(true);
+    });
+
+    it("rechaza que el cuerpo vuelva a entrar en el nodo loop", () => {
+      const result = validateRecipeDsl(
+        loopRecipe({
+          next: "after",
+          extraNodes: {
+            body_1: {
+              id: "body_1",
+              type: "setVariable",
+              description: "Cuerpo que reentra",
+              params: { name: "total", expression: "total + item" },
+              next: "loop_1",
+            },
+          },
+        })
+      );
+      expect(result.success).toBe(false);
+      expect(result.errors?.some((e) => e.includes("vuelve a entrar"))).toBe(true);
+    });
+
+    it("rechaza que la continuación coincida con el inicio del cuerpo", () => {
+      const result = validateRecipeDsl(loopRecipe({ next: "body_1" }));
+      expect(result.success).toBe(false);
+      expect(result.errors?.some((e) => e.includes("continuación del loop"))).toBe(true);
+    });
+  });
 });

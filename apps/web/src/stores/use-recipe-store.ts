@@ -11,7 +11,12 @@ import { nodeRegistry } from "@/components/editor/nodes";
 function edgeHandle(edge: RecipeEdge): string | undefined {
   if (edge.condition === "true") return "then";
   if (edge.condition === "false") return "else";
-  if (edge.label === "try" || edge.label === "catch" || edge.label === "finally") {
+  if (
+    edge.label === "try" ||
+    edge.label === "catch" ||
+    edge.label === "finally" ||
+    edge.label === "body"
+  ) {
     return edge.label;
   }
   return undefined;
@@ -118,7 +123,7 @@ export interface RecipeStoreState {
   removeEdge: (from: string, to: string, handle?: string) => void;
   setBranchTarget: (
     nodeId: string,
-    handle: "try" | "catch" | "finally",
+    handle: "try" | "catch" | "finally" | "body",
     targetId: string | undefined
   ) => void;
 
@@ -659,9 +664,11 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     const isConditionBranch = handle === "then" || handle === "else";
     const isTryCatchBranch =
       handle === "try" || handle === "catch" || handle === "finally";
+    const isLoopBranch = handle === "body";
 
     if (isConditionBranch && sourceNode.type !== "condition") return;
     if (isTryCatchBranch && sourceNode.type !== "tryCatch") return;
+    if (isLoopBranch && sourceNode.type !== "loop") return;
 
     const updatedNodes = { ...definition.nodes };
 
@@ -680,6 +687,11 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       updatedNodes[edge.from] = {
         ...sourceNode,
         params: { ...(sourceNode as any).params, [paramKey]: edge.to },
+      } as RecipeNode;
+    } else if (isLoopBranch) {
+      updatedNodes[edge.from] = {
+        ...sourceNode,
+        params: { ...(sourceNode as any).params, bodyEntryNodeId: edge.to },
       } as RecipeNode;
     } else {
       if (sourceNode.type === "condition") return;
@@ -729,6 +741,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       const branchKeyByHandle: Record<string, string> = {
         then: "thenNodeId",
         else: "elseNodeId",
+        body: "bodyEntryNodeId",
         try: "tryEntryNodeId",
         catch: "catchEntryNodeId",
         finally: "finallyEntryNodeId",
@@ -786,7 +799,12 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   setBranchTarget: (nodeId, handle, targetId) => {
     const { definition, history, historyIndex } = get();
     const sourceNode = definition.nodes[nodeId];
-    if (!sourceNode || sourceNode.type !== "tryCatch") return;
+    const isTryCatchHandle =
+      handle === "try" || handle === "catch" || handle === "finally";
+
+    if (!sourceNode) return;
+    if (isTryCatchHandle && sourceNode.type !== "tryCatch") return;
+    if (handle === "body" && sourceNode.type !== "loop") return;
 
     const paramKey = `${handle}EntryNodeId`;
     const params = {

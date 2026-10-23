@@ -360,12 +360,48 @@ export const RecipeDslSchema = z
       }
 
       if (node.type === "loop") {
-        if (!data.nodes[node.params.bodyEntryNodeId]) {
+        const bodyEntry = node.params.bodyEntryNodeId;
+
+        if (bodyEntry === nodeId) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["nodes", nodeId, "params", "bodyEntryNodeId"],
-            message: `El nodo 'bodyEntryNodeId' ('${node.params.bodyEntryNodeId}') no existe`,
+            message: "El cuerpo del bucle no puede empezar en el propio nodo loop",
           });
+        } else if (!data.nodes[bodyEntry]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["nodes", nodeId, "params", "bodyEntryNodeId"],
+            message: `El nodo 'bodyEntryNodeId' ('${bodyEntry}') no existe`,
+          });
+        } else {
+          const chain = collectNextChain(data.nodes, bodyEntry, node.next, nodeId);
+
+          if (chain.cycle) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["nodes", nodeId, "params", "bodyEntryNodeId"],
+              message:
+                "El cuerpo del bucle contiene un ciclo de 'next'; debe terminar en la continuación del loop o en null",
+            });
+          }
+
+          if (chain.reentersBlock) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["nodes", nodeId, "params", "bodyEntryNodeId"],
+              message: "El cuerpo del bucle vuelve a entrar en el nodo loop",
+            });
+          }
+
+          if (node.next && bodyEntry === node.next) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["nodes", nodeId, "next"],
+              message:
+                "La continuación del loop no puede coincidir con el inicio de su cuerpo",
+            });
+          }
         }
       }
 

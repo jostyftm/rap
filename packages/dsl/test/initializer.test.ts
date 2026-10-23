@@ -197,4 +197,53 @@ describe("Initializer Nodes & Root Detection", () => {
     expect(contNav?.inDegree).toBeGreaterThanOrEqual(1);
     expect(tryNav?.isRoot).toBe(false);
   });
+
+  it("cuenta el cuerpo del loop como conexión implícita", () => {
+    const dsl: RecipeDsl = {
+      schema: "rpa/v1",
+      entry: "nav",
+      nodes: {
+        nav: {
+          id: "nav",
+          type: "navigate",
+          description: "Inicio",
+          params: { url: "https://example.com" },
+          next: "loop_1",
+        },
+        loop_1: {
+          id: "loop_1",
+          type: "loop",
+          description: "Iterar",
+          params: {
+            collectionExpression: "variables.items",
+            itemVariable: "item",
+            bodyEntryNodeId: "body_nav",
+            maxIterations: 3,
+          },
+          next: "cont_nav",
+        },
+        body_nav: {
+          id: "body_nav",
+          type: "navigate",
+          description: "Cuerpo",
+          params: { url: "https://example.com/item" },
+          next: "cont_nav",
+        },
+        cont_nav: {
+          id: "cont_nav",
+          type: "navigate",
+          description: "Continuación",
+          params: { url: "https://example.com/cont" },
+        },
+      },
+      edges: [],
+    };
+
+    const analysis = analyzeInitializerNodes(dsl);
+    const body = analysis.initializers.find((i) => i.id === "body_nav");
+
+    expect(body?.inDegree).toBe(1);
+    expect(body?.isRoot).toBe(false);
+    expect(analysis.primaryRootId).toBe("nav");
+  });
 });

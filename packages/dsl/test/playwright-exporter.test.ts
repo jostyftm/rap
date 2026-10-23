@@ -294,4 +294,52 @@ describe("Playwright Exporter", () => {
     expect(code).toContain("} catch (err) {");
     expect(code).toContain("throw err;");
   });
+
+  it("usa la arista sin etiqueta como continuación del loop e ignora la arista 'body'", () => {
+    const recipe: RecipeDsl = {
+      schema: "rpa/v1",
+      name: "Loop con aristas etiquetadas",
+      entry: "loop_1",
+      nodes: {
+        loop_1: {
+          id: "loop_1",
+          type: "loop",
+          description: "Iterar",
+          params: {
+            collectionExpression: "variables.items",
+            itemVariable: "item",
+            bodyEntryNodeId: "body_1",
+            maxIterations: 3,
+          },
+        },
+        body_1: {
+          id: "body_1",
+          type: "waitFor",
+          description: "Cuerpo",
+          params: { strategy: "timeout", value: 100 },
+        },
+        cont: {
+          id: "cont",
+          type: "navigate",
+          description: "Continuación",
+          params: { url: "https://example.com/after-loop" },
+        },
+      },
+      edges: [
+        { from: "loop_1", to: "body_1", label: "body" },
+        { from: "loop_1", to: "cont" },
+      ],
+    };
+
+    const code = exportToPlaywright(recipe);
+    const lines = code.split("\n");
+    const continuationLine = lines.find((line) =>
+      line.includes("https://example.com/after-loop")
+    );
+
+    expect(continuationLine).toBeDefined();
+    expect(continuationLine?.startsWith("  await")).toBe(true);
+    expect(code).toContain("for (const item of");
+    expect(code).toContain("await page.waitForTimeout(100);");
+  });
 });

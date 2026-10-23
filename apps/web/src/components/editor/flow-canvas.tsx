@@ -178,7 +178,12 @@ function resolveEdgeHandle(
 ): string | undefined {
   if (edge.condition === "true") return "then";
   if (edge.condition === "false") return "else";
-  if (edge.label === "try" || edge.label === "catch" || edge.label === "finally") {
+  if (
+    edge.label === "try" ||
+    edge.label === "catch" ||
+    edge.label === "finally" ||
+    edge.label === "body"
+  ) {
     return edge.label;
   }
 
@@ -186,6 +191,9 @@ function resolveEdgeHandle(
   if (source?.type === "condition") {
     if (source.params.thenNodeId === edge.to) return "then";
     if (source.params.elseNodeId === edge.to) return "else";
+  }
+  if (source?.type === "loop") {
+    if (source.params.bodyEntryNodeId === edge.to) return "body";
   }
   if (source?.type === "tryCatch") {
     if (source.params.tryEntryNodeId === edge.to) return "try";
@@ -339,6 +347,8 @@ function FlowCanvasInner() {
         edge.condition = "false";
       } else if (handle === "try" || handle === "catch" || handle === "finally") {
         edge.label = handle;
+      } else if (handle === "body") {
+        edge.label = "body";
       }
 
       addEdge(edge);

@@ -46,6 +46,7 @@ Next.js ──HTTP/WS──> Laravel (API + Reverb)
   "edges": [{"from":"n2","to":"n3","label":"then"}] }
 ```
 - **Control de flujo por continuación**: `condition`, `loop` y `tryCatch` referencian sus ramas por id (`thenNodeId`/`elseNodeId`, `bodyEntryNodeId`, `tryEntryNodeId`/`catchEntryNodeId`/`finallyEntryNodeId`). Cada rama se ejecuta siguiendo `next` hasta el `next` del nodo de control (o hasta `null`); no se guardan listas explícitas de ids. Lienzo, lista y JSON son proyecciones del mismo grafo.
+- **Semántica de `loop`**: evalúa `collectionExpression` (referencia `variables.x`, interpolación `{{variables.x}}`, expresión JSONata o literal) una sola vez y recorre hasta `maxIterations` elementos. En cada iteración asigna el elemento a `itemVariable`, ejecuta el cuerpo (`bodyEntryNodeId`) hasta la continuación del loop y luego continúa con `next`. El resultado queda en `steps.<id>.output` como `{ iterations, truncated }`; los logs usan `{ scope: "loop", iteration, total }`.
 - **`retry` por nodo**: solo se aplica con `onError: "retry"`. `maxAttempts` 1–10 (por defecto 3), `delayMs` 0–60000 (1000), `backoff` `fixed`|`exponential` (exponencial). Los reintentos ocurren antes de propagar el error; `onError: "continue"` lo absorbe antes de llegar a un `tryCatch`.
 - **Semántica de `tryCatch`**: captura `{ message, nodeId, type }` en `variables[errorVariable]` (por defecto `error`). `catch` solo corre si el bloque try falla; `finally` corre siempre salvo parada del usuario. Un fallo dentro de `catch` se propaga después de `finally`; `rethrow: true` relanza el error original tras catch y finally. Los logs de fase usan el contexto `{ scope: "tryCatch", phase: "try"|"catch"|"finally" }`.
 - **Limitación conocida**: las ramas comparten la continuación del nodo de control. El validador rechaza solapamientos entre ramas, ciclos de `next`, reentradas al propio bloque y continuaciones que coinciden con el inicio de una rama.
@@ -63,7 +64,7 @@ Verificado en la documentación oficial: agentes, tools, salida estructurada y m
 Agentes: Planner, Browser, Compiler, Healer (+ `NlEditAgent` para parches; `LocatorVisionAgent`). Contenido de página siempre dentro de delimitadores `<untrusted_page_content>`; acciones validadas por esquema + dominios permitidos + SSRF.
 
 ## 8. Modelo de datos
-Según lo solicitado (UUID público, `bigint` interno, soft deletes en workspaces/projects/recipes). Adiciones justificadas: `recipe_comments`, `locator_stats` (por paso/estrategia), `pairing_codes` (extensión), `recordings`, `secret_versions` (rotación de claves).
+Según lo solicitado (UUID público, `bigint` interno, soft deletes en workspaces/projects/recipes). Adiciones justificadas: `recipe_comments`, `locator_stats` (por paso/estrategia), `pairing_codes` (extensión), `recordings`. Los secretos usan una tabla `secrets` con valor cifrado y keyring versionado en la aplicación (sin `secret_versions`).
 
 ## 9. Seguridad (desde la Fase 0)
 Policies por rol de workspace; rate limit Redis; cabeceras/CORS estrictos; SSRF en runner (resolución DNS validada, bloqueo RFC1918/link-local/metadata, redes Docker aisladas: runner solo sale a Internet y a Redis/Laravel interno por proxy); contenedor runner sin privilegios (`--cap-drop=ALL`, user no root, seccomp); cifrado de aplicación con keyring versionado (XChaCha20 vía libsodium).

@@ -1,7 +1,8 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
-import type { RecipeDsl, RecipeNode, RetryPolicy, TryCatchNode } from "@rpa/dsl";
+import type { LoopNode, RecipeDsl, RecipeNode, RetryPolicy, TryCatchNode } from "@rpa/dsl";
 import type { RunnerEventEmitter } from "../protocol/event-emitter.js";
 import { executeNodeAction, type ExecutionContext, type ActionResult } from "./action-handlers.js";
+import { evaluateExpression, interpolateString } from "../evaluator/jsonata-evaluator.js";
 import { resolveLocator } from "./locator-resolver.js";
 import { uploadArtifact } from "../storage/s3.js";
 import type { Redis } from "ioredis";
@@ -41,6 +42,20 @@ function retryDelayMs(policy: RetryPolicy, failedAttempt: number): number {
   }
 
   return policy.delayMs * 2 ** Math.max(0, failedAttempt - 1);
+}
+
+function getNestedValue(source: Record<string, unknown>, path: string): unknown {
+  if (path in source) return source[path];
+
+  let current: unknown = source;
+  for (const part of path.split(".")) {
+    if (current === null || current === undefined || typeof current !== "object") {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[part];
+  }
+
+  return current;
 }
 
 export interface ExecutionDisplayOptions {
@@ -200,9 +215,10 @@ export class RecipeExecutor {
     };
 
     const visitedNodes = new Set<string>();
+    const activeLoopIds = new Set<string>();
     let stepCount = 0;
     let stepMode = false;
-    const maxGlobalSteps = 150;
+    const maxGlobalSteps = 2000;
     const controlKey = `rpa:run:${runId}:control`;
     const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -567,6 +583,209 @@ export class RecipeExecutor {
       return propagated;
     };
 
+    /**
+     * Resuelve la colección de un bucle. Acepta:
+     * - `variables.miLista` (referencia directa al contexto de ejecución)
+     * - `{{variables.miLista}}` (interpolación)
+     * - una expresión JSONata o un literal (`[1, 2, 3]`)
+     */
+    const resolveLoopCollection = async (expression: string): Promise<unknown[]> => {
+      const trimmed = expression.trim();
+      let value: unknown;
+
+      if (trimmed.startsWith("{{") && trimmed.endsWith("}}")) {
+        const interpolated = interpolateString(trimmed, execContext.variables, secrets);
+        try {
+          value = JSON.parse(interpolated);
+        } catch {
+          value = interpolated;
+        }
+      } else if (trimmed.startsWith("variables.")) {
+        const path = trimmed.slice("variables.".length);
+        value = path ? getNestedValue(execContext.variables, path) : execContext.variables;
+      } else if (Object.prototype.hasOwnProperty.call(execContext.variables, trimmed)) {
+        value = execContext.variables[trimmed];
+      } else {
+        value = await evaluateExpression(trimmed, {
+          ...execContext.variables,
+          stepResults: execContext.stepResults,
+        });
+      }
+
+      if (Array.isArray(value)) return Array.from(value);
+
+      if (typeof value === "string") {
+        try {
+          const parsed: unknown = JSON.parse(value);
+          if (Array.isArray(parsed)) return parsed;
+        } catch {
+          // La cadena no contenía un arreglo JSON
+        }
+      }
+
+      return [];
+    };
+
+    const executeLoop = async (node: LoopNode): Promise<ChainOutcome> => {
+      activeNodeId = node.id;
+      const stepStartTime = Date.now();
+      const itemVariable = node.params.itemVariable;
+
+      if (activeLoopIds.has(node.id)) {
+        return {
+          kind: "error",
+          nodeId: node.id,
+          error: new Error(`El bucle '${node.id}' intentó reentrar en sí mismo`),
+        };
+      }
+
+      await this.eventEmitter.emitStepStarted(runId, node.id);
+      await this.eventEmitter.emitRunLog(
+        runId,
+        "info",
+        `Paso [${node.id}] (loop): ${node.description || "Iniciando bucle"}`,
+        node.id,
+        "runner"
+      );
+
+      activeLoopIds.add(node.id);
+
+      let iterations = 0;
+      let truncated = false;
+      let handledError: string | undefined;
+
+      try {
+        const collection = await resolveLoopCollection(node.params.collectionExpression);
+        const maxIterations = Math.min(
+          1000,
+          Math.max(1, Math.floor(node.params.maxIterations || 1))
+        );
+        const limit = Math.min(collection.length, maxIterations);
+        truncated = collection.length > limit;
+
+        await this.eventEmitter.emitRunLog(
+          runId,
+          "info",
+          `Bucle '${itemVariable}': ${collection.length} elemento(s), se ejecutarán ${limit} (máx ${maxIterations})`,
+          node.id,
+          "runner",
+          { scope: "loop", total: collection.length, limit, maxIterations }
+        );
+
+        if (truncated) {
+          await this.eventEmitter.emitRunLog(
+            runId,
+            "warn",
+            `El bucle '${itemVariable}' alcanzó el límite de ${maxIterations} iteraciones; quedaron ${collection.length - limit} elemento(s) sin procesar`,
+            node.id,
+            "runner",
+            { scope: "loop", truncated: true, total: collection.length, limit }
+          );
+        }
+
+        for (let index = 0; index < limit; index++) {
+          const ctrl = await checkControl();
+          if (ctrl === "stop") {
+            return { kind: "stop" };
+          }
+
+          const item = collection[index];
+          execContext.variables[itemVariable] = item;
+          const itemPreview =
+            typeof item === "object" && item !== null ? JSON.stringify(item) : String(item);
+
+          await this.eventEmitter.emitRunLog(
+            runId,
+            "info",
+            `Iteración ${index + 1}/${limit} de '${itemVariable}': ${itemPreview}`,
+            node.id,
+            "runner",
+            { scope: "loop", iteration: index + 1, total: limit, item }
+          );
+
+          const outcome = await runChain(node.params.bodyEntryNodeId, node.next);
+
+          if (outcome.kind === "stop") {
+            return outcome;
+          }
+
+          if (outcome.kind === "error") {
+            const message =
+              outcome.error instanceof Error ? outcome.error.message : String(outcome.error);
+
+            if (node.onError === "continue") {
+              handledError = message;
+              await this.eventEmitter.emitRunLog(
+                runId,
+                "warn",
+                `Error en la iteración ${index + 1} del bucle '${itemVariable}': ${message}. Se continúa tras el bucle`,
+                node.id,
+                "runner",
+                { scope: "loop", iteration: index + 1, error: message }
+              );
+              break;
+            }
+
+            return outcome;
+          }
+
+          iterations++;
+        }
+      } catch (loopError: unknown) {
+        if (loopError instanceof ExecutionStoppedError) {
+          return { kind: "stop" };
+        }
+
+        const message = loopError instanceof Error ? loopError.message : String(loopError);
+        const durationMs = Date.now() - stepStartTime;
+
+        await this.eventEmitter.emitStepFailed(runId, node.id, message, durationMs);
+        await this.eventEmitter.emitRunLog(
+          runId,
+          "error",
+          `Paso [${node.id}] (loop) falló tras ${durationMs}ms: ${message}`,
+          node.id,
+          "runner",
+          { scope: "loop", error: message, duration_ms: durationMs }
+        );
+
+        if (node.onError === "continue") {
+          handledError = message;
+        } else {
+          return { kind: "error", nodeId: node.id, error: loopError };
+        }
+      } finally {
+        activeLoopIds.delete(node.id);
+      }
+
+      const output: Record<string, unknown> = { iterations, truncated };
+      if (handledError) {
+        output.error = handledError;
+      }
+
+      execContext.stepResults[node.id] = output;
+      execContext.variables[`steps.${node.id}.output`] = output;
+      if (!execContext.variables.steps || typeof execContext.variables.steps !== "object") {
+        execContext.variables.steps = {};
+      }
+      (execContext.variables.steps as Record<string, unknown>)[node.id] = { output };
+
+      const stepDurationMs = Date.now() - stepStartTime;
+      await this.eventEmitter.emitStepFinished(runId, node.id, stepDurationMs);
+      await this.eventEmitter.emitRunLog(
+        runId,
+        handledError ? "warn" : "success",
+        `Bucle '${itemVariable}' completado: ${iterations} iteración(es)${
+          truncated ? " (límite de iteraciones alcanzado)" : ""
+        }${handledError ? `, error controlado: ${handledError}` : ""}`,
+        node.id,
+        "runner",
+        { scope: "loop", iterations, output, duration_ms: stepDurationMs }
+      );
+
+      return { kind: "next", nodeId: node.next };
+    };
+
     const runChain = async (startId?: string, stopAt?: string): Promise<ChainOutcome> => {
       let currentNodeId = startId;
 
@@ -605,11 +824,30 @@ export class RecipeExecutor {
           continue;
         }
 
+        if (node.type === "loop") {
+          const outcome = await executeLoop(node);
+          if (outcome.kind !== "next") {
+            return outcome;
+          }
+          currentNodeId = outcome.nodeId;
+          continue;
+        }
+
         const outcome = await executeNodeStep(node);
         if (outcome.kind !== "next") {
           return outcome;
         }
         currentNodeId = outcome.nodeId;
+      }
+
+      if (currentNodeId && currentNodeId !== stopAt && stepCount >= maxGlobalSteps) {
+        return {
+          kind: "error",
+          nodeId: currentNodeId,
+          error: new Error(
+            `Se alcanzó el límite global de ${maxGlobalSteps} pasos antes de completar el flujo`
+          ),
+        };
       }
 
       return { kind: "next", nodeId: currentNodeId };

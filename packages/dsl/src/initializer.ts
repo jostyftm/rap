@@ -75,6 +75,17 @@ export function analyzeInitializerNodes(recipe: RecipeDsl): RootInitializerAnaly
         }
       }
     }
+    if (node.type === "loop") {
+      const bodyId = node.params.bodyEntryNodeId;
+      if (bodyId && nodes[bodyId]) {
+        const key = `${node.id}->${bodyId}`;
+        if (!recordedEdges.has(key)) {
+          recordedEdges.add(key);
+          outDegrees[node.id] = (outDegrees[node.id] || 0) + 1;
+          inDegrees[bodyId] = (inDegrees[bodyId] || 0) + 1;
+        }
+      }
+    }
     if (node.type === "tryCatch") {
       const branchEntries = [
         node.params.tryEntryNodeId,

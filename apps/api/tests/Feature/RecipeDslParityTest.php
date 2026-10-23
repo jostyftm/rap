@@ -100,6 +100,41 @@ it('rechaza un tryCatch con una rama inexistente', function () {
         ->and(implode("\n", $errors))->toContain('missing_catch');
 });
 
+it('acepta un loop con un cuerpo existente y rechaza uno inexistente', function () {
+    $validator = app(DslValidator::class);
+
+    $valid = dslParityRecipe([
+        'node_1' => [
+            'id' => 'node_1',
+            'type' => 'loop',
+            'description' => 'Iterar',
+            'params' => [
+                'collectionExpression' => 'variables.items',
+                'itemVariable' => 'item',
+                'bodyEntryNodeId' => 'body_1',
+                'maxIterations' => 5,
+            ],
+            'next' => 'cont',
+        ],
+        'body_1' => array_merge(
+            dslParityNode('body_1', 'setVariable', ['name' => 'total', 'expression' => 'total + item']),
+            ['next' => 'cont'],
+        ),
+        'cont' => dslParityNode('cont', 'setVariable', ['name' => 'done', 'expression' => 'true']),
+    ]);
+
+    $invalid = $valid;
+    $invalid['nodes']['node_1']['params']['bodyEntryNodeId'] = 'missing_body';
+
+    expect($validator->validate($valid))->toBe([]);
+
+    $errors = $validator->validate($invalid);
+
+    expect($errors)->not->toBeEmpty()
+        ->and(implode("\n", $errors))->toContain('bodyEntryNodeId')
+        ->and(implode("\n", $errors))->toContain('missing_body');
+});
+
 it('persiste vía API una receta con tryCatch, scroll y webhook', function () {
     $user = User::factory()->create();
     $workspace = Workspace::create(['name' => 'Paridad', 'slug' => 'paridad']);

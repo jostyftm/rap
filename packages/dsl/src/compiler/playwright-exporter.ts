@@ -89,7 +89,13 @@ export function exportToPlaywright(recipe: RecipeDsl, options: PlaywrightExportO
 
   function getNextId(node: RecipeNode, edges: RecipeEdge[]): string | undefined {
     if (node.next) return node.next;
-    const directEdge = edges.find((e) => e.from === node.id && !e.condition);
+    const branchLabels = new Set(["try", "catch", "finally", "body"]);
+    const directEdge = edges.find(
+      (e) =>
+        e.from === node.id &&
+        !e.condition &&
+        (!e.label || !branchLabels.has(e.label))
+    );
     return directEdge?.to;
   }
 

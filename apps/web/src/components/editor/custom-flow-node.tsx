@@ -265,6 +265,14 @@ export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selec
         </div>
       )}
 
+      {/* Etiquetas de salidas del bloque loop */}
+      {nodeData.type === "loop" && (
+        <div className="flex items-center justify-between px-3 pb-1 text-[8px] font-mono uppercase tracking-wider">
+          <span className="text-rose-400">body</span>
+          <span className="text-zinc-500">next</span>
+        </div>
+      )}
+
       {/* Handles inferiores de salida */}
       {nodeData.type === "condition" ? (
         <>
@@ -279,6 +287,22 @@ export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selec
             type="source"
             position={Position.Bottom}
             className="!left-[70%] !w-2.5 !h-2.5 !bg-rose-500 !border-2 !border-zinc-900"
+          />
+        </>
+      ) : nodeData.type === "loop" ? (
+        <>
+          <Handle
+            id="body"
+            type="source"
+            position={Position.Bottom}
+            title="Cuerpo del bucle (una vez por elemento)"
+            className="!left-[30%] !w-2.5 !h-2.5 !bg-rose-500 !border-2 !border-zinc-900"
+          />
+          <Handle
+            type="source"
+            position={Position.Bottom}
+            title="Continuación tras el bucle"
+            className="!left-[70%] !w-2.5 !h-2.5 !bg-zinc-500 !border-2 !border-zinc-900 hover:!bg-zinc-200 transition-colors"
           />
         </>
       ) : nodeData.type === "tryCatch" ? (

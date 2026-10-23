@@ -73,6 +73,13 @@ final class DslValidator
                 if (! is_int($maxIterations) || $maxIterations < 1) {
                     $errors[] = "nodes.{$nodeId}.params.maxIterations: Debe ser un entero positivo obligatorio";
                 }
+
+                $bodyEntry = $params['bodyEntryNodeId'] ?? null;
+                if (! is_string($bodyEntry) || $bodyEntry === '' || ! isset($nodes[$bodyEntry])) {
+                    $errors[] = "nodes.{$nodeId}.params.bodyEntryNodeId: El nodo referenciado '{$bodyEntry}' no existe";
+                } elseif ($bodyEntry === $nodeId) {
+                    $errors[] = "nodes.{$nodeId}.params.bodyEntryNodeId: El cuerpo del bucle no puede empezar en el propio nodo loop";
+                }
             }
 
             if ($type === 'tryCatch') {
