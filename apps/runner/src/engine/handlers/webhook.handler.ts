@@ -19,6 +19,7 @@ export const webhookHandler: NodeActionHandler<WebhookNode> = {
             "content-type": "application/json",
             "user-agent": "RPAStudio-Webhook/1.0",
           },
+          params: {},
           query: {},
           body: {},
           timestamp: new Date().toISOString(),

@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\v1\Run\RunController;
 use App\Http\Controllers\Api\v1\Run\RunLogController;
 use App\Http\Controllers\Api\v1\Schedule\RecipeScheduleController;
 use App\Http\Controllers\Api\v1\Secret\WorkspaceSecretController;
+use App\Http\Controllers\Api\v1\Webhook\WebhookTestController;
 use App\Http\Controllers\Api\v1\Webhook\WebhookTriggerController;
 use App\Http\Controllers\Api\v1\Workspace\WorkspaceController;
 use Illuminate\Support\Facades\Route;
@@ -26,6 +27,11 @@ Route::middleware('throttle:10,1')->group(function (): void {
 // Ruta pública de trigger vía Webhook
 Route::post('webhooks/recipes/{token}/trigger', [WebhookTriggerController::class, 'trigger'])
     ->middleware('throttle:30,1');
+
+// Captura de peticiones de prueba enviadas a la URL del webhook en diseño
+Route::match(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], 'webhooks/{path}', [WebhookTestController::class, 'capture'])
+    ->where('path', '^(?!recipes/).+')
+    ->middleware('throttle:60,1');
 
 // Rutas protegidas por Sanctum SPA
 Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function (): void {
@@ -64,6 +70,8 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function (): void {
 
     // Webhooks de Recetas (Configuración de token)
     Route::post('recipes/{recipe}/webhook/toggle', [WebhookTriggerController::class, 'toggle']);
+    Route::post('recipes/{recipe}/webhook-test/listen', [WebhookTestController::class, 'listen']);
+    Route::delete('recipes/{recipe}/webhook-test/{listenId}', [WebhookTestController::class, 'stop']);
 
     // Grabador de Acciones en Vivo (Recorder)
     Route::post('recipes/{recipe}/recorder/start', [RecorderController::class, 'start']);

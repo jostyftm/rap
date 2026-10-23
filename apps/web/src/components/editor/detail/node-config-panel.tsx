@@ -302,56 +302,9 @@ export function NodeConfigPanel({
               </div>
             )}
 
-            {node.type === "webhook" && (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[11px] font-medium text-zinc-300 block mb-1">
-                      Método HTTP
-                    </label>
-                    <select
-                      value={(node.params as any).httpMethod || "POST"}
-                      onChange={(e) => handleParamChange("httpMethod", e.target.value)}
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-xs text-zinc-200 font-mono"
-                    >
-                      <option value="ANY">ANY (Cualquiera)</option>
-                      <option value="GET">GET</option>
-                      <option value="POST">POST</option>
-                      <option value="PUT">PUT</option>
-                      <option value="DELETE">DELETE</option>
-                      <option value="PATCH">PATCH</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-medium text-zinc-300 block mb-1">
-                      Código Respuesta HTTP
-                    </label>
-                    <input
-                      type="number"
-                      value={(node.params as any).responseCode || 200}
-                      onChange={(e) => handleParamChange("responseCode", Number(e.target.value))}
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-xs text-zinc-200 font-mono"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-[11px] font-medium text-zinc-300 block mb-1">
-                    Ruta del Webhook
-                  </label>
-                  <input
-                    type="text"
-                    value={(node.params as any).path || `/api/v1/webhooks/${node.id}`}
-                    onChange={(e) => handleParamChange("path", e.target.value)}
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-200 font-mono"
-                  />
-                </div>
-              </div>
-            )}
-
             {/* Renderizar formulario complementario del registro si existe */}
             {nodeDef?.InspectorForm && (
-              <div className="pt-2 border-t border-zinc-800/80">
+              <div className={node.type === "webhook" ? "" : "pt-2 border-t border-zinc-800/80"}>
                 <nodeDef.InspectorForm
                   node={node as any}
                   updateParam={handleParamChange}
@@ -576,7 +529,7 @@ export function NodeConfigPanel({
           type="button"
           onClick={onExecuteNode}
           disabled={isExecuting}
-          className="flex items-center space-x-2 px-4 py-2 rounded-md bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-semibold transition-all shadow-md active:scale-95 disabled:opacity-50"
+          className="flex items-center space-x-2 px-4 py-2 rounded-md bg-amber-400 hover:bg-amber-300 text-zinc-950 text-xs font-semibold transition-all shadow-md active:scale-95 disabled:opacity-50 cursor-pointer"
         >
           {isExecuting ? (
             <>
@@ -587,7 +540,7 @@ export function NodeConfigPanel({
             <>
               <Play className="w-3.5 h-3.5 fill-current" />
               <span>Ejecutar nodo</span>
-              <kbd className="text-[10px] font-mono text-zinc-500 bg-zinc-200 px-1 py-0.5 rounded ml-1">
+              <kbd className="text-[10px] font-mono text-zinc-800 bg-amber-300/80 px-1 py-0.5 rounded ml-1">
                 Ctrl + Enter
               </kbd>
             </>

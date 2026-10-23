@@ -19,6 +19,7 @@ import { NodeConfigPanel } from "./node-config-panel";
 import { OutputLivePanel } from "./output-live-panel";
 import { testRecipeNode } from "@/lib/node-tester";
 import { nodeRegistry } from "../nodes";
+import { useWebhookTestStore } from "@/stores/use-webhook-test-store";
 import type { RecipeNode } from "@rpa/dsl";
 
 export function NodeDetailModal() {
@@ -143,6 +144,16 @@ export function NodeDetailModal() {
       useLiveStore.getState().open();
     }
   }, [activeDetailNodeId]);
+
+  // Si se cambia de nodo o se cierra el modal, limpiar cualquier escucha activa de webhook
+  const recipeId = useRecipeStore((s) => s.recipeId);
+  useEffect(() => {
+    return () => {
+      if (currentNode?.type === "webhook" && recipeId) {
+        useWebhookTestStore.getState().stopListening(recipeId, currentNode.id);
+      }
+    };
+  }, [currentNode?.id, currentNode?.type, recipeId]);
 
   if (!activeDetailNodeId || !currentNode) {
     return null;

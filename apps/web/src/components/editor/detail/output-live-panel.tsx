@@ -17,7 +17,8 @@ import { useRecipeStore } from "@/stores/use-recipe-store";
 import { useLiveStore } from "@/stores/use-live-store";
 import { DataViewer } from "./data-viewer";
 import { LiveSitePanel } from "../live-site-panel";
-import type { RecipeNode } from "@rpa/dsl";
+import { WebhookOutputPanel } from "./webhook-output-panel";
+import type { RecipeNode, WebhookNode } from "@rpa/dsl";
 
 interface OutputLivePanelProps {
   node: RecipeNode;
@@ -60,9 +61,18 @@ export function OutputLivePanel({
   // Al ejecutar una acción de navegador, mostrar la pestaña del navegador en vivo para feedback en tiempo real
   useEffect(() => {
     if (isExecuting && isBrowserAction) {
-      setActiveTab("live");
+      const timer = setTimeout(() => setActiveTab("live"), 0);
+      return () => clearTimeout(timer);
     }
   }, [isExecuting, isBrowserAction]);
+
+  if (node.type === "webhook") {
+    return (
+      <div className={`flex flex-col h-full bg-[#0c0c0e] border-l border-zinc-800 ${className}`}>
+        <WebhookOutputPanel node={node as WebhookNode} />
+      </div>
+    );
+  }
 
   // Si el nodo usa selectores, solicitar resaltado en el navegador en vivo
   useEffect(() => {
@@ -198,7 +208,7 @@ export function OutputLivePanel({
                 type="button"
                 onClick={onExecuteNode}
                 disabled={isExecuting}
-                className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded-md bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-medium transition-colors shadow-sm disabled:opacity-50"
+                className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded-md bg-amber-400 hover:bg-amber-300 text-zinc-950 text-xs font-semibold transition-colors shadow-sm disabled:opacity-50 cursor-pointer"
               >
                 {isExecuting ? (
                   <>
