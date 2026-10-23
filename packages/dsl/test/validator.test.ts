@@ -188,4 +188,188 @@ describe("DSL Validator", () => {
     expect(detailed.nodeIssues["scroll_1"][0].field).toBe("locator.primary.value");
     expect(detailed.nodeIssues["scroll_1"][0].message).toContain("Falta el selector CSS");
   });
+
+  describe("retry", () => {
+    const navigateWithRetry = (retry: unknown) => ({
+      schema: "rpa/v1",
+      entry: "node_1",
+      nodes: {
+        node_1: {
+          id: "node_1",
+          type: "navigate",
+          description: "Ir a login",
+          params: { url: "http://localhost" },
+          onError: "retry",
+          retry,
+        },
+      },
+      edges: [],
+    });
+
+    it("acepta una política de reintentos explícita", () => {
+      const result = validateRecipeDsl(
+        navigateWithRetry({ maxAttempts: 4, delayMs: 250, backoff: "fixed" })
+      );
+      expect(result.success).toBe(true);
+      expect(result.data?.nodes.node_1.retry).toEqual({
+        maxAttempts: 4,
+        delayMs: 250,
+        backoff: "fixed",
+      });
+    });
+
+    it("aplica los valores por defecto cuando la política viene vacía", () => {
+      const result = validateRecipeDsl(navigateWithRetry({}));
+      expect(result.success).toBe(true);
+      expect(result.data?.nodes.node_1.retry).toEqual({
+        maxAttempts: 3,
+        delayMs: 1000,
+        backoff: "exponential",
+      });
+    });
+
+    it("permite onError 'retry' sin política explícita", () => {
+      const result = validateRecipeDsl(navigateWithRetry(undefined));
+      expect(result.success).toBe(true);
+    });
+
+    it("rechaza maxAttempts fuera de rango", () => {
+      const result = validateRecipeDsl(
+        navigateWithRetry({ maxAttempts: 11, delayMs: 100, backoff: "fixed" })
+      );
+      expect(result.success).toBe(false);
+      expect(result.errors?.some((e) => e.includes("maxAttempts"))).toBe(true);
+    });
+
+    it("rechaza delayMs negativo", () => {
+      const result = validateRecipeDsl(
+        navigateWithRetry({ maxAttempts: 2, delayMs: -1, backoff: "fixed" })
+      );
+      expect(result.success).toBe(false);
+      expect(result.errors?.some((e) => e.includes("delayMs"))).toBe(true);
+    });
+  });
+
+  describe("tryCatch", () => {
+    function tryCatchRecipe(overrides: {
+      params?: Record<string, unknown>;
+      next?: string;
+      extraNodes?: Record<string, unknown>;
+    } = {}) {
+      return {
+        schema: "rpa/v1",
+        entry: "tc",
+        nodes: {
+          tc: {
+            id: "tc",
+            type: "tryCatch",
+            description: "Bloque protegido",
+            params: {
+              tryEntryNodeId: "try_1",
+              catchEntryNodeId: "catch_1",
+              finallyEntryNodeId: "finally_1",
+              ...overrides.params,
+            },
+            next: overrides.next ?? "cont",
+          },
+          try_1: {
+            id: "try_1",
+            type: "navigate",
+            description: "Try",
+            params: { url: "https://example.com/try" },
+            next: "cont",
+          },
+          catch_1: {
+            id: "catch_1",
+            type: "navigate",
+            description: "Catch",
+            params: { url: "https://example.com/catch" },
+            next: "cont",
+          },
+          finally_1: {
+            id: "finally_1",
+            type: "navigate",
+            description: "Finally",
+            params: { url: "https://example.com/finally" },
+            next: "cont",
+          },
+          cont: {
+            id: "cont",
+            type: "navigate",
+            description: "Continuación",
+            params: { url: "https://example.com/cont" },
+          },
+          ...overrides.extraNodes,
+        },
+        edges: [],
+      };
+    }
+
+    it("valida un bloque try/catch/finally con continuación", () => {
+      const result = validateRecipeDsl(tryCatchRecipe());
+      expect(result.success).toBe(true);
+      expect(result.data?.nodes.tc.type).toBe("tryCatch");
+    });
+
+    it("aplica los valores por defecto de errorVariable y rethrow", () => {
+      const result = validateRecipeDsl(tryCatchRecipe());
+      expect(result.success).toBe(true);
+      const node = result.data?.nodes.tc;
+      expect(node?.type).toBe("tryCatch");
+      if (node?.type === "tryCatch") {
+        expect(node.params.errorVariable).toBe("error");
+        expect(node.params.rethrow).toBe(false);
+      }
+    });
+
+    it("rechaza entradas inexistentes", () => {
+      const result = validateRecipeDsl(
+        tryCatchRecipe({ params: { catchEntryNodeId: "missing_catch" } })
+      );
+      expect(result.success).toBe(false);
+      expect(result.errors?.some((e) => e.includes("catchEntryNodeId"))).toBe(true);
+    });
+
+    it("rechaza que una rama empiece en el propio nodo tryCatch", () => {
+      const result = validateRecipeDsl(
+        tryCatchRecipe({ params: { tryEntryNodeId: "tc" } })
+      );
+      expect(result.success).toBe(false);
+      expect(result.errors?.some((e) => e.includes("propio nodo tryCatch"))).toBe(true);
+    });
+
+    it("rechaza bloques solapados", () => {
+      const result = validateRecipeDsl(
+        tryCatchRecipe({
+          params: { catchEntryNodeId: "try_1" },
+        })
+      );
+      expect(result.success).toBe(false);
+      expect(result.errors?.some((e) => e.includes("se solapa"))).toBe(true);
+    });
+
+    it("rechaza ciclos de 'next' dentro de una rama", () => {
+      const result = validateRecipeDsl(
+        tryCatchRecipe({
+          extraNodes: {
+            try_1: {
+              id: "try_1",
+              type: "navigate",
+              description: "Try con ciclo",
+              params: { url: "https://example.com/try" },
+              next: "try_1",
+            },
+          },
+        })
+      );
+      expect(result.success).toBe(false);
+      expect(result.errors?.some((e) => e.includes("ciclo de 'next'"))).toBe(true);
+    });
+
+    it("rechaza que la continuación coincida con el inicio de una rama", () => {
+      const result = validateRecipeDsl(tryCatchRecipe({ next: "try_1" }));
+      expect(result.success).toBe(false);
+      expect(result.errors?.some((e) => e.includes("continuación del tryCatch"))).toBe(true);
+    });
+  });
 });

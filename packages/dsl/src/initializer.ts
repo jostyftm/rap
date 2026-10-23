@@ -75,6 +75,26 @@ export function analyzeInitializerNodes(recipe: RecipeDsl): RootInitializerAnaly
         }
       }
     }
+    if (node.type === "tryCatch") {
+      const branchEntries = [
+        node.params.tryEntryNodeId,
+        node.params.catchEntryNodeId,
+        node.params.finallyEntryNodeId,
+      ];
+
+      for (const branchId of branchEntries) {
+        if (!branchId || !nodes[branchId]) {
+          continue;
+        }
+
+        const key = `${node.id}->${branchId}`;
+        if (!recordedEdges.has(key)) {
+          recordedEdges.add(key);
+          outDegrees[node.id] = (outDegrees[node.id] || 0) + 1;
+          inDegrees[branchId] = (inDegrees[branchId] || 0) + 1;
+        }
+      }
+    }
   }
 
   // 3. Filtrar nodos inicializadores (por tipo o por flag isInitializer)

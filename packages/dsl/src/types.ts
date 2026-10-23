@@ -36,12 +36,23 @@ export interface LocatorGroup {
 
 export type OnErrorBehavior = "fail" | "continue" | "retry";
 export type ScreenshotPolicy = "never" | "onError" | "always";
+export type RetryBackoff = "fixed" | "exponential";
+
+export interface RetryPolicy {
+  /** Número total de intentos, incluido el primero (1-10) */
+  maxAttempts: number;
+  /** Espera base entre intentos en milisegundos */
+  delayMs: number;
+  /** fixed: espera constante; exponential: delayMs * 2^(intento-1) */
+  backoff: RetryBackoff;
+}
 
 export interface BaseNode {
   id: string;
   description: string;
   timeout?: number;
   onError?: OnErrorBehavior;
+  retry?: RetryPolicy;
   screenshot?: ScreenshotPolicy;
   next?: string;
   isInitializer?: boolean;
@@ -205,6 +216,27 @@ export interface WebhookNode extends BaseNode {
   };
 }
 
+/**
+ * Bloque try / catch / finally.
+ *
+ * El alcance de cada rama es la cadena que comienza en su nodo de entrada y
+ * avanza por `next` hasta alcanzar la continuación del bloque (el `next` de
+ * este nodo) o el final del grafo. El validador comprueba que las tres ramas
+ * no se solapen ni contengan ciclos.
+ */
+export interface TryCatchNode extends BaseNode {
+  type: "tryCatch";
+  params: {
+    tryEntryNodeId: string;
+    catchEntryNodeId: string;
+    finallyEntryNodeId?: string;
+    /** Variable donde se expone { message, nodeId, type } del error capturado */
+    errorVariable?: string;
+    /** Si es true, el error se propaga después de ejecutar catch y finally */
+    rethrow?: boolean;
+  };
+}
+
 export type RecipeNode =
   | NavigateNode
   | ClickNode
@@ -217,7 +249,30 @@ export type RecipeNode =
   | ConditionNode
   | LoopNode
   | ScrollNode
-  | WebhookNode;
+  | WebhookNode
+  | TryCatchNode;
+
+/**
+ * Lista canónica de tipos de nodo del sistema. Es la fuente única que deben
+ * consumir la UI, los tests de paridad y la documentación.
+ */
+export const SYSTEM_NODE_TYPES = [
+  "navigate",
+  "click",
+  "type",
+  "select",
+  "waitFor",
+  "extract",
+  "screenshot",
+  "setVariable",
+  "condition",
+  "loop",
+  "scroll",
+  "webhook",
+  "tryCatch",
+] as const;
+
+export type SystemNodeType = (typeof SYSTEM_NODE_TYPES)[number];
 
 export interface RecipeEdge {
   from: string;

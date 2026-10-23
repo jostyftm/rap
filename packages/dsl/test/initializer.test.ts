@@ -137,4 +137,64 @@ describe("Initializer Nodes & Root Detection", () => {
     expect(navInit?.isRoot).toBe(false);
     expect(analysis.primaryRootId).toBe("trigger_root");
   });
+
+  it("cuenta las ramas de tryCatch como conexiones implícitas", () => {
+    const dsl: RecipeDsl = {
+      schema: "rpa/v1",
+      entry: "tc",
+      nodes: {
+        tc: {
+          id: "tc",
+          type: "tryCatch",
+          description: "Bloque protegido",
+          params: {
+            tryEntryNodeId: "try_nav",
+            catchEntryNodeId: "catch_nav",
+            finallyEntryNodeId: "finally_nav",
+          },
+          next: "cont_nav",
+        },
+        try_nav: {
+          id: "try_nav",
+          type: "navigate",
+          description: "Try",
+          params: { url: "https://example.com/try" },
+          next: "cont_nav",
+        },
+        catch_nav: {
+          id: "catch_nav",
+          type: "navigate",
+          description: "Catch",
+          params: { url: "https://example.com/catch" },
+          next: "cont_nav",
+        },
+        finally_nav: {
+          id: "finally_nav",
+          type: "navigate",
+          description: "Finally",
+          params: { url: "https://example.com/finally" },
+          next: "cont_nav",
+        },
+        cont_nav: {
+          id: "cont_nav",
+          type: "navigate",
+          description: "Continuación",
+          params: { url: "https://example.com/cont" },
+        },
+      },
+      edges: [],
+    };
+
+    const analysis = analyzeInitializerNodes(dsl);
+    const tryNav = analysis.initializers.find((i) => i.id === "try_nav");
+    const catchNav = analysis.initializers.find((i) => i.id === "catch_nav");
+    const finallyNav = analysis.initializers.find((i) => i.id === "finally_nav");
+    const contNav = analysis.initializers.find((i) => i.id === "cont_nav");
+
+    expect(tryNav?.inDegree).toBe(1);
+    expect(catchNav?.inDegree).toBe(1);
+    expect(finallyNav?.inDegree).toBe(1);
+    expect(contNav?.inDegree).toBeGreaterThanOrEqual(1);
+    expect(tryNav?.isRoot).toBe(false);
+  });
 });

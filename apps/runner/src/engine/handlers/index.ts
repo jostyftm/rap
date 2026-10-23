@@ -11,6 +11,7 @@ import { conditionHandler } from "./condition.handler.js";
 import { loopHandler } from "./loop.handler.js";
 import { scrollHandler } from "./scroll.handler.js";
 import { webhookHandler } from "./webhook.handler.js";
+import { tryCatchHandler } from "./try-catch.handler.js";
 
 export * from "./types.js";
 export * from "./registry.js";
@@ -26,6 +27,7 @@ export { conditionHandler } from "./condition.handler.js";
 export { loopHandler } from "./loop.handler.js";
 export { scrollHandler } from "./scroll.handler.js";
 export { webhookHandler } from "./webhook.handler.js";
+export { tryCatchHandler } from "./try-catch.handler.js";
 
 export const defaultActionRegistry = new ActionHandlerRegistry()
   .register(navigateHandler)
@@ -39,4 +41,5 @@ export const defaultActionRegistry = new ActionHandlerRegistry()
   .register(conditionHandler)
   .register(loopHandler)
   .register(scrollHandler)
-  .register(webhookHandler);
+  .register(webhookHandler)
+  .register(tryCatchHandler);

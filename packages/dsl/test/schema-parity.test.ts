@@ -1,21 +1,9 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import { validateRecipeDslDetailed } from "../src/validator.js";
-import type { RecipeNode } from "../src/types.js";
+import { SYSTEM_NODE_TYPES, type RecipeNode } from "../src/types.js";
 
-const ALL_SYSTEM_NODE_TYPES: Array<RecipeNode["type"]> = [
-  "navigate",
-  "click",
-  "type",
-  "select",
-  "waitFor",
-  "extract",
-  "screenshot",
-  "setVariable",
-  "condition",
-  "loop",
-  "scroll",
-  "webhook",
-];
+const ALL_SYSTEM_NODE_TYPES: Array<RecipeNode["type"]> = [...SYSTEM_NODE_TYPES];
 
 const MINIMAL_VALID_NODES: Record<RecipeNode["type"], any> = {
   navigate: {
@@ -111,13 +99,36 @@ const MINIMAL_VALID_NODES: Record<RecipeNode["type"], any> = {
     description: "Recepción de webhook",
     params: { httpMethod: "POST", outputVariable: "webhook" },
   },
+  tryCatch: {
+    id: "node_tryCatch",
+    type: "tryCatch",
+    description: "Try / catch",
+    params: {
+      tryEntryNodeId: "target_step",
+      catchEntryNodeId: "catch_step",
+    },
+  },
 };
 
+const recipeJson = JSON.parse(
+  readFileSync(new URL("../schema/recipe.json", import.meta.url), "utf8")
+) as {
+  $defs: { Node: { properties: { type: { enum: string[] } } } };
+};
+
+const JSON_SCHEMA_NODE_TYPES = recipeJson.$defs.Node.properties.type.enum;
+
 describe("Schema Parity & Discriminator Integrity", () => {
-  it("contiene exactamente los 12 tipos de nodos soportados por RPA Studio", () => {
-    expect(ALL_SYSTEM_NODE_TYPES).toHaveLength(12);
+  it("contiene exactamente los 13 tipos de nodos soportados por RPA Studio", () => {
+    expect(ALL_SYSTEM_NODE_TYPES).toHaveLength(13);
     expect(ALL_SYSTEM_NODE_TYPES).toContain("scroll");
     expect(ALL_SYSTEM_NODE_TYPES).toContain("webhook");
+    expect(ALL_SYSTEM_NODE_TYPES).toContain("tryCatch");
+  });
+
+  it("mantiene paridad exacta entre SYSTEM_NODE_TYPES, el enum de recipe.json y los nodos mínimos", () => {
+    expect(new Set(JSON_SCHEMA_NODE_TYPES)).toEqual(new Set(SYSTEM_NODE_TYPES));
+    expect(new Set(Object.keys(MINIMAL_VALID_NODES))).toEqual(new Set(SYSTEM_NODE_TYPES));
   });
 
   it("garantiza que NINGÚN tipo de nodo del sistema produzca 'Invalid discriminator value'", () => {
@@ -152,12 +163,18 @@ describe("Schema Parity & Discriminator Integrity", () => {
     }
   });
 
-  it("valida exitosamente la receta con cada uno de los 11 nodos válidos mínimos", () => {
+  it("valida exitosamente la receta con cada uno de los 13 nodos válidos mínimos", () => {
     const targetStep = {
       id: "target_step",
       type: "navigate",
       description: "Destino",
       params: { url: "https://example.com" },
+    };
+    const catchStep = {
+      id: "catch_step",
+      type: "navigate",
+      description: "Destino de catch",
+      params: { url: "https://example.com/catch" },
     };
 
     for (const nodeType of ALL_SYSTEM_NODE_TYPES) {
@@ -169,6 +186,7 @@ describe("Schema Parity & Discriminator Integrity", () => {
         nodes: {
           [validNode.id]: validNode,
           target_step: targetStep,
+          catch_step: catchStep,
         },
         edges: [{ from: validNode.id, to: targetStep.id }],
       };

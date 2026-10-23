@@ -56,11 +56,18 @@ const LooseLocatorGroupSchema = z.object({
   fingerprint: SemanticFingerprintSchema,
 });
 
+const RetryPolicySchema = z.object({
+  maxAttempts: z.number().int().min(1).max(10).default(3),
+  delayMs: z.number().int().min(0).max(60000).default(1000),
+  backoff: z.enum(["fixed", "exponential"]).default("exponential"),
+});
+
 const BaseNodeSchema = z.object({
   id: z.string().min(1, "El ID del nodo es obligatorio"),
   description: z.string(),
   timeout: z.number().positive().default(30000),
   onError: z.enum(["fail", "continue", "retry"]).default("fail"),
+  retry: RetryPolicySchema.optional(),
   screenshot: z.enum(["never", "onError", "always"]).default("onError"),
   next: z.string().optional(),
   isInitializer: z.boolean().optional(),
@@ -201,6 +208,17 @@ const WebhookNodeSchema = BaseNodeSchema.extend({
   }),
 });
 
+const TryCatchNodeSchema = BaseNodeSchema.extend({
+  type: z.literal("tryCatch"),
+  params: z.object({
+    tryEntryNodeId: z.string().min(1, "El nodo de inicio del bloque try es obligatorio"),
+    catchEntryNodeId: z.string().min(1, "El nodo de inicio del bloque catch es obligatorio"),
+    finallyEntryNodeId: z.string().optional(),
+    errorVariable: z.string().min(1).default("error"),
+    rethrow: z.boolean().default(false),
+  }),
+});
+
 const RecipeNodeSchema = z.discriminatedUnion("type", [
   NavigateNodeSchema,
   ClickNodeSchema,
@@ -214,7 +232,47 @@ const RecipeNodeSchema = z.discriminatedUnion("type", [
   LoopNodeSchema,
   ScrollNodeSchema,
   WebhookNodeSchema,
+  TryCatchNodeSchema,
 ]);
+
+interface NextChain {
+  ids: string[];
+  cycle: boolean;
+  reentersBlock: boolean;
+}
+
+/**
+ * Recorre la cadena `next` desde `startId` hasta `stopAt` (exclusivo) o null.
+ * Detecta ciclos y el reingreso al propio nodo tryCatch.
+ */
+function collectNextChain(
+  nodes: Record<string, { next?: string }>,
+  startId: string,
+  stopAt: string | undefined,
+  blockNodeId: string
+): NextChain {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  let current: string | undefined = startId;
+  let cycle = false;
+  let reentersBlock = false;
+
+  while (current && current !== stopAt) {
+    if (current === blockNodeId) {
+      reentersBlock = true;
+      break;
+    }
+    if (seen.has(current)) {
+      cycle = true;
+      break;
+    }
+    seen.add(current);
+    ids.push(current);
+    current = nodes[current]?.next;
+  }
+
+  return { ids, cycle, reentersBlock };
+}
 
 export const RecipeDslSchema = z
   .object({
@@ -308,6 +366,101 @@ export const RecipeDslSchema = z
             path: ["nodes", nodeId, "params", "bodyEntryNodeId"],
             message: `El nodo 'bodyEntryNodeId' ('${node.params.bodyEntryNodeId}') no existe`,
           });
+        }
+      }
+
+      if (node.type === "tryCatch") {
+        const branches: Array<{
+          key: "tryEntryNodeId" | "catchEntryNodeId" | "finallyEntryNodeId";
+          label: "try" | "catch" | "finally";
+          id: string;
+        }> = [
+          { key: "tryEntryNodeId", label: "try", id: node.params.tryEntryNodeId },
+          { key: "catchEntryNodeId", label: "catch", id: node.params.catchEntryNodeId },
+        ];
+
+        if (node.params.finallyEntryNodeId) {
+          branches.push({
+            key: "finallyEntryNodeId",
+            label: "finally",
+            id: node.params.finallyEntryNodeId,
+          });
+        }
+
+        const closures = new Map<string, Set<string>>();
+
+        for (const branch of branches) {
+          if (branch.id === nodeId) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["nodes", nodeId, "params", branch.key],
+              message: `El bloque '${branch.label}' no puede empezar en el propio nodo tryCatch`,
+            });
+            closures.set(branch.label, new Set());
+            continue;
+          }
+
+          if (!data.nodes[branch.id]) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["nodes", nodeId, "params", branch.key],
+              message: `El nodo '${branch.key}' ('${branch.id}') no existe`,
+            });
+            closures.set(branch.label, new Set());
+            continue;
+          }
+
+          const chain = collectNextChain(data.nodes, branch.id, node.next, nodeId);
+
+          if (chain.cycle) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["nodes", nodeId, "params", branch.key],
+              message: `El bloque '${branch.label}' contiene un ciclo de 'next'; debe terminar en la continuación del tryCatch o en null`,
+            });
+          }
+
+          if (chain.reentersBlock) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["nodes", nodeId, "params", branch.key],
+              message: `El bloque '${branch.label}' vuelve a entrar en el nodo tryCatch`,
+            });
+          }
+
+          closures.set(branch.label, new Set(chain.ids));
+        }
+
+        // La continuación no puede ser el inicio de una rama (bloque vacío)
+        if (node.next) {
+          const collidesWithEntry = branches.some((b) => b.id === node.next);
+          if (collidesWithEntry) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["nodes", nodeId, "next"],
+              message:
+                "La continuación del tryCatch no puede coincidir con el inicio de una de sus ramas",
+            });
+          }
+        }
+
+        // Los bloques try/catch/finally deben ser disjuntos
+        for (let i = 0; i < branches.length; i++) {
+          for (let j = i + 1; j < branches.length; j++) {
+            const left = branches[i];
+            const right = branches[j];
+            const leftIds = closures.get(left.label) ?? new Set<string>();
+            const rightIds = closures.get(right.label) ?? new Set<string>();
+            const overlap = [...leftIds].find((id) => rightIds.has(id));
+
+            if (overlap) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["nodes", nodeId, "params", right.key],
+                message: `El bloque '${right.label}' se solapa con el bloque '${left.label}' en el nodo '${overlap}'`,
+              });
+            }
+          }
         }
       }
 

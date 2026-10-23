@@ -140,8 +140,7 @@ describe("Playwright Exporter", () => {
     expect(code).toContain("await page.waitForTimeout(500);");
   });
 
-  it("exporta nodos de scroll por elemento y por coordenadas", () => {
-    const recipe: RecipeDsl = {
+  it("exporta nodos de scroll por elemento y por coordenadas", () => {    const recipe: RecipeDsl = {
       schema: "rpa/v1",
       name: "Flujo de Scroll",
       entry: "step_scroll_el",
@@ -170,5 +169,129 @@ describe("Playwright Exporter", () => {
     const code = exportToPlaywright(recipe);
     expect(code).toContain("await loc_step_scroll_el.scrollIntoViewIfNeeded();");
     expect(code).toContain("window.scrollBy({ left, top, behavior }), { left: 0, top: 600, behavior: \"smooth\" }");
+  });
+
+  it("genera un bucle de reintentos cuando onError es retry", () => {
+    const recipe: RecipeDsl = {
+      schema: "rpa/v1",
+      name: "Flujo con retry",
+      entry: "step_nav",
+      nodes: {
+        step_nav: {
+          id: "step_nav",
+          type: "navigate",
+          description: "Ir al sitio",
+          params: { url: "https://example.com" },
+          onError: "retry",
+          retry: { maxAttempts: 4, delayMs: 250, backoff: "fixed" },
+        },
+      },
+      edges: [],
+    };
+
+    const code = exportToPlaywright(recipe);
+
+    expect(code).toContain("const maxAttempts_step_nav = 4;");
+    expect(code).toContain("if (attempt_step_nav >= maxAttempts_step_nav) throw err;");
+    expect(code).toContain("await page.waitForTimeout(250);");
+    expect(code).toContain("page.goto(\"https://example.com\"");
+  });
+
+  it("genera bloques try/catch/finally y respeta la continuación", () => {
+    const recipe: RecipeDsl = {
+      schema: "rpa/v1",
+      name: "Flujo protegido",
+      entry: "tc",
+      nodes: {
+        tc: {
+          id: "tc",
+          type: "tryCatch",
+          description: "Bloque protegido",
+          params: {
+            tryEntryNodeId: "try_1",
+            catchEntryNodeId: "catch_1",
+            finallyEntryNodeId: "finally_1",
+            errorVariable: "error",
+            rethrow: false,
+          },
+          next: "cont",
+        },
+        try_1: {
+          id: "try_1",
+          type: "navigate",
+          description: "Try",
+          params: { url: "https://example.com/try" },
+          next: "cont",
+        },
+        catch_1: {
+          id: "catch_1",
+          type: "setVariable",
+          description: "Catch",
+          params: { name: "recuperado", expression: "true" },
+          next: "cont",
+        },
+        finally_1: {
+          id: "finally_1",
+          type: "screenshot",
+          description: "Finally",
+          params: { fullPage: false, name: "finally" },
+          next: "cont",
+        },
+        cont: {
+          id: "cont",
+          type: "navigate",
+          description: "Continuación",
+          params: { url: "https://example.com/cont" },
+        },
+      },
+      edges: [],
+    };
+
+    const code = exportToPlaywright(recipe);
+
+    expect(code).toContain("try {");
+    expect(code).toContain("} catch (err) {");
+    expect(code).toContain('variables["error"] = { message:');
+    expect(code).toContain('variables["recuperado"] = true;');
+    expect(code).toContain("} finally {");
+    expect(code).toContain("page.goto(\"https://example.com/cont\"");
+  });
+
+  it("propaga el error con rethrow en el bloque catch", () => {
+    const recipe: RecipeDsl = {
+      schema: "rpa/v1",
+      name: "Flujo con rethrow",
+      entry: "tc",
+      nodes: {
+        tc: {
+          id: "tc",
+          type: "tryCatch",
+          description: "Bloque protegido",
+          params: {
+            tryEntryNodeId: "try_1",
+            catchEntryNodeId: "catch_1",
+            rethrow: true,
+          },
+        },
+        try_1: {
+          id: "try_1",
+          type: "navigate",
+          description: "Try",
+          params: { url: "https://example.com/try" },
+        },
+        catch_1: {
+          id: "catch_1",
+          type: "setVariable",
+          description: "Catch",
+          params: { name: "recuperado", expression: "true" },
+        },
+      },
+      edges: [],
+    };
+
+    const code = exportToPlaywright(recipe);
+
+    expect(code).toContain("} catch (err) {");
+    expect(code).toContain("throw err;");
   });
 });

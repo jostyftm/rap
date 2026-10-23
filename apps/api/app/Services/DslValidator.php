@@ -75,6 +75,30 @@ final class DslValidator
                 }
             }
 
+            if ($type === 'tryCatch') {
+                $branchReferences = [
+                    'tryEntryNodeId' => $params['tryEntryNodeId'] ?? null,
+                    'catchEntryNodeId' => $params['catchEntryNodeId'] ?? null,
+                    'finallyEntryNodeId' => $params['finallyEntryNodeId'] ?? null,
+                ];
+
+                foreach ($branchReferences as $field => $reference) {
+                    if ($reference === null || $reference === '') {
+                        continue;
+                    }
+
+                    if (! is_string($reference) || ! isset($nodes[$reference])) {
+                        $errors[] = "nodes.{$nodeId}.params.{$field}: El nodo referenciado '{$reference}' no existe";
+
+                        continue;
+                    }
+
+                    if ($reference === $nodeId) {
+                        $errors[] = "nodes.{$nodeId}.params.{$field}: El bloque no puede empezar en el propio nodo tryCatch";
+                    }
+                }
+            }
+
             if (isset($node['next']) && is_string($node['next']) && ! isset($nodes[$node['next']])) {
                 $errors[] = "nodes.{$nodeId}.next: El nodo referenciado '{$node['next']}' no existe";
             }

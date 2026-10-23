@@ -122,7 +122,10 @@
             "screenshot",
             "setVariable",
             "condition",
-            "loop"
+            "loop",
+            "scroll",
+            "webhook",
+            "tryCatch"
           ]
         },
         "description": { "type": "string" },
@@ -132,6 +135,18 @@
           "enum": ["fail", "continue", "retry"],
           "default": "fail"
         },
+        "retry": {
+          "type": "object",
+          "properties": {
+            "maxAttempts": { "type": "integer", "minimum": 1, "maximum": 10, "default": 3 },
+            "delayMs": { "type": "integer", "minimum": 0, "maximum": 60000, "default": 1000 },
+            "backoff": {
+              "type": "string",
+              "enum": ["fixed", "exponential"],
+              "default": "exponential"
+            }
+          }
+        },
         "screenshot": {
           "type": "string",
           "enum": ["never", "onError", "always"],
@@ -140,7 +155,30 @@
         "locator": { "$ref": "#/$defs/LocatorGroup" },
         "params": { "type": "object" },
         "next": { "type": "string" }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "tryCatch" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["tryEntryNodeId", "catchEntryNodeId"],
+                "properties": {
+                  "tryEntryNodeId": { "type": "string", "minLength": 1 },
+                  "catchEntryNodeId": { "type": "string", "minLength": 1 },
+                  "finallyEntryNodeId": { "type": "string" },
+                  "errorVariable": { "type": "string", "minLength": 1, "default": "error" },
+                  "rethrow": { "type": "boolean", "default": false }
+                }
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

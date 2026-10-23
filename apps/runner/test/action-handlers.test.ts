@@ -37,7 +37,7 @@ describe("Action Handlers & Strategy Registry", () => {
   };
 
   describe("ActionHandlerRegistry", () => {
-    it("contiene todos los 12 tipos de nodos soportados por defecto", () => {
+    it("contiene todos los 13 tipos de nodos soportados por defecto", () => {
       const types = defaultActionRegistry.getAllTypes();
       expect(types).toContain("navigate");
       expect(types).toContain("click");
@@ -51,7 +51,8 @@ describe("Action Handlers & Strategy Registry", () => {
       expect(types).toContain("loop");
       expect(types).toContain("scroll");
       expect(types).toContain("webhook");
-      expect(types.length).toBe(12);
+      expect(types).toContain("tryCatch");
+      expect(types.length).toBe(13);
     });
 
     it("permite registrar y recuperar manejadores personalizados", async () => {

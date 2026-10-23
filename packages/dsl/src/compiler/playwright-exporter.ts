@@ -93,7 +93,11 @@ export function exportToPlaywright(recipe: RecipeDsl, options: PlaywrightExportO
     return directEdge?.to;
   }
 
-  function generateNodeCode(nodeId: string, indent: string): void {
+  function generateNodeCode(nodeId: string, indent: string, stopAt?: string): void {
+    if (!nodeId || nodeId === stopAt) {
+      return;
+    }
+
     if (visited.has(nodeId)) {
       lines.push(`${indent}// Ciclo detectado o nodo ya visitado: ${nodeId}`);
       return;
@@ -107,6 +111,75 @@ export function exportToPlaywright(recipe: RecipeDsl, options: PlaywrightExportO
     }
 
     lines.push(`${indent}// [${node.type.toUpperCase()}] ${node.description || node.id}`);
+
+    if (node.type === "tryCatch") {
+      const errorVariable = node.params.errorVariable || "error";
+
+      lines.push(`${indent}try {`);
+      if (node.params.tryEntryNodeId) {
+        generateNodeCode(node.params.tryEntryNodeId, `${indent}  `, node.next);
+      }
+      lines.push(`${indent}} catch (err) {`);
+      lines.push(
+        `${indent}  variables[${JSON.stringify(errorVariable)}] = { message: err instanceof Error ? err.message : String(err), nodeId: "try", type: err instanceof Error ? err.name : "Error" };`
+      );
+      if (node.params.catchEntryNodeId) {
+        generateNodeCode(node.params.catchEntryNodeId, `${indent}  `, node.next);
+      }
+      if (node.params.rethrow) {
+        lines.push(`${indent}  throw err;`);
+      }
+      if (node.params.finallyEntryNodeId) {
+        lines.push(`${indent}} finally {`);
+        generateNodeCode(node.params.finallyEntryNodeId, `${indent}  `, node.next);
+        lines.push(`${indent}}`);
+      } else {
+        lines.push(`${indent}}`);
+      }
+
+      lines.push("");
+      const nextId = getNextId(node, recipe.edges || []);
+      if (nextId) {
+        generateNodeCode(nextId, indent, stopAt);
+      }
+      return;
+    }
+
+    if (node.type === "condition") {
+      lines.push(`${indent}if (Boolean(${node.params.expression})) {`);
+      if (node.params.thenNodeId) {
+        generateNodeCode(node.params.thenNodeId, `${indent}  `, stopAt);
+      }
+      if (node.params.elseNodeId) {
+        lines.push(`${indent}} else {`);
+        generateNodeCode(node.params.elseNodeId, `${indent}  `, stopAt);
+      }
+      lines.push(`${indent}}`);
+      lines.push("");
+      return;
+    }
+
+    if (node.type === "loop") {
+      const collExpr = node.params.collectionExpression;
+      const maxIter = node.params.maxIterations || 100;
+      const continuation = getNextId(node, recipe.edges || []);
+
+      lines.push(`${indent}let iterCount_${node.id} = 0;`);
+      lines.push(`${indent}for (const item of (Array.isArray(${collExpr}) ? ${collExpr} : [])) {`);
+      lines.push(`${indent}  if (iterCount_${node.id} >= ${maxIter}) break;`);
+      lines.push(`${indent}  iterCount_${node.id}++;`);
+      lines.push(`${indent}  variables[${JSON.stringify(node.params.itemVariable)}] = item;`);
+      if (node.params.bodyEntryNodeId) {
+        generateNodeCode(node.params.bodyEntryNodeId, `${indent}  `, continuation ?? stopAt);
+      }
+      lines.push(`${indent}}`);
+      lines.push("");
+
+      if (continuation) {
+        generateNodeCode(continuation, indent, stopAt);
+      }
+      return;
+    }
 
     const nodeLines: string[] = [];
 
@@ -229,34 +302,6 @@ export function exportToPlaywright(recipe: RecipeDsl, options: PlaywrightExportO
         break;
       }
 
-      case "condition": {
-        nodeLines.push(`if (Boolean(${node.params.expression})) {`);
-        if (node.params.thenNodeId) {
-          generateNodeCode(node.params.thenNodeId, `${indent}  `);
-        }
-        if (node.params.elseNodeId) {
-          nodeLines.push(`} else {`);
-          generateNodeCode(node.params.elseNodeId, `${indent}  `);
-        }
-        nodeLines.push(`}`);
-        break;
-      }
-
-      case "loop": {
-        const collExpr = node.params.collectionExpression;
-        const maxIter = node.params.maxIterations || 100;
-        nodeLines.push(`let iterCount_${node.id} = 0;`);
-        nodeLines.push(`for (const item of (Array.isArray(${collExpr}) ? ${collExpr} : [])) {`);
-        nodeLines.push(`${indent}  if (iterCount_${node.id} >= ${maxIter}) break;`);
-        nodeLines.push(`${indent}  iterCount_${node.id}++;`);
-        nodeLines.push(`${indent}  variables[${JSON.stringify(node.params.itemVariable)}] = item;`);
-        if (node.params.bodyEntryNodeId) {
-          generateNodeCode(node.params.bodyEntryNodeId, `${indent}  `);
-        }
-        nodeLines.push(`}`);
-        break;
-      }
-
       case "scroll": {
         const mode = node.params.mode || "element";
         const behavior = node.params.behavior || "smooth";
@@ -293,7 +338,28 @@ export function exportToPlaywright(recipe: RecipeDsl, options: PlaywrightExportO
     }
 
     // Manejo de onError
-    if (node.onError === "continue") {
+    if (node.onError === "retry") {
+      const retry = node.retry ?? { maxAttempts: 3, delayMs: 1000, backoff: "exponential" as const };
+      const delayExpr =
+        retry.backoff === "exponential"
+          ? `${retry.delayMs} * 2 ** (attempt_${node.id} - 1)`
+          : `${retry.delayMs}`;
+
+      lines.push(`${indent}let attempt_${node.id} = 0;`);
+      lines.push(`${indent}const maxAttempts_${node.id} = ${retry.maxAttempts};`);
+      lines.push(`${indent}while (true) {`);
+      lines.push(`${indent}  attempt_${node.id}++;`);
+      lines.push(`${indent}  try {`);
+      for (const nl of nodeLines) {
+        lines.push(`${indent}    ${nl}`);
+      }
+      lines.push(`${indent}    break;`);
+      lines.push(`${indent}  } catch (err) {`);
+      lines.push(`${indent}    if (attempt_${node.id} >= maxAttempts_${node.id}) throw err;`);
+      lines.push(`${indent}    await page.waitForTimeout(${delayExpr});`);
+      lines.push(`${indent}  }`);
+      lines.push(`${indent}}`);
+    } else if (node.onError === "continue") {
       lines.push(`${indent}try {`);
       for (const nl of nodeLines) {
         lines.push(`${indent}  ${nl}`);
@@ -309,12 +375,10 @@ export function exportToPlaywright(recipe: RecipeDsl, options: PlaywrightExportO
 
     lines.push("");
 
-    // Continuar con el siguiente nodo (a menos que sea condicional o bucle que ya anidó ramas)
-    if (node.type !== "condition") {
-      const nextId = getNextId(node, recipe.edges || []);
-      if (nextId) {
-        generateNodeCode(nextId, indent);
-      }
+    // Continuar con el siguiente nodo (a menos que una rama ya lo haya hecho)
+    const nextId = getNextId(node, recipe.edges || []);
+    if (nextId) {
+      generateNodeCode(nextId, indent, stopAt);
     }
   }
 
