@@ -100,6 +100,99 @@ it('rechaza un tryCatch con una rama inexistente', function () {
         ->and(implode("\n", $errors))->toContain('missing_catch');
 });
 
+it('acepta la reconvergencia de ramas de una condición', function () {
+    $validator = app(DslValidator::class);
+
+    $recipe = dslParityRecipe([
+        'node_1' => [
+            'id' => 'node_1',
+            'type' => 'condition',
+            'description' => 'Condición',
+            'params' => [
+                'expression' => 'variables.ok',
+                'thenNodeId' => 'then_1',
+                'elseNodeId' => 'else_1',
+            ],
+            'next' => 'after',
+        ],
+        'then_1' => array_merge(
+            dslParityNode('then_1', 'setVariable', ['name' => 'branch', 'expression' => "'then'"]),
+            ['next' => 'after'],
+        ),
+        'else_1' => array_merge(
+            dslParityNode('else_1', 'setVariable', ['name' => 'branch', 'expression' => "'else'"]),
+            ['next' => 'after'],
+        ),
+        'after' => dslParityNode('after', 'navigate', ['url' => 'https://example.com/after']),
+    ]);
+
+    expect($validator->validate($recipe))->toBe([]);
+});
+
+it('rechaza ciclos y reingresos en las ramas de una condición', function () {
+    $validator = app(DslValidator::class);
+
+    $base = dslParityRecipe([
+        'node_1' => [
+            'id' => 'node_1',
+            'type' => 'condition',
+            'description' => 'Condición',
+            'params' => [
+                'expression' => 'variables.ok',
+                'thenNodeId' => 'then_1',
+                'elseNodeId' => 'else_1',
+            ],
+            'next' => 'after',
+        ],
+        'then_1' => array_merge(
+            dslParityNode('then_1', 'setVariable', ['name' => 'branch', 'expression' => "'then'"]),
+            ['next' => 'after'],
+        ),
+        'else_1' => array_merge(
+            dslParityNode('else_1', 'setVariable', ['name' => 'branch', 'expression' => "'else'"]),
+            ['next' => 'after'],
+        ),
+        'after' => dslParityNode('after', 'navigate', ['url' => 'https://example.com/after']),
+    ]);
+
+    $cycle = $base;
+    $cycle['nodes']['then_1']['next'] = 'then_1';
+    $cycleErrors = implode("\n", $validator->validate($cycle));
+
+    $reentry = $base;
+    $reentry['nodes']['else_1']['next'] = 'node_1';
+    $reentryErrors = implode("\n", $validator->validate($reentry));
+
+    expect($cycleErrors)->toContain("ciclo de 'next'")
+        ->and($reentryErrors)->toContain('vuelve a entrar');
+});
+
+it('rechaza un ciclo de next dentro del cuerpo de un loop', function () {
+    $validator = app(DslValidator::class);
+
+    $recipe = dslParityRecipe([
+        'node_1' => [
+            'id' => 'node_1',
+            'type' => 'loop',
+            'description' => 'Iterar',
+            'params' => [
+                'collectionExpression' => 'variables.items',
+                'itemVariable' => 'item',
+                'bodyEntryNodeId' => 'body_1',
+                'maxIterations' => 5,
+            ],
+            'next' => 'cont',
+        ],
+        'body_1' => array_merge(
+            dslParityNode('body_1', 'setVariable', ['name' => 'total', 'expression' => 'total + item']),
+            ['next' => 'body_1'],
+        ),
+        'cont' => dslParityNode('cont', 'setVariable', ['name' => 'done', 'expression' => 'true']),
+    ]);
+
+    expect(implode("\n", $validator->validate($recipe)))->toContain("ciclo de 'next'");
+});
+
 it('acepta un loop con un cuerpo existente y rechaza uno inexistente', function () {
     $validator = app(DslValidator::class);
 
@@ -135,8 +228,7 @@ it('acepta un loop con un cuerpo existente y rechaza uno inexistente', function 
         ->and(implode("\n", $errors))->toContain('missing_body');
 });
 
-it('persiste vía API una receta con tryCatch, scroll y webhook', function () {
-    $user = User::factory()->create();
+it('persiste vía API una receta con tryCatch, scroll y webhook', function () {    $user = User::factory()->create();
     $workspace = Workspace::create(['name' => 'Paridad', 'slug' => 'paridad']);
     $workspace->members()->attach($user->id, ['role' => Role::Owner->value]);
     $project = $workspace->projects()->create(['name' => 'Proyecto Paridad']);
@@ -183,4 +275,87 @@ it('persiste vía API una receta con tryCatch, scroll y webhook', function () {
 
     $response->assertCreated()
         ->assertJsonPath('data.name', 'Receta con tryCatch');
+});
+
+it('rechaza la creación de una receta sin definition', function () {
+    $user = User::factory()->create();
+    $workspace = Workspace::create(['name' => 'Creación', 'slug' => 'creacion']);
+    $workspace->members()->attach($user->id, ['role' => Role::Owner->value]);
+    $project = $workspace->projects()->create(['name' => 'Proyecto Creación']);
+
+    Sanctum::actingAs($user);
+
+    $this->postJson("/api/v1/projects/{$project->uuid}/recipes", [
+        'name' => 'Sin definición',
+    ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['definition']);
+
+    expect($project->recipes()->count())->toBe(0);
+});
+
+it('crea una receta con el DSL inicial y la devuelve en el listado', function () {
+    $user = User::factory()->create();
+    $workspace = Workspace::create(['name' => 'Creación OK', 'slug' => 'creacion-ok']);
+    $workspace->members()->attach($user->id, ['role' => Role::Owner->value]);
+    $project = $workspace->projects()->create(['name' => 'Proyecto Creación OK']);
+
+    Sanctum::actingAs($user);
+
+    $definition = [
+        'schema' => 'rpa/v1',
+        'name' => 'Nueva Receta RPA',
+        'entry' => 'step_navigate',
+        'variables' => [],
+        'nodes' => [
+            'step_navigate' => [
+                'id' => 'step_navigate',
+                'type' => 'navigate',
+                'description' => 'Navegar a la página web',
+                'params' => ['url' => 'https://example.com', 'waitUntil' => 'domcontentloaded'],
+                'next' => 'step_click',
+            ],
+            'step_click' => [
+                'id' => 'step_click',
+                'type' => 'click',
+                'description' => 'Hacer clic en el botón principal',
+                'locator' => [
+                    'primary' => [
+                        'strategy' => 'role',
+                        'value' => "button[name='More information...']",
+                        'score' => 90,
+                    ],
+                    'fallbacks' => [
+                        ['strategy' => 'css', 'value' => "a[href*='iana.org']", 'score' => 70],
+                    ],
+                ],
+                'params' => ['button' => 'left'],
+            ],
+        ],
+        'edges' => [
+            ['from' => 'step_navigate', 'to' => 'step_click'],
+        ],
+    ];
+
+    $created = $this->postJson("/api/v1/projects/{$project->uuid}/recipes", [
+        'name' => 'Nueva Receta RPA #1',
+        'description' => 'Flujo determinista creado con el editor visual',
+        'definition' => $definition,
+    ]);
+
+    $created->assertCreated()
+        ->assertJsonPath('data.name', 'Nueva Receta RPA #1')
+        ->assertJsonPath('data.latest_version.version', 1);
+
+    $recipeId = $created->json('data.id');
+    expect($recipeId)->toBeString()->not->toBeEmpty();
+
+    $this->getJson("/api/v1/projects/{$project->uuid}/recipes")
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $recipeId)
+        ->assertJsonPath('data.0.name', 'Nueva Receta RPA #1');
+
+    $this->getJson("/api/v1/recipes/{$recipeId}")
+        ->assertOk()
+        ->assertJsonPath('data.latest_version.definition.entry', 'step_navigate');
 });
