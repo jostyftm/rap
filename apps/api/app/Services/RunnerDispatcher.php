@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\Run;
+use App\Support\RecipeSecretRefs;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Str;
 
@@ -12,9 +13,8 @@ final class RunnerDispatcher
 {
     private string $commandStream;
 
-    public function __construct(
-        private WorkspaceSecretService $secretService
-    ) {
+    public function __construct()
+    {
         $this->commandStream = (string) config('rpa.runner.command_stream', 'rpa:cmd');
     }
 
@@ -23,8 +23,7 @@ final class RunnerDispatcher
         $run->loadMissing('recipeVersion.recipe.project.workspace');
         $definition = $run->recipeVersion->definition;
 
-        $workspace = $run->recipeVersion->recipe->project->workspace ?? null;
-        $secrets = $workspace ? $this->secretService->getDecryptedForWorkspace($workspace) : [];
+        $secretRefs = RecipeSecretRefs::fromDefinition((array) $definition);
 
         $messageId = (string) Str::ulid();
 
@@ -35,7 +34,7 @@ final class RunnerDispatcher
             'version_id' => $run->recipeVersion->uuid,
             'definition' => json_encode($definition),
             'parameters' => json_encode($run->parameters ?? []),
-            'secrets' => json_encode($secrets),
+            'secret_refs' => json_encode($secretRefs),
             'options' => json_encode($options),
             'timestamp' => (string) now()->timestamp,
         ];

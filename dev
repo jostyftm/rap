@@ -47,6 +47,25 @@ is_pid_running() {
     fi
 }
 
+export_runner_env() {
+    local env_file="$PROJECT_ROOT/.env"
+    local value port
+
+    if [ -f "$env_file" ]; then
+        value=$(grep -E '^RPA_INTERNAL_SECRET=' "$env_file" | tail -n1 | cut -d= -f2- | tr -d '"')
+        if [ -n "$value" ]; then
+            export RPA_INTERNAL_SECRET="$value"
+        fi
+
+        value=$(grep -E '^RPA_INTERNAL_URL=' "$env_file" | tail -n1 | cut -d= -f2- | tr -d '"')
+        if [ -z "$value" ]; then
+            port=$(grep -E '^APP_PORT=' "$env_file" | tail -n1 | cut -d= -f2- | tr -d '"')
+            value="http://127.0.0.1:${port:-8000}"
+        fi
+        export RPA_INTERNAL_URL="$value"
+    fi
+}
+
 start_background_service() {
     local name=$1
     local cmd=$2
@@ -132,6 +151,7 @@ cmd_start() {
     pnpm --filter @rpa/locator build
 
     echo -e "\n${C_BOLD}4. Iniciando servicios de desarrollo local (Host)...${C_RESET}"
+    export_runner_env
     start_background_service "testsite" "env PORT=8099 node testsite/server.js"
     start_background_service "runner" "pnpm --filter @rpa/runner dev"
     start_background_service "web" "pnpm --filter web dev"

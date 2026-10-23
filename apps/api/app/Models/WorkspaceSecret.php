@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Support\SecretCipher;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -45,18 +46,33 @@ class WorkspaceSecret extends Model
     }
 
     /**
-     * Mutator para cifrar el valor antes de guardar
+     * Cifra el valor con el keyring activo (XChaCha20-Poly1305).
      */
     public function setValueAttribute(string $value): void
     {
-        $this->attributes['value'] = Crypt::encryptString($value);
+        $this->attributes['value'] = app(SecretCipher::class)->encrypt($value);
     }
 
     /**
-     * Accesor para obtener el valor descifrado explícitamente
+     * Descifra el valor y migra de forma perezosa los datos heredados
+     * cifrados con Crypt (AES-256-CBC) al keyring actual.
      */
     public function getDecryptedValue(): string
     {
-        return Crypt::decryptString($this->attributes['value']);
+        $cipher = app(SecretCipher::class);
+        $stored = (string) $this->attributes['value'];
+
+        if ($cipher->isEncrypted($stored)) {
+            return $cipher->decrypt($stored);
+        }
+
+        $plaintext = Crypt::decryptString($stored);
+
+        if ($this->exists) {
+            $this->attributes['value'] = $cipher->encrypt($plaintext);
+            $this->saveQuietly();
+        }
+
+        return $plaintext;
     }
 }

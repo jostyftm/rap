@@ -167,42 +167,107 @@ export class RecipeExecutor {
 
     const visitedNodes = new Set<string>();
     let stepCount = 0;
+    let stepMode = false;
     const maxGlobalSteps = 150;
+    const controlKey = `rpa:run:${runId}:control`;
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-    // Función auxiliar para revisar pausa / cancelación
-    const checkControl = async (): Promise<"continue" | "stop"> => {
-      if (!this.redis) return "continue";
-      const controlKey = `rpa:run:${runId}:control`;
-      let control = await this.redis.get(controlKey);
-      if (control === "stop") {
-        await this.eventEmitter.emitRunStopped(runId);
-        await this.eventEmitter.emitRunLog(runId, "warn", "Ejecución detenida por solicitud del usuario.", currentNodeId, "runner");
-        return "stop";
-      }
-      if (control === "pause") {
-        await this.eventEmitter.emitRunPaused(runId);
-        await this.eventEmitter.emitRunLog(runId, "warn", "Ejecución pausada. Esperando reanudación...", currentNodeId, "runner");
-        while (true) {
-          await new Promise((r) => setTimeout(r, 600));
-          control = await this.redis.get(controlKey);
-          if (control === "resume") {
-            await this.redis.del(controlKey);
-            await this.eventEmitter.emitRunResumed(runId);
-            await this.eventEmitter.emitRunLog(runId, "info", "Ejecución reanudada.", currentNodeId, "runner");
-            break;
-          }
-          if (control === "stop") {
-            await this.eventEmitter.emitRunStopped(runId);
-            await this.eventEmitter.emitRunLog(runId, "warn", "Ejecución detenida por solicitud del usuario.", currentNodeId, "runner");
-            return "stop";
-          }
+    // Espera bloqueante hasta resume / step / stop. Devuelve "stop" o "continue".
+    const waitForResume = async (): Promise<"continue" | "stop"> => {
+      await this.eventEmitter.emitRunPaused(runId);
+      await this.eventEmitter.emitRunLog(
+        runId,
+        "warn",
+        "Ejecución pausada. Esperando reanudación...",
+        currentNodeId,
+        "runner"
+      );
+
+      while (true) {
+        await sleep(600);
+        const control = await this.redis?.get(controlKey);
+
+        if (control === "resume") {
+          await this.redis?.del(controlKey);
+          await this.eventEmitter.emitRunResumed(runId);
+          await this.eventEmitter.emitRunLog(runId, "info", "Ejecución reanudada.", currentNodeId, "runner");
+          return "continue";
+        }
+
+        if (control === "step") {
+          await this.redis?.del(controlKey);
+          stepMode = true;
+          await this.eventEmitter.emitRunResumed(runId);
+          await this.eventEmitter.emitRunLog(
+            runId,
+            "info",
+            "Avanzando un paso y volviendo a pausar.",
+            currentNodeId,
+            "runner"
+          );
+          return "continue";
+        }
+
+        if (control === "stop") {
+          await this.redis?.del(controlKey);
+          await this.eventEmitter.emitRunStopped(runId);
+          await this.eventEmitter.emitRunLog(
+            runId,
+            "warn",
+            "Ejecución detenida por solicitud del usuario.",
+            currentNodeId,
+            "runner"
+          );
+          return "stop";
         }
       }
+    };
+
+    // Función auxiliar para revisar pausa / cancelación / paso a paso
+    const checkControl = async (): Promise<"continue" | "stop"> => {
+      if (!this.redis) {
+        return "continue";
+      }
+
+      const control = await this.redis.get(controlKey);
+
+      if (control === "stop") {
+        await this.redis.del(controlKey);
+        await this.eventEmitter.emitRunStopped(runId);
+        await this.eventEmitter.emitRunLog(
+          runId,
+          "warn",
+          "Ejecución detenida por solicitud del usuario.",
+          currentNodeId,
+          "runner"
+        );
+        return "stop";
+      }
+
+      if (control === "pause") {
+        await this.redis.del(controlKey);
+        return waitForResume();
+      }
+
+      if (control === "step") {
+        await this.redis.del(controlKey);
+        stepMode = true;
+      }
+
       return "continue";
     };
 
     try {
       while (currentNodeId && stepCount < maxGlobalSteps) {
+        // Si venimos de un "step", ejecutamos un nodo y volvemos a pausar.
+        if (stepMode) {
+          stepMode = false;
+          const pausedCtrl = await waitForResume();
+          if (pausedCtrl === "stop") {
+            throw new Error("Ejecución detenida por el usuario");
+          }
+        }
+
         // Verificar control de usuario antes de cada paso
         const ctrl = await checkControl();
         if (ctrl === "stop") {

@@ -48,16 +48,22 @@ class WorkspaceSecretService
     }
 
     /**
-     * Retorna mapa clave => valor descifrado para ejecución en el Runner
+     * Retorna mapa clave => valor descifrado para ejecución en el Runner.
      *
+     * @param  list<string>  $keys  Si se indica, solo resuelve esas claves
      * @return array<string, string>
      */
-    public function getDecryptedForWorkspace(Workspace $workspace): array
+    public function getDecryptedForWorkspace(Workspace $workspace, array $keys = []): array
     {
-        $secrets = WorkspaceSecret::where('workspace_id', $workspace->id)->get();
+        $query = WorkspaceSecret::where('workspace_id', $workspace->id);
+
+        if ($keys !== []) {
+            $query->whereIn('key', $keys);
+        }
+
         $map = [];
 
-        foreach ($secrets as $secret) {
+        foreach ($query->get() as $secret) {
             try {
                 $map[$secret->key] = $secret->getDecryptedValue();
             } catch (\Throwable $e) {

@@ -28,7 +28,7 @@ class WorkspaceSecretCreateRequest extends FormRequest
             'key' => ['required', 'string', 'max:80', 'regex:/^[A-Z0-9_]+$/'],
 
             /**
-             * Valor confidencial en texto plano que será cifrado con AES-256
+             * Valor confidencial en texto plano que será cifrado con el keyring (XChaCha20-Poly1305)
              *
              * @example SuperSecret123!
              */

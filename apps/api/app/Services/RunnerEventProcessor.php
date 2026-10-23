@@ -13,9 +13,17 @@ use App\Models\Artifact;
 use App\Models\Run;
 use App\Models\RunLog;
 use App\Models\RunStep;
+use App\Models\Workspace;
 
 final class RunnerEventProcessor
 {
+    /** @var array<int,?SecretRedactor> */
+    private array $redactors = [];
+
+    public function __construct(
+        private WorkspaceSecretService $secretService
+    ) {}
+
     /**
      * @param  array<string,mixed>  $payload
      */
@@ -82,6 +90,9 @@ final class RunnerEventProcessor
                 break;
 
             case 'run.stopped':
+                if ($run->finished_at !== null) {
+                    break;
+                }
                 $run->update([
                     'status' => 'failed',
                     'finished_at' => now(),
@@ -91,6 +102,7 @@ final class RunnerEventProcessor
                 break;
 
             case 'run.log':
+                $redactor = $this->redactorFor($run);
                 $level = $payload['level'] ?? 'info';
                 $message = substr((string) ($payload['message'] ?? ''), 0, 2000);
                 $nodeId = $payload['node_id'] ?? null;
@@ -98,6 +110,13 @@ final class RunnerEventProcessor
                 $context = $payload['context'] ?? null;
                 if (is_string($context)) {
                     $context = json_decode($context, true) ?: null;
+                }
+
+                if ($redactor !== null) {
+                    $message = (string) $redactor->redact($message);
+                    if (is_array($context)) {
+                        $context = $redactor->redactArray($context);
+                    }
                 }
 
                 // Guardar en base de datos si no excede 2000 logs para depurar
@@ -159,13 +178,14 @@ final class RunnerEventProcessor
                 break;
 
             case 'step.failed':
+                $redactor = $this->redactorFor($run);
                 $nodeId = $payload['node_id'] ?? '';
                 $step = RunStep::where('run_id', $run->id)->where('node_id', $nodeId)->first();
                 if ($step) {
                     $step->update([
                         'status' => 'failed',
                         'duration_ms' => isset($payload['duration_ms']) ? (int) $payload['duration_ms'] : null,
-                        'error_message' => $payload['error'] ?? null,
+                        'error_message' => $redactor?->redact(isset($payload['error']) ? (string) $payload['error'] : null),
                         'screenshot_path' => $payload['screenshot_path'] ?? null,
                     ]);
                     event(new RunStepUpdated($step));
@@ -173,15 +193,40 @@ final class RunnerEventProcessor
                 break;
 
             case 'run.finished':
+                if ($run->finished_at !== null) {
+                    break;
+                }
+                $redactor = $this->redactorFor($run);
                 $status = ($payload['status'] ?? '') === 'success' ? 'completed' : 'failed';
                 $run->update([
                     'status' => $status,
                     'finished_at' => now(),
                     'duration_ms' => isset($payload['duration_ms']) ? (int) $payload['duration_ms'] : null,
-                    'error_message' => $payload['error'] ?? null,
+                    'error_message' => $redactor?->redact(isset($payload['error']) ? (string) $payload['error'] : null),
                 ]);
                 event(new RunUpdated($run));
                 break;
         }
+    }
+
+    /**
+     * Resuelve (y cachea) el redactor del workspace del run.
+     */
+    private function redactorFor(Run $run): ?SecretRedactor
+    {
+        if (array_key_exists($run->id, $this->redactors)) {
+            return $this->redactors[$run->id];
+        }
+
+        $run->loadMissing('recipeVersion.recipe.project.workspace');
+        $workspace = $run->recipeVersion?->recipe?->project?->workspace;
+
+        if (! $workspace instanceof Workspace) {
+            return $this->redactors[$run->id] = null;
+        }
+
+        $secrets = $this->secretService->getDecryptedForWorkspace($workspace);
+
+        return $this->redactors[$run->id] = $secrets === [] ? null : new SecretRedactor($secrets);
     }
 }

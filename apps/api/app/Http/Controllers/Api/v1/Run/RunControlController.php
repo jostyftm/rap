@@ -18,10 +18,15 @@ class RunControlController extends Controller
     public function control(Request $request, Run $run): JsonResponse
     {
         $validated = $request->validate([
-            'action' => ['required', 'string', 'in:pause,resume,stop'],
+            'action' => ['required', 'string', 'in:pause,resume,stop,step'],
         ]);
 
         $action = $validated['action'];
+
+        if ($action === 'step' && $run->status !== 'paused') {
+            abort(422, 'Solo se puede avanzar un paso cuando la ejecución está pausada.');
+        }
+
         $controlKey = "rpa:run:{$run->uuid}:control";
 
         try {

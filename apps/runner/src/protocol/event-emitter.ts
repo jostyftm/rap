@@ -1,4 +1,6 @@
 import type { Redis } from "ioredis";
+import { SecretRedactor } from "./redactor.js";
+import { ulid } from "./ulid.js";
 
 export interface RunnerEventEmitter {
   emitRunStarted(runId: string): Promise<void>;
@@ -37,19 +39,42 @@ export interface RunnerEventEmitter {
   emitRunStopped(runId: string): Promise<void>;
 }
 
+const REDACTED_FIELDS = new Set(["message", "error", "context", "locator_value", "value"]);
+
 export class RedisEventEmitter implements RunnerEventEmitter {
+  private readonly redactors = new Map<string, SecretRedactor>();
+
   constructor(
     private redis: Redis,
     private streamName = "rpa:evt"
   ) {}
 
+  registerRunSecrets(runId: string, secrets: Record<string, string>): void {
+    const redactor = this.redactors.get(runId) ?? new SecretRedactor();
+    redactor.setSecrets(secrets);
+    this.redactors.set(runId, redactor);
+  }
+
+  clearRunSecrets(runId: string): void {
+    this.redactors.delete(runId);
+  }
+
   private async emit(payload: Record<string, string | number | undefined>): Promise<void> {
     const cleanPayload: Record<string, string> = {};
-    for (const [k, v] of Object.entries(payload)) {
-      if (v !== undefined) {
-        cleanPayload[k] = String(v);
+    const runId = payload.run_id === undefined ? undefined : String(payload.run_id);
+    const redactor = runId ? this.redactors.get(runId) : undefined;
+
+    for (const [key, value] of Object.entries(payload)) {
+      if (value === undefined) {
+        continue;
       }
+
+      const asString = String(value);
+      cleanPayload[key] = redactor && REDACTED_FIELDS.has(key) ? redactor.redactString(asString) : asString;
     }
+
+    cleanPayload.id = ulid();
+
     try {
       await this.redis.xadd(this.streamName, "*", ...Object.entries(cleanPayload).flat());
     } catch (err) {

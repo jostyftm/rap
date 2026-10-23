@@ -19,6 +19,7 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing"/>
+        <env name="APP_KEY" value="base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
@@ -32,5 +33,7 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <env name="RPA_INTERNAL_SECRET" value="test-internal-secret"/>
+        <env name="RPA_SECRET_ACTIVE_KEY" value="app"/>
     </php>
 </phpunit>
