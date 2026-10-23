@@ -1,6 +1,7 @@
 "use client";
 
 import React, { Suspense } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { EditorHeader } from "@/components/editor/editor-header";
 import { NodePalette } from "@/components/editor/node-palette";
@@ -24,6 +25,8 @@ function RecipeEditorContent() {
   const {
     isLoading,
     isSaving,
+    loadError,
+    notFound,
     activeView,
     selectedNodeId,
     liveOpen,
@@ -47,6 +50,29 @@ function RecipeEditorContent() {
       <div className="h-screen w-screen bg-[#09090b] flex flex-col items-center justify-center text-zinc-400 space-y-3">
         <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
         <p className="text-xs font-mono">Cargando editor RPA Studio...</p>
+      </div>
+    );
+  }
+
+  if (loadError || notFound) {
+    return (
+      <div className="h-screen w-screen bg-[#09090b] flex flex-col items-center justify-center text-zinc-300 space-y-4 px-6 text-center">
+        <p className="text-sm font-medium">
+          {notFound ? "Receta no encontrada" : "No se pudo cargar la receta"}
+        </p>
+        <p className="text-xs text-zinc-500 max-w-md">
+          {notFound
+            ? "El identificador no corresponde a ninguna receta existente."
+            : loadError}
+        </p>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/recipes"
+            className="text-xs font-medium px-3 py-1.5 rounded-md bg-zinc-100 hover:bg-white text-zinc-950 transition-colors"
+          >
+            Volver a mis recetas
+          </Link>
+        </div>
       </div>
     );
   }

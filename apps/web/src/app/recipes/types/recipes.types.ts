@@ -1,3 +1,5 @@
+import type { RecipeDsl } from "@rpa/dsl";
+
 export interface RecipeSummary {
   id: string;
   uuid?: string;
@@ -7,12 +9,12 @@ export interface RecipeSummary {
   created_at?: string;
   latest_version?: {
     version: number;
-    definition?: any;
+    definition?: RecipeDsl;
   };
 }
 
 export interface CreateRecipePayload {
   name: string;
   description?: string;
-  definition?: any;
+  definition: RecipeDsl;
 }

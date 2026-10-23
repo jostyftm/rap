@@ -1,97 +1,79 @@
 import { apiFetch } from "@/lib/api-client";
 import type { RecipeSummary, CreateRecipePayload } from "../types/recipes.types";
 
-export const DEFAULT_SAMPLE_RECIPES: RecipeSummary[] = [
-  {
-    id: "01a128f6-0067-7363-8b33-d359a5f9fe2f",
-    uuid: "01a128f6-0067-7363-8b33-d359a5f9fe2f",
-    name: "Automatización de Inicio de Sesión y Dashboard",
-    description: "Flujo base para autenticarse, esperar la carga de sesión y extraer métricas clave.",
-    status: "active",
-    created_at: "Hace 2 horas",
-    latest_version: {
-      version: 1,
-    },
-  },
-  {
-    id: "01a128f6-0067-7363-8b33-d359a5f9fe30",
-    uuid: "01a128f6-0067-7363-8b33-d359a5f9fe30",
-    name: "Extracción de Catálogo y Precios",
-    description: "Recorre las páginas de productos, extrae nombres y precios con selectores de respaldo automáticos.",
-    status: "active",
-    created_at: "Ayer",
-    latest_version: {
-      version: 2,
-    },
-  },
-];
+interface WorkspaceSummary {
+  id?: string;
+  uuid?: string;
+}
+
+interface ProjectSummary {
+  id?: string;
+  uuid?: string;
+}
+
+function scopeId(item?: WorkspaceSummary | ProjectSummary | null): string | undefined {
+  return item?.uuid || item?.id;
+}
+
+/**
+ * Resuelve el workspace y proyecto por defecto.
+ *
+ * La aplicación actual trabaja con un único workspace/proyecto, pero si no
+ * existe debemos fallar de forma explícita en vez de enviar requests a rutas
+ * con `undefined`.
+ */
+export async function resolveDefaultProject(): Promise<{
+  workspaceId: string;
+  projectId: string;
+}> {
+  const wsRes = await apiFetch<{ data?: WorkspaceSummary[] }>("/api/v1/workspaces");
+  const workspaceId = scopeId(wsRes?.data?.[0]);
+  if (!workspaceId) {
+    throw new Error("No hay ningún workspace disponible.");
+  }
+
+  const prjRes = await apiFetch<{ data?: ProjectSummary[] }>(
+    `/api/v1/workspaces/${workspaceId}/projects`
+  );
+  const projectId = scopeId(prjRes?.data?.[0]);
+  if (!projectId) {
+    throw new Error("No hay ningún proyecto disponible en el workspace.");
+  }
+
+  return { workspaceId, projectId };
+}
 
 export const recipesService = {
   async fetchRecipes(): Promise<RecipeSummary[]> {
-    try {
-      const wsRes = await apiFetch<any>("/api/v1/workspaces");
-      const firstWs = wsRes?.data?.[0];
-      if (firstWs) {
-        const prjRes = await apiFetch<any>(
-          `/api/v1/workspaces/${firstWs.uuid || firstWs.id}/projects`
-        );
-        const firstPrj = prjRes?.data?.[0];
-        if (firstPrj) {
-          const recRes = await apiFetch<any>(
-            `/api/v1/projects/${firstPrj.uuid || firstPrj.id}/recipes`
-          );
-          if (recRes?.data && recRes.data.length > 0) {
-            return recRes.data;
-          }
-        }
-      }
-    } catch (err) {
-      console.warn("No se pudieron cargar recetas del backend, usando muestras:", err);
-    }
-    return DEFAULT_SAMPLE_RECIPES;
+    const { projectId } = await resolveDefaultProject();
+    const recRes = await apiFetch<{ data?: RecipeSummary[] }>(
+      `/api/v1/projects/${projectId}/recipes`
+    );
+    return recRes?.data ?? [];
   },
 
   async createRecipe(payload: CreateRecipePayload): Promise<RecipeSummary> {
-    try {
-      const wsRes = await apiFetch<any>("/api/v1/workspaces");
-      const firstWs = wsRes?.data?.[0];
-      const prjRes = await apiFetch<any>(
-        `/api/v1/workspaces/${firstWs?.uuid || firstWs?.id}/projects`
-      );
-      const firstPrj = prjRes?.data?.[0];
-
-      if (firstPrj) {
-        const newRec = await apiFetch<any>(
-          `/api/v1/projects/${firstPrj.uuid || firstPrj.id}/recipes`,
-          {
-            method: "POST",
-            body: JSON.stringify({
-              name: payload.name,
-              description: payload.description,
-              definition: payload.definition,
-            }),
-          }
-        );
-        if (newRec?.data) {
-          return newRec.data;
-        }
-      }
-    } catch (err) {
-      console.warn("Fallo creación en backend, usando identificador generado:", err);
+    if (!payload.definition) {
+      throw new Error("La definición DSL es obligatoria para crear una receta.");
     }
 
-    const randomId = `rec_${Math.random().toString(36).substring(2, 8)}`;
-    return {
-      id: randomId,
-      uuid: randomId,
-      name: payload.name,
-      description: payload.description,
-      status: "draft",
-      created_at: "Ahora",
-      latest_version: {
-        version: 1,
-        definition: payload.definition,
-      },
-    };
+    const { projectId } = await resolveDefaultProject();
+    const newRec = await apiFetch<{ data?: RecipeSummary }>(
+      `/api/v1/projects/${projectId}/recipes`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          name: payload.name,
+          description: payload.description,
+          definition: payload.definition,
+        }),
+      }
+    );
+
+    if (!newRec?.data?.id) {
+      throw new Error("El backend no devolvió la receta creada.");
+    }
+
+    return newRec.data;
   },
 };

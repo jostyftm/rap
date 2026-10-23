@@ -13,6 +13,10 @@ export function RecipeListPageContent() {
     recipes,
     isLoading,
     isCreating,
+    loadError,
+    createError,
+    reloadRecipes,
+    clearCreateError,
     handleCreateRecipe,
     handleLogout,
   } = useRecipesList();
@@ -64,10 +68,38 @@ export function RecipeListPageContent() {
           </div>
         </div>
 
+        {createError && (
+          <div
+            role="alert"
+            className="mb-4 flex items-start justify-between gap-3 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300"
+          >
+            <span>No se pudo crear la receta: {createError}</span>
+            <button
+              onClick={clearCreateError}
+              className="text-rose-400 hover:text-rose-200 shrink-0"
+              aria-label="Descartar error"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         {isLoading ? (
           <div className="flex items-center justify-center p-24 text-zinc-500 gap-2.5">
             <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
             <span className="text-xs font-mono">Cargando recetas...</span>
+          </div>
+        ) : loadError ? (
+          <div className="rounded-xl border border-dashed border-rose-500/30 bg-rose-500/5 p-12 text-center flex flex-col items-center justify-center">
+            <p className="text-xs text-rose-300 mb-3">
+              No se pudieron cargar las recetas: {loadError}
+            </p>
+            <button
+              onClick={() => reloadRecipes()}
+              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md bg-zinc-100 hover:bg-white text-zinc-950 transition-colors shadow-sm"
+            >
+              Reintentar
+            </button>
           </div>
         ) : filteredRecipes.length === 0 ? (
           <div className="rounded-xl border border-dashed border-zinc-800 p-12 text-center flex flex-col items-center justify-center">

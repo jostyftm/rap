@@ -1,9 +1,17 @@
-import { apiFetch } from "@/lib/api-client";
+import { apiFetch, ApiError } from "@/lib/api-client";
 import type { RecipeEditorData } from "../types/editor.types";
 import type { RecipeDsl } from "@rpa/dsl";
 
 export const recipeEditorService = {
+  /**
+   * Carga una receta. Devuelve `null` si el backend responde 404; cualquier
+   * otro error (red, 401, 500) se propaga para que la UI lo muestre.
+   */
   async fetchRecipeById(recipeId: string): Promise<RecipeEditorData | null> {
+    if (!recipeId || recipeId === "new") {
+      return null;
+    }
+
     try {
       const res = await apiFetch<any>(`/api/v1/recipes/${recipeId}`);
       if (res?.data) {
@@ -19,29 +27,32 @@ export const recipeEditorService = {
       }
       return null;
     } catch (err) {
-      console.warn(`No se pudo cargar la receta ${recipeId} del backend:`, err);
-      return null;
+      if (err instanceof ApiError && err.problem?.status === 404) {
+        return null;
+      }
+      throw err;
     }
   },
 
+  /**
+   * Guarda la receta. Lanza el error del backend (404, 422, red) en vez de
+   * devolver `false`, para que la UI nunca marque "Guardado" en un fallo.
+   */
   async saveRecipe(
     recipeId: string,
     name: string,
     definition: RecipeDsl
-  ): Promise<boolean> {
-    if (!recipeId || recipeId === "new") return false;
-    try {
-      await apiFetch(`/api/v1/recipes/${recipeId}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          name,
-          definition,
-        }),
-      });
-      return true;
-    } catch (err) {
-      console.warn("Fallo al guardar la receta en el backend:", err);
-      return false;
+  ): Promise<void> {
+    if (!recipeId || recipeId === "new") {
+      throw new Error("La receta aún no existe en el servidor.");
     }
+
+    await apiFetch(`/api/v1/recipes/${recipeId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        name,
+        definition,
+      }),
+    });
   },
 };

@@ -45,7 +45,7 @@ import { dispatchRunControl } from "../../lib/execution-control";
 import { runRecipeInLivePanel } from "../../lib/live-runner";
 
 interface EditorHeaderProps {
-  onSave?: () => Promise<void>;
+  onSave?: () => Promise<boolean | void>;
   isSaving?: boolean;
 }
 
@@ -103,6 +103,7 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
 
   const [isExecuting, setIsExecuting] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
   const { user, logout } = useAuth();
 
   // Estados de menús desplegables
@@ -206,17 +207,36 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
     }
   };
 
+  const showSaveSuccess = () => {
+    setSaveFailed(false);
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 2500);
+  };
+
+  const showSaveFailure = () => {
+    setSaveSuccess(false);
+    setSaveFailed(true);
+    setTimeout(() => setSaveFailed(false), 4000);
+  };
+
   const handleSaveInternal = async () => {
+    setSaveFailed(false);
     await ensureAuthenticated();
 
     if (onSave) {
-      await onSave();
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 2500);
+      const result = await onSave();
+      if (result === false) {
+        showSaveFailure();
+      } else {
+        showSaveSuccess();
+      }
       return;
     }
 
-    if (!recipeId) return;
+    if (!recipeId || recipeId === "new") {
+      showSaveFailure();
+      return;
+    }
     try {
       await apiFetch(`/api/v1/recipes/${recipeId}`, {
         method: "PUT",
@@ -225,10 +245,10 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
           definition,
         }),
       });
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 2500);
+      showSaveSuccess();
     } catch (err) {
       console.error("Error al guardar la receta:", err);
+      showSaveFailure();
     }
   };
 
@@ -306,6 +326,14 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
                 <span className="flex items-center space-x-1 text-emerald-400 font-medium font-mono">
                   <Check className="w-3 h-3" />
                   <span className="hidden sm:inline text-[11px]">Guardado</span>
+                </span>
+              ) : saveFailed ? (
+                <span
+                  title="No se pudo guardar la receta en el servidor"
+                  className="flex items-center space-x-1 text-rose-400 font-medium font-mono"
+                >
+                  <AlertCircle className="w-3 h-3" />
+                  <span className="hidden sm:inline text-[11px]">Error al guardar</span>
                 </span>
               ) : isDirty ? (
                 <button

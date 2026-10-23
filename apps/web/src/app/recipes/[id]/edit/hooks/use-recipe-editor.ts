@@ -8,6 +8,7 @@ import { recipeEditorService } from "../services/recipe-editor.service";
 
 export function useRecipeEditor(recipeId: string) {
   const setRecipe = useRecipeStore((s) => s.setRecipe);
+  const resetRecipe = useRecipeStore((s) => s.resetRecipe);
   const recipeName = useRecipeStore((s) => s.recipeName);
   const definition = useRecipeStore((s) => s.definition);
   const activeView = useRecipeStore((s) => s.activeView);
@@ -21,13 +22,37 @@ export function useRecipeEditor(recipeId: string) {
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
 
   // Cargar receta del backend
   useEffect(() => {
+    let cancelled = false;
+
     async function load() {
-      if (!recipeId) return;
-      const data = await recipeEditorService.fetchRecipeById(recipeId);
-      if (data) {
+      if (!recipeId) {
+        resetRecipe();
+        setNotFound(true);
+        setIsLoading(false);
+        return;
+      }
+
+      setIsLoading(true);
+      setLoadError(null);
+      setNotFound(false);
+
+      try {
+        const data = await recipeEditorService.fetchRecipeById(recipeId);
+        if (cancelled) return;
+
+        if (!data) {
+          // Receta inexistente o ID inválido: limpiar el editor para no
+          // mostrar la receta que se estaba editando antes.
+          resetRecipe();
+          setNotFound(true);
+          return;
+        }
+
         setRecipe({
           id: data.id,
           name: data.name,
@@ -35,23 +60,43 @@ export function useRecipeEditor(recipeId: string) {
           version: data.version,
           definition: data.definition || useRecipeStore.getState().definition,
         });
+      } catch (err) {
+        if (cancelled) return;
+        resetRecipe();
+        setLoadError(
+          err instanceof Error
+            ? err.message
+            : "No se pudo cargar la receta del servidor."
+        );
+      } finally {
+        if (!cancelled) setIsLoading(false);
       }
-      setIsLoading(false);
     }
 
     load();
-  }, [recipeId, setRecipe]);
 
-  // Guardar receta
-  const handleSave = useCallback(async () => {
-    if (!recipeId) return;
+    return () => {
+      cancelled = true;
+    };
+  }, [recipeId, setRecipe, resetRecipe]);
+
+  // Guardar receta. Devuelve `true` solo si el backend confirmó el guardado.
+  const handleSave = useCallback(async (): Promise<boolean> => {
+    if (!recipeId || recipeId === "new" || notFound) {
+      return false;
+    }
+
     setIsSaving(true);
     try {
       await recipeEditorService.saveRecipe(recipeId, recipeName, definition);
+      return true;
+    } catch (err) {
+      console.error("Error al guardar la receta:", err);
+      return false;
     } finally {
       setIsSaving(false);
     }
-  }, [recipeId, recipeName, definition]);
+  }, [recipeId, recipeName, definition, notFound]);
 
   // Atajos de teclado: Ctrl+\ o Cmd+\ (layout) y Ctrl+B (paleta) y Ctrl+S (guardar)
   useEffect(() => {
@@ -84,6 +129,8 @@ export function useRecipeEditor(recipeId: string) {
   return {
     isLoading,
     isSaving,
+    loadError,
+    notFound,
     activeView,
     selectedNodeId,
     liveOpen,
