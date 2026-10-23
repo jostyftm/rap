@@ -371,6 +371,83 @@ describe("DSL Validator", () => {
       expect(result.success).toBe(false);
       expect(result.errors?.some((e) => e.includes("continuación del tryCatch"))).toBe(true);
     });
+
+    it("detecta solapamientos a través de un loop anidado en una rama", () => {
+      const result = validateRecipeDsl(
+        tryCatchRecipe({
+          params: { tryEntryNodeId: "loop_inner", catchEntryNodeId: "body_x" },
+          next: "cont",
+          extraNodes: {
+            loop_inner: {
+              id: "loop_inner",
+              type: "loop",
+              description: "Loop anidado",
+              params: {
+                collectionExpression: "variables.items",
+                itemVariable: "item",
+                bodyEntryNodeId: "body_x",
+                maxIterations: 3,
+              },
+              next: "cont",
+            },
+            body_x: {
+              id: "body_x",
+              type: "setVariable",
+              description: "Cuerpo anidado",
+              params: { name: "x", expression: "1" },
+              next: "cont",
+            },
+          },
+        })
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.errors?.some((e) => e.includes("se solapa"))).toBe(true);
+    });
+
+    it("no marca como ciclo la reconvergencia de ramas de una condición anidada", () => {
+      const result = validateRecipeDsl(
+        tryCatchRecipe({
+          params: { tryEntryNodeId: "cond_inner", catchEntryNodeId: "catch_1" },
+          next: "cont",
+          extraNodes: {
+            cond_inner: {
+              id: "cond_inner",
+              type: "condition",
+              description: "Condición anidada",
+              params: {
+                expression: "true",
+                thenNodeId: "branch_a",
+                elseNodeId: "branch_b",
+              },
+            },
+            branch_a: {
+              id: "branch_a",
+              type: "setVariable",
+              description: "Rama A",
+              params: { name: "a", expression: "1" },
+              next: "merge",
+            },
+            branch_b: {
+              id: "branch_b",
+              type: "setVariable",
+              description: "Rama B",
+              params: { name: "b", expression: "2" },
+              next: "merge",
+            },
+            merge: {
+              id: "merge",
+              type: "setVariable",
+              description: "Reconvergencia",
+              params: { name: "m", expression: "3" },
+              next: "cont",
+            },
+          },
+        })
+      );
+
+      expect(result.success).toBe(true);
+    });
   });
 
   describe("loop", () => {

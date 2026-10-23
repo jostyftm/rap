@@ -241,35 +241,76 @@ interface NextChain {
   reentersBlock: boolean;
 }
 
+interface FlowNodeRef {
+  next?: string;
+  type?: string;
+  params?: Record<string, unknown>;
+}
+
 /**
- * Recorre la cadena `next` desde `startId` hasta `stopAt` (exclusivo) o null.
- * Detecta ciclos y el reingreso al propio nodo tryCatch.
+ * Recorre el alcance de un bloque desde `startId` hasta `stopAt` (exclusivo) o null.
+ * Incluye las ramas de bloques anidados (condition/loop/tryCatch), ya que también
+ * forman parte del mismo alcance. Detecta ciclos y el reingreso al bloque dueño.
  */
 function collectNextChain(
-  nodes: Record<string, { next?: string }>,
+  nodes: Record<string, FlowNodeRef>,
   startId: string,
   stopAt: string | undefined,
   blockNodeId: string
 ): NextChain {
   const ids: string[] = [];
-  const seen = new Set<string>();
-  let current: string | undefined = startId;
+  const collected = new Set<string>();
+  const path = new Set<string>();
   let cycle = false;
   let reentersBlock = false;
 
-  while (current && current !== stopAt) {
-    if (current === blockNodeId) {
+  const asNodeId = (value: unknown): string | undefined =>
+    typeof value === "string" && value.length > 0 ? value : undefined;
+
+  const visit = (nodeId?: string): void => {
+    if (!nodeId || nodeId === stopAt || cycle || reentersBlock) {
+      return;
+    }
+
+    if (nodeId === blockNodeId) {
       reentersBlock = true;
-      break;
+      return;
     }
-    if (seen.has(current)) {
+
+    if (path.has(nodeId)) {
       cycle = true;
-      break;
+      return;
     }
-    seen.add(current);
-    ids.push(current);
-    current = nodes[current]?.next;
-  }
+
+    // Nodo ya recolectado por otra rama (reconvergencia, no ciclo).
+    if (collected.has(nodeId)) {
+      return;
+    }
+
+    collected.add(nodeId);
+    ids.push(nodeId);
+    path.add(nodeId);
+
+    const node = nodes[nodeId];
+    if (node) {
+      if (node.type === "tryCatch") {
+        visit(asNodeId(node.params?.tryEntryNodeId));
+        visit(asNodeId(node.params?.catchEntryNodeId));
+        visit(asNodeId(node.params?.finallyEntryNodeId));
+      } else if (node.type === "loop") {
+        visit(asNodeId(node.params?.bodyEntryNodeId));
+      } else if (node.type === "condition") {
+        visit(asNodeId(node.params?.thenNodeId));
+        visit(asNodeId(node.params?.elseNodeId));
+      }
+
+      visit(node.next);
+    }
+
+    path.delete(nodeId);
+  };
+
+  visit(startId);
 
   return { ids, cycle, reentersBlock };
 }
