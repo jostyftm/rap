@@ -3,33 +3,12 @@ import type { RecipeDsl, RecipeNode, RecipeEdge, LocatorGroup, NodeValidationIss
 import { validateRecipeDslDetailed, reconcileRecipeRoot, analyzeInitializerNodes } from "@rpa/dsl";
 import { calculateLocatorScore } from "@rpa/locator";
 import { nodeRegistry } from "@/components/editor/nodes";
-
-/**
- * Identifica la salida lógica de una arista.
- * `undefined` representa la continuación por defecto (`next`).
- */
-function edgeHandle(edge: RecipeEdge): string | undefined {
-  if (edge.condition === "true") return "then";
-  if (edge.condition === "false") return "else";
-  if (
-    edge.label === "try" ||
-    edge.label === "catch" ||
-    edge.label === "finally" ||
-    edge.label === "body"
-  ) {
-    return edge.label;
-  }
-  return undefined;
-}
-
-const BRANCH_PARAM_KEYS = [
-  "thenNodeId",
-  "elseNodeId",
-  "bodyEntryNodeId",
-  "tryEntryNodeId",
-  "catchEntryNodeId",
-  "finallyEntryNodeId",
-] as const;
+import {
+  BRANCH_PARAM_KEYS,
+  applyEdgeToDefinition,
+  edgeHandle,
+} from "@/lib/branch-wiring";
+import { createInitialDefinition } from "@/lib/default-recipe";
 
 
 export type EditorView = "canvas" | "steps" | "code";
@@ -105,6 +84,7 @@ export interface RecipeStoreState {
     version: number;
     definition: RecipeDsl;
   }) => void;
+  resetRecipe: () => void;
   setName: (name: string) => void;
   setDescription: (desc: string) => void;
   setActiveView: (view: EditorView) => void;
@@ -156,37 +136,6 @@ export interface RecipeStoreState {
     description?: string;
   }) => void;
 }
-
-const DEFAULT_INITIAL_DSL: RecipeDsl = {
-  schema: "rpa/v1",
-  name: "Nueva Receta RPA",
-  entry: "step_navigate",
-  variables: [],
-  nodes: {
-    step_navigate: {
-      id: "step_navigate",
-      type: "navigate",
-      description: "Navegar a la página web",
-      params: { url: "https://example.com", waitUntil: "domcontentloaded" },
-      next: "step_click",
-    },
-    step_click: {
-      id: "step_click",
-      type: "click",
-      description: "Hacer clic en el botón principal",
-      locator: {
-        primary: { strategy: "role", value: "button[name='More information...']", score: 90 },
-        fallbacks: [
-          { strategy: "css", value: "a[href*='iana.org']", score: 70 },
-        ],
-      },
-      params: { button: "left" },
-    },
-  },
-  edges: [
-    { from: "step_navigate", to: "step_click" },
-  ],
-};
 
 function pushHistory(currentHistory: RecipeDsl[], currentIndex: number, newDsl: RecipeDsl) {
   const truncated = currentHistory.slice(0, currentIndex + 1);
@@ -257,14 +206,15 @@ function calculateNextNodePosition(
   return { x: Math.round(posX), y: Math.round(posY) };
 }
 
-const initialValidation = validateDsl(DEFAULT_INITIAL_DSL);
+const initialDefinition = createInitialDefinition();
+const initialValidation = validateDsl(initialDefinition);
 
 export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   recipeId: null,
   recipeName: "Nueva Receta RPA",
   recipeDescription: "",
   recipeVersion: 1,
-  definition: DEFAULT_INITIAL_DSL,
+  definition: initialDefinition,
   validationErrors: initialValidation.errors,
   nodeIssues: initialValidation.nodeIssues,
   selectedNodeId: "step_navigate",
@@ -307,11 +257,11 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
 
   nodeOutputs: {},
 
-  history: [JSON.parse(JSON.stringify(DEFAULT_INITIAL_DSL))],
+  history: [JSON.parse(JSON.stringify(createInitialDefinition()))],
   historyIndex: 0,
 
   setRecipe: ({ id, name, description, version, definition }) => {
-    const rawDef = definition || DEFAULT_INITIAL_DSL;
+    const rawDef = definition || createInitialDefinition();
     // Reconciliar automáticamente el nodo inicializador raíz como principal (entry)
     const safeDef = reconcileRecipeRoot(rawDef);
     const { errors, nodeIssues } = validateDsl(safeDef);
@@ -327,6 +277,35 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       history: [JSON.parse(JSON.stringify(safeDef))],
       historyIndex: 0,
       isDirty: false,
+    });
+  },
+
+  resetRecipe: () => {
+    const definition = createInitialDefinition();
+    const { errors, nodeIssues } = validateDsl(definition);
+    set({
+      recipeId: null,
+      recipeName: "Nueva Receta RPA",
+      recipeDescription: "",
+      recipeVersion: 1,
+      definition,
+      validationErrors: errors || [],
+      nodeIssues: nodeIssues || {},
+      selectedNodeId: definition.entry || null,
+      activeDetailNodeId: null,
+      history: [JSON.parse(JSON.stringify(definition))],
+      historyIndex: 0,
+      isDirty: false,
+      runId: null,
+      runStatus: "idle",
+      runControlState: "idle",
+      runningNodeId: null,
+      logs: [],
+      screenshots: [],
+      nodeExecStatuses: {},
+      nodeExecDurations: {},
+      nodeExecErrors: {},
+      nodeOutputs: {},
     });
   },
 
@@ -657,60 +636,8 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
 
   addEdge: (edge) => {
     const { definition, history, historyIndex } = get();
-    const sourceNode = definition.nodes[edge.from];
-    if (!sourceNode) return;
-
-    const handle = edgeHandle(edge);
-    const isConditionBranch = handle === "then" || handle === "else";
-    const isTryCatchBranch =
-      handle === "try" || handle === "catch" || handle === "finally";
-    const isLoopBranch = handle === "body";
-
-    if (isConditionBranch && sourceNode.type !== "condition") return;
-    if (isTryCatchBranch && sourceNode.type !== "tryCatch") return;
-    if (isLoopBranch && sourceNode.type !== "loop") return;
-
-    const updatedNodes = { ...definition.nodes };
-
-    if (handle === "then") {
-      updatedNodes[edge.from] = {
-        ...sourceNode,
-        params: { ...(sourceNode as any).params, thenNodeId: edge.to },
-      } as RecipeNode;
-    } else if (handle === "else") {
-      updatedNodes[edge.from] = {
-        ...sourceNode,
-        params: { ...(sourceNode as any).params, elseNodeId: edge.to },
-      } as RecipeNode;
-    } else if (isTryCatchBranch) {
-      const paramKey = `${handle}EntryNodeId`;
-      updatedNodes[edge.from] = {
-        ...sourceNode,
-        params: { ...(sourceNode as any).params, [paramKey]: edge.to },
-      } as RecipeNode;
-    } else if (isLoopBranch) {
-      updatedNodes[edge.from] = {
-        ...sourceNode,
-        params: { ...(sourceNode as any).params, bodyEntryNodeId: edge.to },
-      } as RecipeNode;
-    } else {
-      if (sourceNode.type === "condition") return;
-      updatedNodes[edge.from] = { ...sourceNode, next: edge.to } as RecipeNode;
-    }
-
-    // Reemplazar la arista previa de la misma salida lógica
-    const updatedEdges = [
-      ...definition.edges.filter(
-        (existing) => !(existing.from === edge.from && edgeHandle(existing) === handle)
-      ),
-      edge,
-    ];
-
-    const updatedDsl: RecipeDsl = {
-      ...definition,
-      nodes: updatedNodes,
-      edges: updatedEdges,
-    };
+    const updatedDsl = applyEdgeToDefinition(definition, edge);
+    if (!updatedDsl) return;
 
     const { errors, nodeIssues } = validateDsl(updatedDsl);
     const hist = pushHistory(history, historyIndex, updatedDsl);
