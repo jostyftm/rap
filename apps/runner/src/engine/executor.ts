@@ -216,6 +216,15 @@ export class RecipeExecutor {
 
     const visitedNodes = new Set<string>();
     const activeLoopIds = new Set<string>();
+    const loopScopeStack: Array<{ nodeId: string; iteration: number }> = [];
+    const runCounters = {
+      steps: 0,
+      loops: 0,
+      iterations: 0,
+      retries: 0,
+      errors: 0,
+      handledErrors: 0,
+    };
     let stepCount = 0;
     let stepMode = false;
     const maxGlobalSteps = 2000;
@@ -312,6 +321,9 @@ export class RecipeExecutor {
       | { kind: "stop" }
       | { kind: "error"; nodeId: string; error: unknown };
 
+    let lastAttempt = 0;
+    let lastMaxAttempts = 1;
+
     const executeNodeWithRetry = async (node: RecipeNode): Promise<ActionResult> => {
       const policy = resolveRetryPolicy(node);
       const maxAttempts = node.onError === "retry" ? policy.maxAttempts : 1;
@@ -319,6 +331,8 @@ export class RecipeExecutor {
 
       for (;;) {
         attempt++;
+        lastAttempt = attempt;
+        lastMaxAttempts = maxAttempts;
 
         try {
           return await executeNodeAction(page, node, execContext);
@@ -333,6 +347,7 @@ export class RecipeExecutor {
 
           const waitMs = retryDelayMs(policy, attempt);
           const errorMsg = attemptError instanceof Error ? attemptError.message : String(attemptError);
+          runCounters.retries++;
 
           await this.eventEmitter.emitRunLog(
             runId,
@@ -341,6 +356,8 @@ export class RecipeExecutor {
             node.id,
             "runner",
             {
+              scope: "node",
+              nodeId: node.id,
               attempt,
               maxAttempts,
               delay_ms: waitMs,
@@ -448,6 +465,8 @@ export class RecipeExecutor {
 
         const stepDurationMs = Date.now() - stepStartTime;
         const errorMsg = nodeError instanceof Error ? nodeError.message : String(nodeError);
+        runCounters.errors++;
+        const activeLoop = loopScopeStack.at(-1);
 
         // Capturar screenshot de error si la política lo indica
         let errorScreenshotPath: string | undefined;
@@ -476,10 +495,21 @@ export class RecipeExecutor {
           `Paso [${node.id}] falló tras ${stepDurationMs}ms: ${errorMsg}`,
           node.id,
           "runner",
-          { error: errorMsg, duration_ms: stepDurationMs }
+          {
+            scope: "node",
+            nodeId: node.id,
+            attempt: lastAttempt,
+            maxAttempts: lastMaxAttempts,
+            error: errorMsg,
+            duration_ms: stepDurationMs,
+            ...(activeLoop
+              ? { iteration: activeLoop.iteration, loopId: activeLoop.nodeId }
+              : {}),
+          }
         );
 
         if (node.onError === "continue") {
+          runCounters.handledErrors++;
           return { kind: "next", nodeId: node.next };
         }
 
@@ -525,6 +555,7 @@ export class RecipeExecutor {
 
       if (tryOutcome.kind === "error") {
         caught = true;
+        runCounters.handledErrors++;
         const error = tryOutcome.error;
         const message = error instanceof Error ? error.message : String(error);
         caughtError = {
@@ -588,8 +619,13 @@ export class RecipeExecutor {
      * - `variables.miLista` (referencia directa al contexto de ejecución)
      * - `{{variables.miLista}}` (interpolación)
      * - una expresión JSONata o un literal (`[1, 2, 3]`)
+     *
+     * Devuelve `valid: false` cuando el valor no es un arreglo, para que el
+     * bucle avise y ejecute cero iteraciones sin fallar el nodo.
      */
-    const resolveLoopCollection = async (expression: string): Promise<unknown[]> => {
+    const resolveLoopCollection = async (
+      expression: string
+    ): Promise<{ items: unknown[]; valid: boolean; rawType: string }> => {
       const trimmed = expression.trim();
       let value: unknown;
 
@@ -612,18 +648,31 @@ export class RecipeExecutor {
         });
       }
 
-      if (Array.isArray(value)) return Array.from(value);
+      if (Array.isArray(value)) {
+        return { items: Array.from(value), valid: true, rawType: "array" };
+      }
 
       if (typeof value === "string") {
         try {
           const parsed: unknown = JSON.parse(value);
-          if (Array.isArray(parsed)) return parsed;
+          if (Array.isArray(parsed)) {
+            return { items: parsed, valid: true, rawType: "array" };
+          }
         } catch {
           // La cadena no contenía un arreglo JSON
         }
       }
 
-      return [];
+      const rawType =
+        value === null
+          ? "null"
+          : value === undefined
+            ? "undefined"
+            : Array.isArray(value)
+              ? "array"
+              : typeof value;
+
+      return { items: [], valid: false, rawType };
     };
 
     const executeLoop = async (node: LoopNode): Promise<ChainOutcome> => {
@@ -649,13 +698,31 @@ export class RecipeExecutor {
       );
 
       activeLoopIds.add(node.id);
+      runCounters.loops++;
+
+      // Preservar el estado previo para no contaminar el contexto al salir
+      // del bucle (incluye rutas de error y detención).
+      const hadItemVariable = Object.prototype.hasOwnProperty.call(
+        execContext.variables,
+        itemVariable
+      );
+      const previousItemValue = execContext.variables[itemVariable];
+      const hadLoopVariable = Object.prototype.hasOwnProperty.call(
+        execContext.variables,
+        "loop"
+      );
+      const previousLoopValue = execContext.variables.loop;
+      const loopScopeDepth = loopScopeStack.length;
 
       let iterations = 0;
       let truncated = false;
       let handledError: string | undefined;
 
       try {
-        const collection = await resolveLoopCollection(node.params.collectionExpression);
+        const resolvedCollection = await resolveLoopCollection(
+          node.params.collectionExpression
+        );
+        const collection = resolvedCollection.items;
         const maxIterations = Math.min(
           1000,
           Math.max(1, Math.floor(node.params.maxIterations || 1))
@@ -663,13 +730,35 @@ export class RecipeExecutor {
         const limit = Math.min(collection.length, maxIterations);
         truncated = collection.length > limit;
 
+        if (!resolvedCollection.valid) {
+          await this.eventEmitter.emitRunLog(
+            runId,
+            "warn",
+            `La colección del bucle '${itemVariable}' no es un arreglo válido (tipo: ${resolvedCollection.rawType}); se ejecutarán 0 iteraciones`,
+            node.id,
+            "runner",
+            {
+              scope: "loop",
+              invalidCollection: true,
+              rawType: resolvedCollection.rawType,
+              expression: node.params.collectionExpression,
+            }
+          );
+        }
+
         await this.eventEmitter.emitRunLog(
           runId,
           "info",
           `Bucle '${itemVariable}': ${collection.length} elemento(s), se ejecutarán ${limit} (máx ${maxIterations})`,
           node.id,
           "runner",
-          { scope: "loop", total: collection.length, limit, maxIterations }
+          {
+            scope: "loop",
+            total: collection.length,
+            limit,
+            maxIterations,
+            valid: resolvedCollection.valid,
+          }
         );
 
         if (truncated) {
@@ -690,20 +779,39 @@ export class RecipeExecutor {
           }
 
           const item = collection[index];
+          const loopIndex = index + 1;
           execContext.variables[itemVariable] = item;
+          execContext.variables.loop = {
+            id: node.id,
+            index: loopIndex,
+            total: limit,
+            collectionTotal: collection.length,
+            item,
+            itemVariable,
+          };
+          runCounters.iterations++;
+
           const itemPreview =
             typeof item === "object" && item !== null ? JSON.stringify(item) : String(item);
 
           await this.eventEmitter.emitRunLog(
             runId,
             "info",
-            `Iteración ${index + 1}/${limit} de '${itemVariable}': ${itemPreview}`,
+            `Iteración ${loopIndex}/${limit} de '${itemVariable}': ${itemPreview}`,
             node.id,
             "runner",
-            { scope: "loop", iteration: index + 1, total: limit, item }
+            {
+              scope: "loop",
+              iteration: loopIndex,
+              index: loopIndex,
+              total: limit,
+              item,
+            }
           );
 
+          loopScopeStack.push({ nodeId: node.id, iteration: loopIndex });
           const outcome = await runChain(node.params.bodyEntryNodeId, node.next);
+          loopScopeStack.pop();
 
           if (outcome.kind === "stop") {
             return outcome;
@@ -715,13 +823,19 @@ export class RecipeExecutor {
 
             if (node.onError === "continue") {
               handledError = message;
+              runCounters.handledErrors++;
               await this.eventEmitter.emitRunLog(
                 runId,
                 "warn",
-                `Error en la iteración ${index + 1} del bucle '${itemVariable}': ${message}. Se continúa tras el bucle`,
+                `Error en la iteración ${loopIndex} del bucle '${itemVariable}': ${message}. Se continúa tras el bucle`,
                 node.id,
                 "runner",
-                { scope: "loop", iteration: index + 1, error: message }
+                {
+                  scope: "loop",
+                  iteration: loopIndex,
+                  index: loopIndex,
+                  error: message,
+                }
               );
               break;
             }
@@ -738,6 +852,7 @@ export class RecipeExecutor {
 
         const message = loopError instanceof Error ? loopError.message : String(loopError);
         const durationMs = Date.now() - stepStartTime;
+        runCounters.errors++;
 
         await this.eventEmitter.emitStepFailed(runId, node.id, message, durationMs);
         await this.eventEmitter.emitRunLog(
@@ -746,16 +861,30 @@ export class RecipeExecutor {
           `Paso [${node.id}] (loop) falló tras ${durationMs}ms: ${message}`,
           node.id,
           "runner",
-          { scope: "loop", error: message, duration_ms: durationMs }
+          { scope: "loop", nodeId: node.id, error: message, duration_ms: durationMs }
         );
 
         if (node.onError === "continue") {
           handledError = message;
+          runCounters.handledErrors++;
         } else {
           return { kind: "error", nodeId: node.id, error: loopError };
         }
       } finally {
         activeLoopIds.delete(node.id);
+        loopScopeStack.length = loopScopeDepth;
+
+        if (hadItemVariable) {
+          execContext.variables[itemVariable] = previousItemValue;
+        } else {
+          delete execContext.variables[itemVariable];
+        }
+
+        if (hadLoopVariable) {
+          execContext.variables.loop = previousLoopValue;
+        } else {
+          delete execContext.variables.loop;
+        }
       }
 
       const output: Record<string, unknown> = { iterations, truncated };
@@ -806,6 +935,7 @@ export class RecipeExecutor {
         }
 
         stepCount++;
+        runCounters.steps++;
         const node: RecipeNode | undefined = recipe.nodes[currentNodeId];
         if (!node) {
           return {
@@ -865,6 +995,14 @@ export class RecipeExecutor {
       }
 
       const totalDuration = Date.now() - startTime;
+      await this.eventEmitter.emitRunLog(
+        runId,
+        "success",
+        `Resumen de ejecución: ${runCounters.steps} paso(s), ${runCounters.loops} bucle(s), ${runCounters.iterations} iteración(es), ${runCounters.retries} reintento(s), ${runCounters.errors} error(es), ${runCounters.handledErrors} controlado(s)`,
+        undefined,
+        "runner",
+        { scope: "run", status: "success", duration_ms: totalDuration, ...runCounters }
+      );
       await this.eventEmitter.emitRunFinished(runId, "success", totalDuration);
       await this.eventEmitter.emitRunLog(
         runId,
@@ -884,6 +1022,14 @@ export class RecipeExecutor {
       const totalDuration = Date.now() - startTime;
       const fatalMsg = fatalError instanceof Error ? fatalError.message : String(fatalError);
 
+      await this.eventEmitter.emitRunLog(
+        runId,
+        "error",
+        `Resumen de ejecución fallida: ${runCounters.steps} paso(s), ${runCounters.loops} bucle(s), ${runCounters.iterations} iteración(es), ${runCounters.retries} reintento(s), ${runCounters.errors} error(es), ${runCounters.handledErrors} controlado(s)`,
+        undefined,
+        "runner",
+        { scope: "run", status: "failed", duration_ms: totalDuration, ...runCounters }
+      );
       await this.eventEmitter.emitRunFinished(runId, "failed", totalDuration, fatalMsg);
       await this.eventEmitter.emitRunLog(
         runId,

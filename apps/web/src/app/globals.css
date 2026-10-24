@@ -327,3 +327,196 @@ html.light ::-webkit-scrollbar-thumb {
 html.light ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* ========================================================
+   NODE DETAIL — DESIGN TOKENS (light + dark, semantic)
+   ======================================================== */
+
+:root {
+  --surface-canvas: #0a0d12;
+  --surface-panel: #10141b;
+  --surface-raised: #151a22;
+  --surface-card: #1a2029;
+  --surface-input: #0d1117;
+  --surface-hover: #1f2632;
+
+  --line: #232b37;
+  --line-strong: #323c4b;
+
+  --fg: #e6eaf2;
+  --fg-muted: #a3aec0;
+  --fg-subtle: #7d899c;
+  --fg-onaccent: #1a1205;
+
+  --accent: #f59e0b;
+  --accent-hover: #fbbf24;
+  --accent-soft: rgb(245 176 39 / 0.12);
+  --accent-line: rgb(245 176 39 / 0.32);
+  --accent-text: #f8c65a;
+
+  --success: #34d399;
+  --success-soft: rgb(52 211 153 / 0.12);
+  --success-text: #6ee7b7;
+  --warning: #fb923c;
+  --warning-soft: rgb(251 146 60 / 0.12);
+  --warning-text: #fdba74;
+  --danger: #fb7185;
+  --danger-soft: rgb(251 113 133 / 0.12);
+  --danger-text: #fda4af;
+  --info: #60a5fa;
+  --info-soft: rgb(96 165 250 / 0.12);
+  --info-text: #93c5fd;
+  --violet: #a78bfa;
+  --violet-soft: rgb(167 139 250 / 0.12);
+  --violet-text: #c4b5fd;
+
+  --overlay: rgb(2 6 23 / 0.72);
+
+  --json-key: #93c5fd;
+  --json-string: #6ee7b7;
+  --json-number: #fbbf24;
+  --json-boolean: #c4b5fd;
+  --json-null: #94a3b8;
+  --json-punct: #64748b;
+
+  --shadow-card: inset 0 1px 0 rgb(255 255 255 / 0.03);
+  --shadow-modal: 0 24px 64px -16px rgb(2 6 23 / 0.65);
+}
+
+html.light {
+  --surface-canvas: #eef2f7;
+  --surface-panel: #f8fafc;
+  --surface-raised: #ffffff;
+  --surface-card: #f8fafc;
+  --surface-input: #ffffff;
+  --surface-hover: #f1f5f9;
+
+  --line: #e2e8f0;
+  --line-strong: #cbd5e1;
+
+  --fg: #0f172a;
+  --fg-muted: #475569;
+  --fg-subtle: #64748b;
+  --fg-onaccent: #1a1205;
+
+  --accent: #f59e0b;
+  --accent-hover: #d97706;
+  --accent-soft: rgb(245 158 11 / 0.10);
+  --accent-line: rgb(180 83 9 / 0.25);
+  --accent-text: #b45309;
+
+  --success: #059669;
+  --success-soft: #ecfdf5;
+  --success-text: #047857;
+  --warning: #ea580c;
+  --warning-soft: #fff7ed;
+  --warning-text: #c2410c;
+  --danger: #e11d48;
+  --danger-soft: #fff1f2;
+  --danger-text: #be123c;
+  --info: #2563eb;
+  --info-soft: #eff6ff;
+  --info-text: #1d4ed8;
+  --violet: #7c3aed;
+  --violet-soft: #f5f3ff;
+  --violet-text: #6d28d9;
+
+  --overlay: rgb(15 23 42 / 0.38);
+
+  --json-key: #1d4ed8;
+  --json-string: #047857;
+  --json-number: #b45309;
+  --json-boolean: #6d28d9;
+  --json-null: #64748b;
+  --json-punct: #94a3b8;
+
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04);
+  --shadow-modal: 0 24px 64px -20px rgb(15 23 42 / 0.28);
+}
+
+@theme inline {
+  --color-canvas: var(--surface-canvas);
+  --color-panel: var(--surface-panel);
+  --color-raised: var(--surface-raised);
+  --color-card: var(--surface-card);
+  --color-input: var(--surface-input);
+  --color-hover: var(--surface-hover);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-line: var(--accent-line);
+  --color-accent-text: var(--accent-text);
+  --color-accent-ink: var(--fg-onaccent);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-success-text: var(--success-text);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-text: var(--warning-text);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-text: var(--danger-text);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-info-text: var(--info-text);
+  --color-violet: var(--violet);
+  --color-violet-soft: var(--violet-soft);
+  --color-violet-text: var(--violet-text);
+  --color-overlay: var(--overlay);
+
+  --radius-control: 8px;
+  --radius-field: 10px;
+  --radius-card: 14px;
+  --radius-shell: 18px;
+}
+
+/* ========================================================
+   NODE DETAIL — MOTION
+   ======================================================== */
+
+@keyframes rpa-fade-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes rpa-pop {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes rpa-flash {
+  0% { box-shadow: 0 0 0 0 var(--accent-line); }
+  100% { box-shadow: 0 0 0 10px transparent; }
+}
+
+@keyframes rpa-indeterminate {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(520%); }
+}
+
+.rpa-tab-panel { animation: rpa-fade-up 160ms ease-out both; }
+.rpa-pop { animation: rpa-pop 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.rpa-flash { animation: rpa-flash 700ms ease-out both; }
+
+.rpa-progress::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inline-size: 22%;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: rpa-indeterminate 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rpa-tab-panel,
+  .rpa-pop,
+  .rpa-flash,
+  .rpa-progress::after {
+    animation: none !important;
+  }
+}

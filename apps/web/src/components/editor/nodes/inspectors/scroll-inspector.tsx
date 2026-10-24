@@ -1,28 +1,27 @@
 "use client";
 
 import React from "react";
-import { Crosshair, ArrowDown, ArrowUp, MoveVertical, Locate } from "lucide-react";
-import type { ScrollNode, LocatorStrategy } from "@rpa/dsl";
+import { Crosshair, ArrowDown, ArrowUp } from "lucide-react";
+import type { ScrollNode, LocatorStrategy, RecipeNode } from "@rpa/dsl";
 import { calculateLocatorScore } from "@rpa/locator";
 import type { NodeInspectorProps } from "../types";
 import { useLiveStore } from "@/stores/use-live-store";
 import { useLayoutStore } from "@/stores/use-layout-store";
 import { useRecipeStore } from "@/stores/use-recipe-store";
+import { Button, Field, Select, TextInput } from "@/components/ui/primitives";
 
 export function ScrollInspectorForm({
   node,
   updateParam,
   updateNode,
 }: NodeInspectorProps<ScrollNode>) {
-  const isLiveOpen = useLiveStore((s) => s.isOpen);
-  const liveStatus = useLiveStore((s) => s.status);
   const liveArmedNodeId = useLiveStore((s) => s.armedNodeId);
   const recipeId = useRecipeStore((s) => s.recipeId);
 
   const currentMode = node.params.mode || "element";
   const isArmed = liveArmedNodeId === node.id;
 
-  const handleModeChange = (newMode: "element" | "coordinates" | "top" | "bottom") => {
+  const handleModeChange = (newMode: ScrollNode["params"]["mode"]) => {
     if (newMode === "element") {
       const existingLocator = node.locator;
       const initialLocator = existingLocator || {
@@ -70,10 +69,11 @@ export function ScrollInspectorForm({
       const recId = recipeId || "current";
       const currentDef = useRecipeStore.getState().definition;
       const navNode = Object.values(currentDef.nodes).find(
-        (n) => n.type === "navigate" && (n as any).params?.url
+        (n): n is Extract<RecipeNode, { type: "navigate" }> =>
+          n.type === "navigate" && Boolean(n.params.url)
       );
-      if (navNode && (navNode as any).params?.url) {
-        live.startEmbedded?.(recId, (navNode as any).params.url);
+      if (navNode?.params.url) {
+        live.startEmbedded?.(recId, navNode.params.url);
       }
     }
   };
@@ -90,140 +90,127 @@ export function ScrollInspectorForm({
     });
   };
 
+  const selectorMissing = !node.locator?.primary?.value?.trim();
+
   return (
-    <div className="space-y-3">
-      {/* Selector de Modo de Desplazamiento */}
-      <div>
-        <label className="block text-[11px] font-medium text-neutral-400 mb-1">
-          Modo de Desplazamiento
-        </label>
-        <select
+    <div className="space-y-4">
+      <Field
+        label="Modo de desplazamiento"
+        htmlFor="scroll-mode"
+        hint="Hacia un elemento, por píxeles o a un extremo de la página."
+      >
+        <Select
+          id="scroll-mode"
           value={currentMode}
-          onChange={(e) => handleModeChange(e.target.value as any)}
-          className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-600 font-medium"
+          onChange={(e) =>
+            handleModeChange(e.target.value as ScrollNode["params"]["mode"])
+          }
         >
           <option value="element">Hacia un elemento de la vista</option>
           <option value="coordinates">Por píxeles (distancia vertical/horizontal)</option>
-          <option value="bottom">Al final de la página (Bottom)</option>
-          <option value="top">Al inicio de la página (Top)</option>
-        </select>
-      </div>
+          <option value="bottom">Al final de la página</option>
+          <option value="top">Al inicio de la página</option>
+        </Select>
+      </Field>
 
-      {/* CASO 1: Hacia un elemento */}
       {currentMode === "element" && (
-        <div className="space-y-2.5">
-          {/* Botón interactivo de selección en vivo */}
-          <button
-            type="button"
+        <div className="space-y-4">
+          <Button
+            variant={isArmed ? "primary" : "secondary"}
             onClick={handleSelectElementOnSite}
-            className={`w-full flex items-center justify-center space-x-1.5 py-2 px-3 rounded text-xs font-medium transition-colors ${
-              isArmed
-                ? "bg-amber-400 text-zinc-950 font-semibold"
-                : "bg-zinc-800 hover:bg-zinc-750 text-zinc-200 border border-zinc-700/60"
-            }`}
+            className="w-full"
           >
-            <Crosshair className="w-4 h-4" />
-            <span>
-              {isArmed
-                ? "Haz clic en el elemento en el sitio… (cancelar)"
-                : "Inspeccionar elemento en el sitio"}
-            </span>
-          </button>
+            <Crosshair className="h-4 w-4" />
+            {isArmed
+              ? "Haz clic en el elemento del sitio… (cancelar)"
+              : "Inspeccionar elemento en el sitio"}
+          </Button>
 
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-[11px] font-medium text-zinc-400">
-                Selector del elemento objetivo
-              </label>
-              {!node.locator?.primary?.value?.trim() && (
-                <span className="text-[10px] text-amber-400 font-medium">Requerido</span>
-              )}
-            </div>
-            <input
+          <Field
+            label="Selector del elemento objetivo"
+            htmlFor="scroll-selector"
+            error={selectorMissing ? "Escribe un selector o selecciónalo en el sitio." : undefined}
+            hint={
+              selectorMissing
+                ? undefined
+                : "El navegador desplazará el elemento hasta el centro de la vista."
+            }
+          >
+            <TextInput
+              id="scroll-selector"
               type="text"
               value={node.locator?.primary?.value || ""}
               onChange={(e) => handleSelectorValueChange(e.target.value)}
-              placeholder="#seccion-productos, footer, o selector CSS"
-              className={`w-full bg-zinc-950 border rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none font-mono transition-colors ${
-                !node.locator?.primary?.value?.trim()
-                  ? "border-amber-500/50 focus:border-amber-400"
-                  : "border-zinc-800 focus:border-zinc-600"
-              }`}
+              placeholder="#seccion-productos, footer…"
+              aria-invalid={selectorMissing}
+              className="font-mono"
             />
-            {!node.locator?.primary?.value?.trim() && (
-              <p className="text-[10px] text-zinc-500 mt-1">
-                Escribe el selector o haz clic arriba en <strong className="text-zinc-300 font-medium">Inspeccionar elemento en el sitio</strong>.
-              </p>
-            )}
-          </div>
+          </Field>
         </div>
       )}
 
-      {/* CASO 2: Por coordenadas / píxeles */}
       {currentMode === "coordinates" && (
-        <div className="space-y-2.5">
-          <div>
-            <label className="block text-[11px] font-medium text-neutral-400 mb-1">
-              Desplazamiento Vertical Y (px)
-            </label>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Desplazamiento Y" htmlFor="scroll-y" hint="Negativo sube; positivo baja.">
             <div className="relative">
-              <input
+              <TextInput
+                id="scroll-y"
                 type="number"
                 value={node.params.y ?? 500}
                 onChange={(e) => updateParam("y", Number(e.target.value))}
                 placeholder="500"
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 focus:outline-none focus:border-blue-500 font-mono"
+                className="pr-8 font-mono"
               />
-              <span className="absolute right-2.5 top-1.5 text-[10px] text-neutral-500">
-                {(node.params.y ?? 500) >= 0 ? "↓ Hacia abajo" : "↑ Hacia arriba"}
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-fg-subtle">
+                {(node.params.y ?? 500) >= 0 ? "↓" : "↑"}
               </span>
             </div>
-          </div>
+          </Field>
 
-          <div>
-            <label className="block text-[11px] font-medium text-neutral-400 mb-1">
-              Desplazamiento Horizontal X (opcional px)
-            </label>
-            <input
+          <Field label="Desplazamiento X" htmlFor="scroll-x" hint="Opcional. 0 mantiene el horizontal.">
+            <TextInput
+              id="scroll-x"
               type="number"
               value={node.params.x ?? 0}
               onChange={(e) => updateParam("x", Number(e.target.value))}
               placeholder="0"
-              className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 focus:outline-none focus:border-blue-500 font-mono"
+              className="font-mono"
             />
-          </div>
+          </Field>
         </div>
       )}
 
-      {/* CASO 3 y 4: Extremos */}
       {currentMode === "top" && (
-        <div className="p-2.5 rounded-lg bg-neutral-950 border border-neutral-800 text-xs text-neutral-400 flex items-center space-x-2">
-          <ArrowUp className="w-4 h-4 text-blue-400 shrink-0" />
-          <span>Desplaza el scroll inmediatamente hasta la parte superior de la ventana.</span>
+        <div className="flex items-start gap-2.5 rounded-card border border-line bg-card px-4 py-3 text-[11.5px] leading-relaxed text-fg-muted">
+          <ArrowUp className="mt-0.5 h-4 w-4 shrink-0 text-info-text" />
+          <p>Desplaza el scroll inmediatamente hasta la parte superior de la ventana.</p>
         </div>
       )}
 
       {currentMode === "bottom" && (
-        <div className="p-2.5 rounded-lg bg-neutral-950 border border-neutral-800 text-xs text-neutral-400 flex items-center space-x-2">
-          <ArrowDown className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>Desplaza el scroll hasta el fondo completo de la página web (ideal para scroll infinito).</span>
+        <div className="flex items-start gap-2.5 rounded-card border border-line bg-card px-4 py-3 text-[11.5px] leading-relaxed text-fg-muted">
+          <ArrowDown className="mt-0.5 h-4 w-4 shrink-0 text-success-text" />
+          <p>
+            Desplaza el scroll hasta el fondo completo de la página (ideal para scroll
+            infinito).
+          </p>
         </div>
       )}
 
-      {/* Comportamiento de animación */}
-      <div>
-        <label className="block text-[11px] font-medium text-neutral-400 mb-1">
-          Animación del scroll
-        </label>
-        <select
+      <Field
+        label="Animación del scroll"
+        htmlFor="scroll-behavior"
+        hint="La animación suave facilita ver el movimiento en el navegador en vivo."
+      >
+        <Select
+          id="scroll-behavior"
           value={node.params.behavior || "smooth"}
           onChange={(e) => updateParam("behavior", e.target.value)}
-          className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 focus:outline-none focus:border-blue-500"
         >
-          <option value="smooth">Suave (smooth) - Recomendado</option>
-          <option value="auto">Instantáneo (auto)</option>
-        </select>
-      </div>
+          <option value="smooth">Suave (recomendado)</option>
+          <option value="auto">Instantáneo</option>
+        </Select>
+      </Field>
     </div>
   );
 }

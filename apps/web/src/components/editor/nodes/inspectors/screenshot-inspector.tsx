@@ -3,24 +3,27 @@
 import React from "react";
 import type { ScreenshotNode } from "@rpa/dsl";
 import type { NodeInspectorProps } from "../types";
+import { Field, TextInput } from "@/components/ui/primitives";
 
 export function ScreenshotInspectorForm({
   node,
   updateParam,
 }: NodeInspectorProps<ScreenshotNode>) {
   return (
-    <div>
-      <label className="block text-[11px] font-medium text-neutral-400 mb-1">
-        Nombre de la captura
-      </label>
-      <input
+    <Field
+      label="Nombre de la captura"
+      htmlFor="screenshot-name"
+      hint="Se usa para identificar el archivo generado por el runner."
+    >
+      <TextInput
+        id="screenshot-name"
         type="text"
         value={node.params.name || ""}
         onChange={(e) => updateParam("name", e.target.value)}
         placeholder="ej. pantalla_principal"
-        className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 focus:outline-none focus:border-blue-500 font-mono"
+        className="font-mono"
       />
-    </div>
+    </Field>
   );
 }
 
@@ -29,17 +32,20 @@ export function ScreenshotAdvancedForm({
   updateParam,
 }: NodeInspectorProps<ScreenshotNode>) {
   return (
-    <div className="flex items-center space-x-2 pt-1">
+    <label className="flex cursor-pointer items-start gap-2.5 rounded-control border border-line bg-card px-3 py-2.5 transition-colors hover:bg-hover">
       <input
         type="checkbox"
         id="fullPageShot"
         checked={node.params.fullPage ?? true}
         onChange={(e) => updateParam("fullPage", e.target.checked)}
-        className="rounded bg-neutral-950 border-neutral-800 text-blue-600 focus:ring-0"
+        className="mt-0.5 h-4 w-4 rounded border-line accent-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
       />
-      <label htmlFor="fullPageShot" className="text-xs text-neutral-300 cursor-pointer">
-        Captura de página completa (Full page)
-      </label>
-    </div>
+      <span className="text-[12px] text-fg">
+        Captura de página completa
+        <span className="mt-0.5 block text-[11px] leading-relaxed text-fg-subtle">
+          Incluye todo el alto del documento, no solo el viewport visible.
+        </span>
+      </span>
+    </label>
   );
 }

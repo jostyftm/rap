@@ -4,6 +4,8 @@ import React from "react";
 import type { LoopNode } from "@rpa/dsl";
 import type { NodeInspectorProps } from "../types";
 import { useRecipeStore } from "@/stores/use-recipe-store";
+import { Field, Select, TextInput } from "@/components/ui/primitives";
+import { Repeat2 } from "lucide-react";
 
 export function LoopInspectorForm({
   node,
@@ -19,63 +21,72 @@ export function LoopInspectorForm({
     );
 
   return (
-    <div className="space-y-3">
-      <div>
-        <label className="block text-[11px] font-medium text-neutral-400 mb-1">
-          Colección a iterar (Array)
-        </label>
-        <input
+    <div className="space-y-4">
+      <Field
+        label="Colección a iterar"
+        htmlFor="loop-collection"
+        hint="Acepta una variable (variables.items), una expresión JSONata o un literal como [1, 2, 3]."
+      >
+        <TextInput
+          id="loop-collection"
           type="text"
           value={node.params.collectionExpression || ""}
           onChange={(e) => updateParam("collectionExpression", e.target.value)}
           placeholder="variables.items o [1, 2, 3]"
-          className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 font-mono focus:outline-none focus:border-blue-500"
+          className="font-mono"
         />
-        <p className="mt-1 text-[10px] text-neutral-500 leading-relaxed">
-          Acepta una variable (<span className="font-mono">variables.items</span>),
-          una expresión JSONata o un literal como{" "}
-          <span className="font-mono">[1, 2, 3]</span>.
-        </p>
+      </Field>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field
+          label="Variable del elemento"
+          htmlFor="loop-item-variable"
+          hint="Nombre disponible dentro del cuerpo."
+        >
+          <TextInput
+            id="loop-item-variable"
+            type="text"
+            value={node.params.itemVariable || ""}
+            onChange={(e) => updateParam("itemVariable", e.target.value)}
+            placeholder="item"
+            className="font-mono"
+          />
+        </Field>
+
+        <Field
+          label="Máx. iteraciones"
+          htmlFor="loop-max-iterations"
+          hint="Freno de seguridad."
+        >
+          <TextInput
+            id="loop-max-iterations"
+            type="number"
+            value={node.params.maxIterations ?? 10}
+            onChange={(e) => updateParam("maxIterations", Number(e.target.value))}
+            placeholder="10"
+            className="font-mono"
+          />
+        </Field>
       </div>
 
-      <div>
-        <label className="block text-[11px] font-medium text-neutral-400 mb-1">
-          Variable para cada elemento
-        </label>
-        <input
-          type="text"
-          value={node.params.itemVariable || ""}
-          onChange={(e) => updateParam("itemVariable", e.target.value)}
-          placeholder="item"
-          className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 font-mono focus:outline-none focus:border-blue-500"
-        />
-      </div>
-
-      <div>
-        <label className="block text-[11px] font-medium text-neutral-400 mb-1">
-          Límite máximo de iteraciones
-        </label>
-        <input
-          type="number"
-          value={node.params.maxIterations ?? 10}
-          onChange={(e) => updateParam("maxIterations", Number(e.target.value))}
-          placeholder="10"
-          className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 focus:outline-none focus:border-blue-500"
-        />
-      </div>
-
-      <div>
-        <label className="flex items-center space-x-1.5 text-[11px] font-medium text-neutral-400 mb-1">
-          <span className="w-2 h-2 rounded-full bg-rose-500" />
-          <span>Inicio del cuerpo del bucle</span>
-          <span className="text-rose-400">*</span>
-        </label>
-        <select
+      <Field
+        label={
+          <span className="flex items-center gap-1.5">
+            Inicio del cuerpo del bucle
+            <span className="text-danger-text" aria-hidden="true">
+              *
+            </span>
+          </span>
+        }
+        htmlFor="loop-body-entry"
+        hint="El cuerpo se ejecuta una vez por elemento y termina en la continuación del bucle."
+      >
+        <Select
+          id="loop-body-entry"
           value={node.params.bodyEntryNodeId || ""}
           onChange={(e) =>
             setBranchTarget(node.id, "body", e.target.value || undefined)
           }
-          className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 focus:outline-none focus:border-blue-500"
         >
           <option value="">— Sin conectar —</option>
           {availableNodes.map((candidate) => (
@@ -83,10 +94,18 @@ export function LoopInspectorForm({
               {candidate.description || candidate.id} ({candidate.type})
             </option>
           ))}
-        </select>
-        <p className="mt-1 text-[10px] text-neutral-500 leading-relaxed">
-          El cuerpo se ejecuta una vez por elemento y termina en la
-          continuación del bucle.
+        </Select>
+      </Field>
+
+      <div className="flex items-start gap-2.5 rounded-card border border-violet/25 bg-violet-soft px-4 py-3 text-[11.5px] leading-relaxed text-violet-text">
+        <Repeat2 className="mt-0.5 h-4 w-4 shrink-0" />
+        <p>
+          Cada iteración expone el elemento actual como{" "}
+          <code className="font-mono">
+            {`{{steps.${node.id}.output.${node.params.itemVariable || "item"}}}`}
+          </code>{" "}
+          y el índice como{" "}
+          <code className="font-mono">{`{{steps.${node.id}.output.index}}`}</code>.
         </p>
       </div>
     </div>

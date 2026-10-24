@@ -1,0 +1,23 @@
+import { chromium } from '@playwright/test';
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
+await page.goto('http://localhost:3000/login');
+await page.fill('input[type="email"], input[name="email"]', 'admin@rpa.studio');
+await page.fill('input[type="password"]', 'secret123');
+await page.click('button[type="submit"]');
+await page.waitForURL(/\/recipes/);
+await page.goto('http://localhost:3000/recipes/01a16acc-aa68-72a6-9c04-1c2d61c5b224/edit');
+await page.waitForSelector('.react-flow', { timeout: 30000 });
+await page.waitForTimeout(3000);
+await page.locator('.react-flow__node').nth(1).dblclick();
+await page.waitForSelector('[role="dialog"][aria-modal="true"]');
+await page.waitForTimeout(1500);
+const dialog = page.locator('[role="dialog"][aria-modal="true"]');
+const panel = dialog.locator('section').last();
+await panel.locator('> div').first().screenshot({ path: '/tmp/opencode/crop-toolbar.png' });
+await dialog.locator('footer, [data-footer]').last().screenshot({ path: '/tmp/opencode/crop-footer.png' }).catch(()=>{});
+// footer likely a div; screenshot bottom strip
+const box = await dialog.boundingBox();
+await page.screenshot({ path: '/tmp/opencode/crop-bottom.png', clip: { x: box.x + box.width/2 - 260, y: box.y + box.height - 70, width: 520, height: 60 } });
+await page.screenshot({ path: '/tmp/opencode/crop-url.png', clip: { x: 996, y: 165, width: 420, height: 45 } });
+await browser.close();

@@ -9,13 +9,19 @@ import {
   Globe,
   Radio,
   Square,
-  ChevronRight,
   Sparkles,
   AlertCircle,
 } from "lucide-react";
 import { buildWebhookUrl } from "@/lib/webhook-url";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { useWebhookTestStore } from "@/stores/use-webhook-test-store";
+import {
+  Badge,
+  Button,
+  Field,
+  Select,
+  TextInput,
+} from "@/components/ui/primitives";
 
 const HTTP_METHODS: WebhookHttpMethod[] = [
   "POST",
@@ -47,7 +53,6 @@ export function WebhookInspectorForm({
 
   const fullUrl = buildWebhookUrl(path);
 
-  // Contador regresivo mientras se escucha
   useEffect(() => {
     if (testEntry.status !== "listening" || !testEntry.expiresAt) {
       return;
@@ -98,183 +103,192 @@ export function WebhookInspectorForm({
 
   return (
     <div className="space-y-4">
-      {/* 1. Selector de Método HTTP */}
-      <div>
-        <label className="block text-[11px] font-medium text-zinc-300 mb-1">
-          Método HTTP
-        </label>
-        <select
+      <Field label="Método HTTP" htmlFor="webhook-method">
+        <Select
+          id="webhook-method"
           value={method}
           disabled={isListening}
           onChange={(e) => updateParam("httpMethod", e.target.value as WebhookHttpMethod)}
-          className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-200 font-mono focus:outline-none focus:border-zinc-600 disabled:opacity-50 transition-colors"
+          className="font-mono"
         >
           {HTTP_METHODS.map((m) => (
             <option key={m} value={m}>
               {m}
             </option>
           ))}
-        </select>
-      </div>
+        </Select>
+      </Field>
 
-      {/* 2. Ruta y URL del Webhook */}
-      <div>
-        <div className="flex items-center justify-between mb-1">
-          <label className="text-[11px] font-medium text-zinc-300">
-            Ruta del Webhook
-          </label>
+      <Field
+        label="Ruta del webhook"
+        htmlFor="webhook-path"
+        action={
           <button
             type="button"
             onClick={handleCopyUrl}
-            className="flex items-center space-x-1 text-[11px] text-amber-400 hover:text-amber-300 font-medium transition-colors"
             title="Copiar URL completa del endpoint"
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-accent-text transition-colors hover:text-accent"
           >
-            {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? (
+              <Check className="h-3.5 w-3.5 text-success-text" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
             <span>{copied ? "Copiada" : "Copiar URL"}</span>
           </button>
-        </div>
+        }
+        hint={
+          <span className="block truncate font-mono" title={fullUrl}>
+            {fullUrl}
+          </span>
+        }
+      >
         <div className="relative">
-          <Globe className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-zinc-500" />
-          <input
+          <Globe className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
+          <TextInput
+            id="webhook-path"
             type="text"
             value={path}
             disabled={isListening}
             onChange={(e) => updateParam("path", e.target.value)}
             placeholder={`/api/v1/webhooks/${node.id}`}
-            className="w-full bg-zinc-950 border border-zinc-800 rounded pl-8 pr-3 py-1.5 text-xs text-zinc-200 font-mono placeholder-zinc-600 focus:outline-none focus:border-zinc-600 disabled:opacity-50 transition-colors"
+            className="pl-9 font-mono"
           />
         </div>
-        <div className="mt-1 flex items-center justify-between text-[10px] text-zinc-500 font-mono truncate">
-          <span className="truncate" title={fullUrl}>
-            URL: {fullUrl}
-          </span>
-        </div>
-      </div>
+      </Field>
 
-      {/* 3. Botón de Escucha Interactivo */}
-      <div className="pt-1">
-        <button
-          type="button"
+      <div className="space-y-2">
+        <Button
+          variant={isListening ? "danger" : "primary"}
           onClick={handleToggleListening}
           disabled={!recipeId}
           title={!recipeId ? "Guarda la receta primero para probar este webhook" : undefined}
-          className={`w-full py-2.5 px-3 rounded-lg font-medium text-xs flex items-center justify-center space-x-2 transition-all shadow-md active:scale-[0.98] ${
-            isListening
-              ? "bg-rose-600 hover:bg-rose-500 text-white animate-pulse"
-              : "bg-amber-400 hover:bg-amber-300 text-zinc-950 font-semibold"
-          } disabled:opacity-40 disabled:cursor-not-allowed`}
+          className={isListening ? "w-full border border-danger/30" : "w-full"}
         >
           {isListening ? (
             <>
-              <Square className="w-3.5 h-3.5 fill-current" />
+              <Square className="h-3.5 w-3.5 fill-current" />
               <span>Detener escucha</span>
               {timeLeft !== null && (
-                <span className="ml-1 text-[11px] opacity-80 font-mono">
-                  ({timeLeft}s)
-                </span>
+                <span className="ml-1 font-mono text-[11px] opacity-80">({timeLeft}s)</span>
               )}
             </>
           ) : (
             <>
-              <Radio className="w-4 h-4 text-zinc-950" />
+              <Radio className="h-4 w-4" />
               <span>Escuchar evento de prueba</span>
             </>
           )}
-        </button>
+        </Button>
 
         {!recipeId && (
-          <p className="text-[10px] text-amber-500/80 mt-1.5 text-center">
+          <p className="text-center text-[11px] text-warning-text">
             Debes guardar la receta para poder iniciar la escucha de prueba.
           </p>
         )}
 
         {isListening && (
-          <div className="mt-2 p-2 rounded bg-amber-950/30 border border-amber-800/40 text-[11px] text-amber-300/90 flex items-start space-x-1.5">
-            <Radio className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5 animate-spin" />
+          <div className="flex items-start gap-2 rounded-control border border-warning/25 bg-warning-soft px-3 py-2.5 text-[11px] leading-relaxed text-warning-text">
+            <Radio className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-pulse" />
             <span>
-              Esperando una petición HTTP {method} en la URL. Puedes probar enviando datos desde Postman, curl o tu backend.
+              Esperando una petición HTTP {method} en la URL. Puedes probar enviando datos
+              desde Postman, curl o tu backend.
             </span>
           </div>
         )}
 
         {testEntry.status === "error" && testEntry.error && (
-          <div className="mt-2 p-2 rounded bg-rose-950/40 border border-rose-800/50 text-[11px] text-rose-300 flex items-start space-x-1.5">
-            <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
+          <div className="flex items-start gap-2 rounded-control border border-danger/25 bg-danger-soft px-3 py-2.5 text-[11px] leading-relaxed text-danger-text">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>{testEntry.error}</span>
           </div>
         )}
       </div>
 
-      {/* 4. Acordeón: Opciones Avanzadas */}
-      <div className="border border-zinc-800/90 rounded-lg overflow-hidden bg-zinc-950/40">
+      <div className="overflow-hidden rounded-card border border-line bg-card">
         <button
           type="button"
-          onClick={() => setShowAdvanced(!showAdvanced)}
-          className="w-full flex items-center justify-between p-2.5 text-xs text-zinc-300 hover:text-white hover:bg-zinc-900/60 transition-colors font-medium"
+          onClick={() => setShowAdvanced((prev) => !prev)}
+          aria-expanded={showAdvanced}
+          className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-[12px] font-medium text-fg transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/30"
         >
-          <span className="flex items-center space-x-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span>Opciones Avanzadas</span>
+          <span className="flex items-center gap-1.5">
+            <Sparkles className="h-3.5 w-3.5 text-accent-text" />
+            <span>Opciones avanzadas</span>
           </span>
-          <ChevronRight
-            className={`w-3.5 h-3.5 text-zinc-400 transition-transform duration-200 ${
-              showAdvanced ? "rotate-90" : ""
-            }`}
-          />
+          <span className="flex items-center gap-2">
+            <Badge tone="neutral" className="h-5 px-1.5 text-[9.5px]">
+              {responseCode}
+            </Badge>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className={`h-3.5 w-3.5 text-fg-subtle transition-transform duration-200 ${
+                showAdvanced ? "rotate-90" : ""
+              }`}
+              aria-hidden="true"
+            >
+              <path d="m9 18 6-6-6-6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
         </button>
 
         {showAdvanced && (
-          <div className="p-3 border-t border-zinc-800/80 space-y-3 bg-zinc-950/80 animate-in fade-in duration-150">
-            {/* Código de Respuesta HTTP */}
-            <div>
-              <label className="block text-[11px] font-medium text-zinc-400 mb-1">
-                Código Respuesta HTTP
-              </label>
-              <input
+          <div className="rpa-tab-panel space-y-4 border-t border-line px-3 py-3">
+            <Field
+              label="Código de respuesta HTTP"
+              htmlFor="webhook-response-code"
+              hint="Entre 100 y 599."
+            >
+              <TextInput
+                id="webhook-response-code"
                 type="number"
                 value={responseCode}
                 onChange={(e) => updateParam("responseCode", Number(e.target.value))}
                 min={100}
                 max={599}
-                className="w-full bg-zinc-900 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-200 font-mono focus:outline-none focus:border-zinc-600 transition-colors"
+                className="font-mono"
               />
-            </div>
+            </Field>
 
-            {/* Contenido de Respuesta */}
-            <div>
-              <label className="block text-[11px] font-medium text-zinc-400 mb-1">
-                Contenido de respuesta (JSON)
-              </label>
+            <Field
+              label="Contenido de respuesta (JSON)"
+              htmlFor="webhook-response-body"
+              error={jsonError || undefined}
+            >
               <textarea
+                id="webhook-response-body"
                 rows={3}
                 value={responseBody}
                 onChange={(e) => handleResponseBodyChange(e.target.value)}
                 placeholder='{"ok": true}'
-                className="w-full bg-zinc-900 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-200 font-mono placeholder-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors resize-none"
+                aria-invalid={Boolean(jsonError)}
+                className="w-full resize-none rounded-field border border-line bg-input px-3.5 py-2.5 font-mono text-[12px] text-fg placeholder:text-fg-subtle transition-[border-color,box-shadow] hover:border-line-strong focus:border-accent focus:outline-none focus:ring-4 focus:ring-accent/15"
               />
-              {jsonError && (
-                <p className="text-[10px] text-rose-400 mt-1 font-mono">{jsonError}</p>
-              )}
-            </div>
+            </Field>
 
-            {/* Guardar payload en variable */}
-            <div>
-              <label className="block text-[11px] font-medium text-zinc-400 mb-1">
-                Guardar payload en variable
-              </label>
-              <input
+            <Field
+              label="Guardar payload en variable"
+              htmlFor="webhook-output-variable"
+              hint={
+                <span>
+                  Disponible como{" "}
+                  <code className="font-mono text-accent-text">{`{{${outputVar}.body}}`}</code> o{" "}
+                  <code className="font-mono text-accent-text">{`{{steps.${node.id}.output.body}}`}</code>.
+                </span>
+              }
+            >
+              <TextInput
+                id="webhook-output-variable"
                 type="text"
                 value={outputVar}
                 onChange={(e) => updateParam("outputVariable", e.target.value)}
                 placeholder="webhook"
-                className="w-full bg-zinc-900 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-200 font-mono focus:outline-none focus:border-zinc-600 transition-colors"
+                className="font-mono"
               />
-              <p className="text-[10px] text-zinc-500 mt-1 font-sans">
-                Disponible en los pasos siguientes como{" "}
-                <code className="text-amber-300 font-mono">{`{{${outputVar}.body}}`}</code> o{" "}
-                <code className="text-amber-300 font-mono">{`{{steps.${node.id}.output.body}}`}</code>.
-              </p>
-            </div>
+            </Field>
           </div>
         )}
       </div>

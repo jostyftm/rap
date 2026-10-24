@@ -58,6 +58,35 @@ export function interpolateString(
       }
     }
 
+    // Soporte para steps.<nodeId>.output.<path> o steps.<nodeId>.<path>
+    if (key.startsWith("steps.")) {
+      const rest = key.slice("steps.".length);
+      const parts = rest.split(".");
+      const stepId = parts[0];
+      const fieldPath = parts.slice(1).join(".");
+
+      const stepsObj = variables.steps as Record<string, unknown> | undefined;
+      const stepItem = stepsObj?.[stepId] as Record<string, unknown> | undefined;
+      const stepOut =
+        stepItem?.output !== undefined
+          ? stepItem.output
+          : (variables[`steps.${stepId}.output`] ?? stepItem);
+
+      if (stepOut !== undefined) {
+        if (!fieldPath || fieldPath === "output") {
+          return typeof stepOut === "object" && stepOut !== null ? JSON.stringify(stepOut) : String(stepOut);
+        }
+        const cleanPath = fieldPath.startsWith("output.") ? fieldPath.slice("output.".length) : fieldPath;
+        const resolved = getNestedValue(
+          typeof stepOut === "object" && stepOut !== null ? (stepOut as Record<string, unknown>) : {},
+          cleanPath
+        );
+        if (resolved !== undefined) {
+          return typeof resolved === "object" && resolved !== null ? JSON.stringify(resolved) : String(resolved);
+        }
+      }
+    }
+
     // Nested dot path search
     const nested = getNestedValue(variables, key);
     if (nested !== undefined) {

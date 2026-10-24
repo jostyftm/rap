@@ -3,33 +3,21 @@
 import React from "react";
 import type { TypeNode } from "@rpa/dsl";
 import type { NodeInspectorProps } from "../types";
-
-import { VariablePicker } from "../../variable-picker";
+import { ExpressionField } from "@/components/editor/detail/expression-field";
 
 export function TypeInspectorForm({
   node,
   updateParam,
 }: NodeInspectorProps<TypeNode>) {
   return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <label className="text-[11px] font-medium text-zinc-400">
-          Texto a escribir
-        </label>
-        <VariablePicker
-          onSelect={(token) =>
-            updateParam("text", `${node.params.text || ""}${token}`)
-          }
-        />
-      </div>
-      <input
-        type="text"
-        value={node.params.text || ""}
-        onChange={(e) => updateParam("text", e.target.value)}
-        placeholder="Texto o variable ej. {{steps.node_1.output}}"
-        className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-200 font-mono focus:outline-none focus:border-zinc-600 transition-colors"
-      />
-    </div>
+    <ExpressionField
+      label="Texto a escribir"
+      value={node.params.text || ""}
+      onChange={(value) => updateParam("text", value)}
+      placeholder="Texto o variable, ej. {{webhook.body.email}}"
+      nodeId={node.id}
+      description="También puedes arrastrar una variable desde el panel de entrada."
+    />
   );
 }
 
@@ -38,17 +26,20 @@ export function TypeAdvancedForm({
   updateParam,
 }: NodeInspectorProps<TypeNode>) {
   return (
-    <div className="flex items-center space-x-2 pt-1">
+    <label className="flex cursor-pointer items-start gap-2.5 rounded-control border border-line bg-card px-3 py-2.5 transition-colors hover:bg-hover">
       <input
         type="checkbox"
         id="clearInput"
         checked={node.params.clear ?? true}
         onChange={(e) => updateParam("clear", e.target.checked)}
-        className="rounded bg-neutral-950 border-neutral-800 text-blue-600 focus:ring-0"
+        className="mt-0.5 h-4 w-4 rounded border-line accent-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
       />
-      <label htmlFor="clearInput" className="text-xs text-neutral-300 cursor-pointer">
-        Limpiar campo antes de escribir
-      </label>
-    </div>
+      <span className="text-[12px] text-fg">
+        Limpiar el campo antes de escribir
+        <span className="mt-0.5 block text-[11px] leading-relaxed text-fg-subtle">
+          Evita concatenar el nuevo texto con un valor previo del input.
+        </span>
+      </span>
+    </label>
   );
 }

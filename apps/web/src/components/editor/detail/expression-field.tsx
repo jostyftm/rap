@@ -1,19 +1,12 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import {
-  Braces,
-  Type,
-  AlertCircle,
-  CheckCircle2,
-  Sparkles,
-  ChevronDown,
-} from "lucide-react";
+import { Braces, AlertCircle } from "lucide-react";
 import { useRecipeStore } from "@/stores/use-recipe-store";
+import { cn } from "@/lib/utils";
 import {
   resolveExpression,
   getAvailableExpressionTokens,
-  type AvailableToken,
 } from "@/lib/expression-evaluator";
 
 interface ExpressionFieldProps {
@@ -56,6 +49,8 @@ export function ExpressionField({
   // Si el valor externo cambia y contiene expresiones, conmutar a expresión
   useEffect(() => {
     if (typeof value === "string" && value.includes("{{") && mode === "fixed") {
+      // Sincronizar el modo con el valor externo es intencional.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMode("expression");
     }
   }, [value, mode]);
@@ -195,40 +190,50 @@ export function ExpressionField({
     <div className={`space-y-1 ${className}`} ref={containerRef}>
       {/* Encabezado del campo: Etiqueta y Switch Fijo / Expresión */}
       <div className="flex items-center justify-between">
-        <label className="text-[11px] font-medium text-zinc-300 select-none">
+        <label className="select-none text-[12px] font-medium text-fg">
           {label}
         </label>
 
-        {/* Toggle Mode: Fijo vs Expresión */}
-        <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded p-0.5 text-[10px] font-mono">
+        {/* Toggle de modo: Fijo vs Expresión */}
+        <div
+          role="group"
+          aria-label="Modo del valor"
+          className="flex items-center rounded-control border border-line bg-panel p-0.5 text-[10.5px]"
+        >
           <button
             type="button"
+            aria-pressed={mode === "fixed"}
             onClick={() => setMode("fixed")}
-            className={`px-1.5 py-0.5 rounded transition-colors ${
+            className={cn(
+              "rounded-[6px] px-2 py-1 font-medium transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
               mode === "fixed"
-                ? "bg-zinc-800 text-zinc-100 font-medium"
-                : "text-zinc-500 hover:text-zinc-300"
-            }`}
+                ? "bg-raised text-fg shadow-[var(--shadow-card)]"
+                : "text-fg-muted hover:text-fg"
+            )}
           >
             Fijo
           </button>
           <button
             type="button"
+            aria-pressed={mode === "expression"}
             onClick={() => setMode("expression")}
-            className={`px-1.5 py-0.5 rounded transition-colors flex items-center space-x-1 ${
+            className={cn(
+              "flex items-center gap-1 rounded-[6px] px-2 py-1 transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
               mode === "expression"
-                ? "bg-amber-400 text-zinc-950 font-semibold"
-                : "text-zinc-500 hover:text-zinc-300"
-            }`}
+                ? "bg-accent-soft text-accent-text shadow-[var(--shadow-card)]"
+                : "text-fg-muted hover:text-fg"
+            )}
           >
-            <Braces className="w-2.5 h-2.5" />
+            <Braces className="h-2.5 w-2.5" />
             <span>Expresión</span>
           </button>
         </div>
       </div>
 
       {description && (
-        <p className="text-[10px] text-zinc-500 font-sans leading-tight">
+        <p className="text-[11.5px] leading-relaxed text-fg-subtle">
           {description}
         </p>
       )}
@@ -238,11 +243,10 @@ export function ExpressionField({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className={`relative rounded-md transition-all ${
-          isDragOver
-            ? "border-2 border-dashed border-amber-400 bg-amber-400/10 ring-2 ring-amber-400/20"
-            : ""
-        }`}
+        className={cn(
+          "relative rounded-field transition-all",
+          isDragOver && "bg-accent-soft ring-2 ring-accent/40 ring-offset-2 ring-offset-raised"
+        )}
       >
         <div className="relative flex items-center">
           <input
@@ -256,18 +260,23 @@ export function ExpressionField({
                 ? "Escribe expresión ej. {{steps.node_1.output.id}}"
                 : placeholder
             }
-            className={`w-full bg-zinc-950 border rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 font-mono focus:outline-none transition-colors ${
+            aria-label={label}
+            className={cn(
+              "h-10 w-full rounded-field border bg-input px-3.5 font-mono text-[13px] text-fg",
+              "placeholder:text-fg-subtle shadow-[inset_0_1px_0_rgb(255_255_255/0.02)]",
+              "transition-[border-color,box-shadow,background-color] duration-150",
+              "hover:border-line-strong focus:outline-none focus:ring-4 focus:ring-accent/15",
               mode === "expression"
-                ? "border-amber-500/40 focus:border-amber-400 text-amber-200"
-                : "border-zinc-800 focus:border-zinc-600"
-            }`}
+                ? "border-accent/50 focus:border-accent"
+                : "border-line focus:border-accent"
+            )}
           />
         </div>
 
         {/* Menú de Autocompletado Flotante al escribir {{ */}
         {showSuggestions && filteredTokens.length > 0 && (
-          <div className="absolute left-0 top-full mt-1 w-full max-h-56 overflow-y-auto bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl z-50 p-1 space-y-0.5 text-xs font-mono">
-            <div className="px-2 py-1 text-[9px] text-zinc-500 uppercase tracking-wider border-b border-zinc-800 flex items-center justify-between">
+          <div className="absolute left-0 top-full z-50 mt-1 max-h-56 w-full space-y-0.5 overflow-y-auto rounded-card border border-line bg-raised p-1 font-mono text-xs shadow-[var(--shadow-modal)]">
+            <div className="flex items-center justify-between border-b border-line px-2 py-1 text-[9px] uppercase tracking-wider text-fg-subtle">
               <span>Variables Disponibles</span>
               <span>↑↓ para navegar · Enter para elegir</span>
             </div>
@@ -279,23 +288,25 @@ export function ExpressionField({
                   e.preventDefault();
                   insertToken(token.token);
                 }}
-                className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between transition-colors ${
+                className={cn(
+                  "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left transition-colors",
                   idx === selectedSuggestionIndex
-                    ? "bg-amber-400 text-zinc-950 font-medium"
-                    : "text-zinc-300 hover:bg-zinc-800"
-                }`}
+                    ? "bg-accent text-accent-ink font-medium"
+                    : "text-fg hover:bg-hover"
+                )}
               >
                 <div className="truncate mr-2">
                   <div className="truncate text-[11px] font-semibold">{token.token}</div>
-                  <div className={`text-[10px] truncate ${idx === selectedSuggestionIndex ? "text-zinc-800" : "text-zinc-500"}`}>
+                  <div className={cn("truncate text-[10px]", idx === selectedSuggestionIndex ? "text-accent-ink/80" : "text-fg-subtle")}>
                     {token.label}
                   </div>
                 </div>
-                <span className={`text-[9px] px-1 py-0.2 rounded border uppercase shrink-0 ${
+                <span className={cn(
+                  "shrink-0 rounded border px-1 py-0.5 text-[9px] uppercase",
                   idx === selectedSuggestionIndex
-                    ? "bg-zinc-950 text-white border-zinc-950"
-                    : "bg-zinc-800 text-zinc-400 border-zinc-700"
-                }`}>
+                    ? "border-accent-ink/20 bg-accent-ink text-white"
+                    : "border-line bg-card text-fg-muted"
+                )}>
                   {token.dataType}
                 </span>
               </button>
@@ -308,15 +319,15 @@ export function ExpressionField({
       {mode === "expression" && evalResult && value && (
         <div className="space-y-1">
           {evalResult.hasError ? (
-            <div className="flex items-center space-x-1.5 px-2 py-1 rounded bg-rose-950/40 border border-rose-800/50 text-[10px] font-mono text-rose-300 animate-in fade-in duration-100">
-              <AlertCircle className="w-3 h-3 text-rose-400 shrink-0" />
+            <div className="flex items-center gap-1.5 rounded-control border border-danger/25 bg-danger-soft px-2 py-1 font-mono text-[10px] text-danger-text">
+              <AlertCircle className="h-3 w-3 shrink-0" />
               <span className="truncate">{evalResult.error}</span>
             </div>
           ) : (
-            <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800/80 text-[10px] font-mono text-zinc-300">
-              <span className="text-zinc-500 shrink-0">→</span>
-              <span className="text-emerald-400 font-semibold shrink-0">Valor resuelto:</span>
-              <span className="truncate text-zinc-200">
+            <div className="flex items-center gap-1.5 rounded-control border border-line bg-card px-2 py-1 font-mono text-[10px] text-fg-muted">
+              <span className="shrink-0 text-fg-subtle">→</span>
+              <span className="shrink-0 font-semibold text-success-text">Valor resuelto:</span>
+              <span className="truncate text-fg">
                 {typeof evalResult.value === "object"
                   ? JSON.stringify(evalResult.value)
                   : String(evalResult.value ?? "")}

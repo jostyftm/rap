@@ -3,23 +3,26 @@
 import React from "react";
 import type { SelectNode } from "@rpa/dsl";
 import type { NodeInspectorProps } from "../types";
+import { Field, TextInput } from "@/components/ui/primitives";
 
 export function SelectInspectorForm({
   node,
   updateParam,
 }: NodeInspectorProps<SelectNode>) {
   return (
-    <div>
-      <label className="block text-[11px] font-medium text-neutral-400 mb-1">
-        Valor de la opción
-      </label>
-      <input
+    <Field
+      label="Valor de la opción"
+      htmlFor="select-option-value"
+      hint="Valor del atributo value o texto visible de la opción."
+    >
+      <TextInput
+        id="select-option-value"
         type="text"
         value={node.params.value || ""}
         onChange={(e) => updateParam("value", e.target.value)}
-        placeholder="Valor o texto del option..."
-        className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 focus:outline-none focus:border-blue-500"
+        placeholder="Valor o texto del option…"
+        className="font-mono"
       />
-    </div>
+    </Field>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   Globe,
   ExternalLink,
@@ -18,29 +18,51 @@ import {
   Shrink,
   ZoomIn,
   ShieldCheck,
+  Lock,
 } from "lucide-react";
+import type { RecipeNode } from "@rpa/dsl";
 import { useLiveStore } from "../../stores/use-live-store";
 import { useRecipeStore } from "../../stores/use-recipe-store";
 import {
   useLayoutStore,
   VIEWPORT_PRESETS,
   type LiveViewportMode,
-  type ViewportScaleMode,
 } from "../../stores/use-layout-store";
 import { apiFetch } from "../../lib/api-client";
 import { getEcho } from "../../lib/echo";
+import { Badge, Button, IconButton } from "@/components/ui/primitives";
+import { cn } from "@/lib/utils";
 
 function initialUrl(): string {
   const { definition } = useRecipeStore.getState();
   const entry = definition.nodes[definition.entry];
-  const nav: any =
+  const nav =
     entry?.type === "navigate"
       ? entry
-      : Object.values(definition.nodes).find((n) => n.type === "navigate");
+      : Object.values(definition.nodes).find(
+          (n): n is Extract<RecipeNode, { type: "navigate" }> => n.type === "navigate"
+        );
   return nav?.params?.url || "http://localhost:8099/index.html";
 }
 
-export function LiveSitePanel() {
+const VIEWPORT_OPTIONS: Array<{
+  value: LiveViewportMode;
+  label: string;
+  icon: React.ReactNode;
+}> = [
+  { value: "desktop", label: "Web (1280)", icon: <Monitor className="h-3.5 w-3.5" /> },
+  { value: "laptop", label: "Laptop", icon: <Laptop className="h-3.5 w-3.5" /> },
+  { value: "full_hd", label: "Full HD", icon: <Tv className="h-3.5 w-3.5" /> },
+  { value: "mobile", label: "Móvil", icon: <Smartphone className="h-3.5 w-3.5" /> },
+  { value: "fit", label: "Fluido", icon: <Shrink className="h-3.5 w-3.5" /> },
+];
+
+interface LiveSitePanelProps {
+  /** En el modal de nodo el layout del editor no es visible. */
+  showLayoutToggle?: boolean;
+}
+
+export function LiveSitePanel({ showLayoutToggle = true }: LiveSitePanelProps) {
   const recipeId = useRecipeStore((s) => s.recipeId);
   const status = useLiveStore((s) => s.status);
   const kind = useLiveStore((s) => s.kind);
@@ -66,25 +88,26 @@ export function LiveSitePanel() {
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [urlInput, setUrlInput] = useState("");
-  const [scale, setScale] = useState(1);
+  const [initialUrlValue] = useState(initialUrl);
+  const [urlDraft, setUrlDraft] = useState<string | null>(null);
   const [containerSize, setContainerSize] = useState({ width: 800, height: 600 });
 
-  // Arranque automático al abrir el panel
+  // Mientras el usuario no edite, la barra sigue la URL real del navegador.
+  const urlInput = urlDraft ?? currentUrl ?? initialUrlValue;
+
   useEffect(() => {
-    const url = initialUrl();
-    setUrlInput(url);
+    // El iframe confirma la navegación: descartamos el borrador local.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setUrlDraft(null);
+  }, [currentUrl]);
+
+  useEffect(() => {
     if (recipeId && useLiveStore.getState().status === "idle") {
-      startEmbedded(recipeId, url);
+      startEmbedded(recipeId, initialUrlValue);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipeId]);
 
-  useEffect(() => {
-    if (currentUrl) setUrlInput(currentUrl);
-  }, [currentUrl]);
-
-  // Medir contenedor para el auto-escalado responsive
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -100,25 +123,19 @@ export function LiveSitePanel() {
     return () => observer.disconnect();
   }, []);
 
-  // Calcular escala según preset y dimensiones del contenedor
-  useEffect(() => {
+  // Escala calculada (sin estado) para ajustar el preset al panel.
+  const scale = useMemo(() => {
     const preset = VIEWPORT_PRESETS[viewportMode];
-    if (!preset || viewportScaleMode === "actual_size") {
-      setScale(1);
-      return;
-    }
+    if (!preset || viewportScaleMode === "actual_size") return 1;
 
     const { width: cW, height: cH } = containerSize;
-    if (cW <= 0 || cH <= 0) return;
+    if (cW <= 0 || cH <= 0) return 1;
 
-    // Calcular factor de escala para que quepa completamente sin scroll
     const scaleX = (cW - 24) / preset.width;
     const scaleY = (cH - 24) / preset.height;
-    const newScale = Math.min(scaleX, scaleY, 1);
-    setScale(Math.max(0.15, newScale));
+    return Math.max(0.15, Math.min(scaleX, scaleY, 1));
   }, [viewportMode, viewportScaleMode, containerSize]);
 
-  // Emisor hacia el sitio: iframe (postMessage) o Chromium externo (API -> Runner)
   useEffect(() => {
     if (kind === "embedded") {
       setSender((msg) => iframeRef.current?.contentWindow?.postMessage(msg, "*"));
@@ -133,7 +150,6 @@ export function LiveSitePanel() {
     return () => setSender(null);
   }, [kind, recipeId, sessionId, proxyUrl, setSender]);
 
-  // Mensajes desde el iframe embebido
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       if (kind !== "embedded") return;
@@ -144,13 +160,12 @@ export function LiveSitePanel() {
     return () => window.removeEventListener("message", onMessage);
   }, [kind, handleMessage]);
 
-  // Mensajes desde Chromium externo (Reverb)
   useEffect(() => {
     if (kind !== "external" || !recipeId || !sessionId) return;
     const echo = getEcho();
     if (!echo) return;
     const channel = echo.channel(`recipe.${recipeId}`);
-    channel.listen(".live.event", (e: { session_id: string; message: any }) => {
+    channel.listen(".live.event", (e: { session_id: string; message: unknown }) => {
       if (e.session_id === sessionId) handleMessage(e.message);
     });
     return () => {
@@ -168,259 +183,300 @@ export function LiveSitePanel() {
 
   const openExternal = () => {
     if (!recipeId) return;
-    startExternal(recipeId, urlInput.trim() || initialUrl());
+    startExternal(recipeId, urlInput.trim() || initialUrlValue);
   };
 
   const currentPreset = VIEWPORT_PRESETS[viewportMode];
   const isPlaywrightParity = viewportMode === "desktop";
 
   return (
-    <section className="flex-1 min-w-[320px] h-full flex flex-col bg-[#09090b] overflow-hidden">
-      {/* Barra superior del navegador */}
-      <div className="h-10 px-2 flex items-center space-x-1.5 bg-[#0c0c0e] border-b border-zinc-800 shrink-0">
-        <Globe className="w-4 h-4 text-zinc-400 shrink-0" />
-        <input
-          value={urlInput}
-          onChange={(e) => setUrlInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && go()}
-          placeholder="https://sitio.com"
-          className="flex-1 min-w-0 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-xs font-mono text-zinc-200 focus:outline-none focus:border-zinc-600 truncate"
-        />
-        <button
-          onClick={go}
-          title="Cargar URL"
-          className="p-1.5 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors shrink-0"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-        </button>
+    <section className="@container flex h-full min-w-[320px] flex-1 flex-col overflow-hidden bg-panel text-fg transition-colors">
+      {/* Barra de navegación */}
+      <div className="shrink-0 space-y-2 border-b border-line px-2.5 py-2">
+        <div className="flex items-center gap-1.5">
+          <div className="relative min-w-0 flex-1">
+            <Globe className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-subtle" />
+            <input
+              value={urlInput}
+              onChange={(e) => setUrlDraft(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && go()}
+              placeholder="https://sitio.com"
+              aria-label="URL del sitio en vivo"
+              className="h-8 w-full truncate rounded-control border border-line bg-input pl-8 pr-2.5 font-mono text-[11.5px] text-fg placeholder:text-fg-subtle transition-[border-color,box-shadow] hover:border-line-strong focus:border-accent focus:outline-none focus:ring-4 focus:ring-accent/15"
+            />
+          </div>
 
-        {/* Selector de Presets de Viewport (Garantiza Versión Web Responsive) */}
-        <div className="flex items-center space-x-0.5 bg-zinc-950 border border-zinc-800 rounded p-0.5 shrink-0">
-          <button
-            onClick={() => setViewportMode("desktop")}
-            className={`flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
-              viewportMode === "desktop"
-                ? "bg-amber-400/20 text-amber-300 font-semibold border border-amber-400/30"
-                : "text-zinc-400 hover:text-white"
-            }`}
-            title="Versión Web Escritorio (1280×800) - Coincide con Playwright"
+          <IconButton label="Cargar URL" onClick={go}>
+            <RefreshCw className="h-3.5 w-3.5" />
+          </IconButton>
+          <IconButton
+            label="Abrir en Chromium externo"
+            onClick={openExternal}
+            className={cn(kind === "external" && "text-success-text")}
           >
-            <Monitor className="w-3 h-3 text-amber-400" />
-            <span className="hidden sm:inline">Web (1280)</span>
-          </button>
-          <button
-            onClick={() => setViewportMode("laptop")}
-            className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
-              viewportMode === "laptop"
-                ? "bg-zinc-800 text-zinc-100 font-medium"
-                : "text-zinc-400 hover:text-white"
-            }`}
-            title="Laptop Web (1366×768)"
-          >
-            <Laptop className="w-3 h-3" />
-          </button>
-          <button
-            onClick={() => setViewportMode("full_hd")}
-            className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
-              viewportMode === "full_hd"
-                ? "bg-zinc-800 text-zinc-100 font-medium"
-                : "text-zinc-400 hover:text-white"
-            }`}
-            title="Full HD (1920×1080)"
-          >
-            <Tv className="w-3 h-3" />
-          </button>
-          <button
-            onClick={() => setViewportMode("mobile")}
-            className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
-              viewportMode === "mobile"
-                ? "bg-zinc-800 text-zinc-100 font-medium"
-                : "text-zinc-400 hover:text-white"
-            }`}
-            title="Móvil (390×844)"
-          >
-            <Smartphone className="w-3 h-3" />
-          </button>
-          <button
-            onClick={() => setViewportMode("fit")}
-            className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
-              viewportMode === "fit"
-                ? "bg-zinc-800 text-zinc-100 font-medium"
-                : "text-zinc-400 hover:text-white"
-            }`}
-            title="Fluido (se ajusta al tamaño exacto de la ventana)"
-          >
-            Fluido
-          </button>
+            <ExternalLink className="h-3.5 w-3.5" />
+          </IconButton>
+          <IconButton label="Cerrar sitio en vivo" onClick={() => close(recipeId)}>
+            <X className="h-3.5 w-3.5" />
+          </IconButton>
         </div>
 
-        {/* Alternador de Modo de Escala: Auto-ajuste vs 100% Tamaño Real */}
-        {currentPreset && (
-          <div className="flex items-center space-x-0.5 bg-zinc-950 border border-zinc-800 rounded p-0.5 shrink-0">
-            <button
-              onClick={() => setViewportScaleMode("fit_scale")}
-              className={`p-1 rounded text-[10px] transition-colors ${
-                viewportScaleMode === "fit_scale"
-                  ? "bg-zinc-800 text-zinc-100"
-                  : "text-zinc-400 hover:text-white"
-              }`}
-              title="Ajustar sitio web al panel (auto-escalado sin scroll)"
-            >
-              <Shrink className="w-3 h-3" />
-            </button>
-            <button
-              onClick={() => setViewportScaleMode("actual_size")}
-              className={`p-1 rounded text-[10px] transition-colors ${
-                viewportScaleMode === "actual_size"
-                  ? "bg-zinc-800 text-zinc-100"
-                  : "text-zinc-400 hover:text-white"
-              }`}
-              title="Tamaño real 1:1 con scrollbars (resolución completa nítida)"
-            >
-              <ZoomIn className="w-3 h-3" />
-            </button>
+        <div className="flex items-center gap-1.5">
+          {/* Presets de viewport */}
+          <div
+            role="group"
+            aria-label="Tamaño del viewport"
+            className="flex min-w-0 items-center gap-0.5 overflow-x-auto rounded-control border border-line bg-card p-0.5"
+          >
+            {VIEWPORT_OPTIONS.map((option) => {
+              const active = viewportMode === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setViewportMode(option.value)}
+                  aria-pressed={active}
+                  title={
+                    option.value === "desktop"
+                      ? "Web escritorio 1280×800 · coincide con Playwright"
+                      : option.label
+                  }
+                  className={cn(
+                    "inline-flex h-6 shrink-0 items-center gap-1 rounded-[6px] px-1.5 text-[10px] font-medium",
+                    "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+                    active
+                      ? "bg-raised text-fg shadow-[var(--shadow-card)]"
+                      : "text-fg-muted hover:bg-hover hover:text-fg"
+                  )}
+                >
+                  {option.icon}
+                  <span className="hidden @[560px]:inline">{option.label}</span>
+                </button>
+              );
+            })}
           </div>
-        )}
 
-        {/* Toggle para ocultar el flujo o ver dividido */}
-        <button
-          onClick={() => setLayoutMode(layoutMode === "full_site" ? "split" : "full_site")}
-          title={layoutMode === "full_site" ? "Mostrar flujo (modo dividido)" : "Ocultar flujo (sitio completo)"}
-          className={`p-1.5 rounded transition-colors shrink-0 ${
-            layoutMode === "full_site" ? "bg-blue-600 text-white" : "text-neutral-300 hover:bg-neutral-800"
-          }`}
-        >
-          {layoutMode === "full_site" ? <Columns className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-        </button>
+          {currentPreset && (
+            <div
+              role="group"
+              aria-label="Modo de escala"
+              className="flex shrink-0 items-center gap-0.5 rounded-control border border-line bg-card p-0.5"
+            >
+              <button
+                type="button"
+                onClick={() => setViewportScaleMode("fit_scale")}
+                aria-pressed={viewportScaleMode === "fit_scale"}
+                title="Ajustar al panel (auto-escalado)"
+                className={cn(
+                  "inline-flex h-6 w-6 items-center justify-center rounded-[6px] transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+                  viewportScaleMode === "fit_scale"
+                    ? "bg-raised text-fg shadow-[var(--shadow-card)]"
+                    : "text-fg-muted hover:bg-hover hover:text-fg"
+                )}
+              >
+                <Shrink className="h-3 w-3" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewportScaleMode("actual_size")}
+                aria-pressed={viewportScaleMode === "actual_size"}
+                title="Tamaño real 1:1 con scroll"
+                className={cn(
+                  "inline-flex h-6 w-6 items-center justify-center rounded-[6px] transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+                  viewportScaleMode === "actual_size"
+                    ? "bg-raised text-fg shadow-[var(--shadow-card)]"
+                    : "text-fg-muted hover:bg-hover hover:text-fg"
+                )}
+              >
+                <ZoomIn className="h-3 w-3" />
+              </button>
+            </div>
+          )}
 
-        <button
-          onClick={openExternal}
-          title="Abrir en Chromium externo (ventana real de escritorio, sin proxy)"
-          className={`p-1.5 rounded hover:bg-neutral-800 transition-colors shrink-0 ${
-            kind === "external" ? "text-emerald-400" : "text-neutral-300"
-          }`}
-        >
-          <ExternalLink className="w-3.5 h-3.5" />
-        </button>
-        <button
-          onClick={() => close(recipeId)}
-          title="Cerrar sitio en vivo"
-          className="p-1.5 rounded text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors shrink-0"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
+          {showLayoutToggle && (
+            <div className="ml-auto flex shrink-0 items-center gap-0.5">
+              <IconButton
+                label={
+                  layoutMode === "full_site"
+                    ? "Mostrar flujo (modo dividido)"
+                    : "Ocultar flujo (sitio completo)"
+                }
+                onClick={() => setLayoutMode(layoutMode === "full_site" ? "split" : "full_site")}
+                className={cn(layoutMode === "full_site" && "bg-accent-soft text-accent-text")}
+              >
+                {layoutMode === "full_site" ? (
+                  <Columns className="h-3.5 w-3.5" />
+                ) : (
+                  <Maximize2 className="h-3.5 w-3.5" />
+                )}
+              </IconButton>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Sub-barra de Estado, Selección y Paridad con el Runner */}
-      <div className="h-7 px-3 flex items-center justify-between text-[11px] bg-neutral-900/60 border-b border-neutral-800 select-none shrink-0">
-        <div className="truncate text-neutral-400 flex items-center space-x-2">
-          <span>{kind === "external" ? "🖥️ Chromium externo" : "🌐 Embebido"}</span>
-          <span>·</span>
-          {isPlaywrightParity && (
+      {/* Barra de estado */}
+      <div className="flex h-7 shrink-0 select-none items-center justify-between gap-2 border-b border-line bg-card px-3 text-[10.5px] text-fg-muted">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex shrink-0 items-center gap-1">
             <span
-              className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/40 text-[10px] font-mono"
-              title="Esta resolución (1280×800) coincide exactamente con la que usará Playwright al ejecutar tu receta"
+              className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                status === "ready"
+                  ? "bg-success"
+                  : status === "starting"
+                    ? "animate-pulse bg-warning"
+                    : status === "error"
+                      ? "bg-danger"
+                      : "bg-fg-subtle/50"
+              )}
+            />
+            {kind === "external" ? "Chromium externo" : "Embebido"}
+          </span>
+
+          {isPlaywrightParity && (
+            <Badge
+              tone="success"
+              className="h-5 shrink-0 whitespace-nowrap px-1.5 text-[9.5px]"
             >
-              <ShieldCheck className="w-3 h-3 text-emerald-400" />
-              <span>Paridad Runner (1280×800)</span>
+              <ShieldCheck className="h-2.5 w-2.5" />
+              Paridad 1280×800
+            </Badge>
+          )}
+
+          <span className="max-w-[160px] truncate text-fg" title={pageTitle || undefined}>
+            {pageTitle || "—"}
+          </span>
+
+          {currentPreset && viewportScaleMode === "fit_scale" && scale < 1 && (
+            <span className="shrink-0 font-mono text-[10px] text-info-text">
+              {Math.round(scale * 100)} %
             </span>
           )}
-          <span className="truncate max-w-[180px]">{pageTitle || "—"}</span>
-          {currentPreset && viewportScaleMode === "fit_scale" && scale < 1 && (
-            <span className="text-[10px] text-blue-400 font-mono">({Math.round(scale * 100)}% escala)</span>
-          )}
           {currentPreset && viewportScaleMode === "actual_size" && (
-            <span className="text-[10px] text-zinc-400 font-mono">(100% tamaño real)</span>
+            <span className="shrink-0 font-mono text-[10px] text-fg-subtle">100 %</span>
           )}
         </div>
 
         {armedNodeId ? (
           <button
+            type="button"
             onClick={disarm}
-            className="flex items-center space-x-1 text-amber-300 hover:text-amber-200"
+            className="flex shrink-0 items-center gap-1 font-medium text-accent-text transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
           >
-            <MousePointerClick className="w-3 h-3 animate-pulse" />
-            <span>Haz clic en un elemento del sitio… (Esc cancela)</span>
+            <MousePointerClick className="h-3 w-3 animate-pulse" />
+            <span>Haz clic en un elemento… (Esc)</span>
           </button>
         ) : (
-          <span className="text-neutral-500">
+          <span className="shrink-0 text-fg-subtle">
             {status === "ready" ? "Listo" : status === "starting" ? "Cargando…" : ""}
           </span>
         )}
       </div>
 
-      {/* Contenido con Auto-Escalado Responsive o Scroll 1:1 */}
+      {/* Lienzo */}
       <div
         ref={containerRef}
-        className={`flex-1 relative bg-neutral-950/60 p-2 ${
+        className={cn(
+          "relative flex-1 bg-canvas p-2",
           viewportScaleMode === "actual_size" && currentPreset
-            ? "overflow-auto flex items-start justify-start"
-            : "overflow-hidden flex items-center justify-center"
-        }`}
+            ? "flex items-start justify-start overflow-auto"
+            : "flex items-center justify-center overflow-hidden"
+        )}
       >
         {status === "starting" && (
-          <div className="absolute inset-0 bg-neutral-950 flex items-center justify-center text-neutral-400 z-10">
-            <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-panel/90 backdrop-blur-sm">
+            <Loader2 className="h-5 w-5 animate-spin text-accent" />
+            <span className="text-[11px] text-fg-muted">Cargando sitio…</span>
           </div>
         )}
 
         {status === "error" && (
-          <div className="absolute inset-0 bg-neutral-950 flex flex-col items-center justify-center text-center p-6 space-y-3 z-10">
-            <AlertCircle className="w-8 h-8 text-rose-400" />
-            <div className="space-y-1">
-              <h4 className="text-sm font-semibold text-rose-200">Error al cargar en visor embebido</h4>
-              <p className="text-xs text-rose-300 max-w-sm">{error}</p>
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-panel/95 p-6 text-center backdrop-blur-sm">
+            <div className="grid h-11 w-11 place-items-center rounded-full border border-danger/25 bg-danger-soft">
+              <AlertCircle className="h-5 w-5 text-danger-text" />
             </div>
-            <div className="flex items-center gap-2 pt-1">
-              <button
-                onClick={go}
-                className="text-xs px-3 py-1.5 rounded bg-neutral-800 hover:bg-neutral-700 text-zinc-200 transition-colors"
-              >
+            <div className="max-w-sm space-y-1">
+              <h4 className="text-[12.5px] font-semibold text-fg">
+                Error al cargar en el visor embebido
+              </h4>
+              <p className="text-[11px] leading-relaxed text-fg-muted">{error}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="secondary" onClick={go}>
                 Reintentar
-              </button>
-              <button
-                onClick={openExternal}
-                className="text-xs px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium flex items-center space-x-1.5 transition-colors shadow-sm"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                <span>Abrir en Chromium Externo</span>
-              </button>
+              </Button>
+              <Button size="sm" variant="primary" onClick={openExternal}>
+                <ExternalLink className="h-3.5 w-3.5" />
+                Abrir en Chromium externo
+              </Button>
             </div>
           </div>
         )}
 
         {kind === "external" && status === "ready" && (
-          <div className="absolute inset-0 bg-neutral-950 flex flex-col items-center justify-center text-center p-6 space-y-2 text-neutral-300">
-            <ExternalLink className="w-8 h-8 text-emerald-400" />
-            <p className="text-sm font-semibold">Sitio abierto en una ventana de Chromium</p>
-            <p className="text-xs text-neutral-500 max-w-xs">
-              Selecciona un nodo y pulsa “Seleccionar en el sitio”; luego haz clic en el elemento dentro de esa ventana.
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-panel p-6 text-center">
+            <div className="grid h-11 w-11 place-items-center rounded-full border border-success/25 bg-success-soft">
+              <ExternalLink className="h-5 w-5 text-success-text" />
+            </div>
+            <p className="text-[12.5px] font-semibold text-fg">
+              Sitio abierto en una ventana de Chromium
+            </p>
+            <p className="max-w-xs text-[11px] leading-relaxed text-fg-muted">
+              Selecciona un nodo y pulsa “Seleccionar en el sitio”; luego haz clic en el
+              elemento dentro de esa ventana.
             </p>
           </div>
         )}
 
         {kind === "embedded" && proxyUrl && (
           <div
-            className="transition-all duration-150 flex items-center justify-center shadow-2xl rounded-md overflow-hidden bg-white shrink-0"
+            className="shrink-0 overflow-hidden rounded-[10px] border border-line-strong bg-raised shadow-[var(--shadow-modal)]"
             style={{
-              width: currentPreset ? `${currentPreset.width}px` : "100%",
-              height: currentPreset ? `${currentPreset.height}px` : "100%",
-              transform:
-                currentPreset && viewportScaleMode === "fit_scale" && scale < 1
-                  ? `scale(${scale})`
-                  : undefined,
-              transformOrigin:
-                viewportScaleMode === "actual_size" ? "top left" : "center center",
+              width: currentPreset ? `${currentPreset.width * scale}px` : "100%",
+              height: currentPreset ? `${currentPreset.height * scale}px` : "100%",
             }}
           >
-            <iframe
-              ref={iframeRef}
-              name="rpa-live-frame"
-              key={proxyUrl}
-              src={proxyUrl}
-              className="w-full h-full border-0 bg-white"
-              title="Sitio en vivo"
-            />
+            {/* Escenario a tamaño real; se escala visualmente sin ocupar el layout */}
+            <div
+              className="flex flex-col bg-raised"
+              style={
+                currentPreset
+                  ? {
+                      width: `${currentPreset.width}px`,
+                      height: `${currentPreset.height}px`,
+                      transform: `scale(${scale})`,
+                      transformOrigin: "top left",
+                    }
+                  : { width: "100%", height: "100%" }
+              }
+            >
+              {/* Chrome del navegador */}
+              <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-line bg-card px-2">
+                <span className="flex shrink-0 items-center gap-1" aria-hidden="true">
+                  <span className="h-2 w-2 rounded-full bg-danger/70" />
+                  <span className="h-2 w-2 rounded-full bg-warning/70" />
+                  <span className="h-2 w-2 rounded-full bg-success/70" />
+                </span>
+                <div className="mx-1 flex min-w-0 flex-1 items-center gap-1 rounded-[5px] border border-line bg-input px-1.5 py-0.5">
+                  <Lock className="h-2.5 w-2.5 shrink-0 text-success-text" aria-hidden="true" />
+                  <span className="truncate font-mono text-[9.5px] text-fg-muted">
+                    {urlInput}
+                  </span>
+                </div>
+              </div>
+
+              <iframe
+                ref={iframeRef}
+                name="rpa-live-frame"
+                key={proxyUrl}
+                src={proxyUrl}
+                className="h-[calc(100%-1.75rem)] w-full flex-1 border-0 bg-white"
+                title="Sitio en vivo"
+              />
+            </div>
           </div>
         )}
       </div>

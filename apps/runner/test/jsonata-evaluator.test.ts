@@ -13,16 +13,19 @@ describe("JSONata Evaluator & Interpolation", () => {
   });
 
   it("interpola rutas anidadas de steps, webhook y prefijos de variables", () => {
-    const template = "User: {{variables.user}}, Step: {{steps.extract_1.output}}, Webhook: {{webhook.body.email}}";
+    const template = "User: {{variables.user}}, Step: {{steps.extract_1.output}}, Webhook: {{webhook.body.email}}, DirectStep: {{steps.webhook_1.body.email}}";
     const result = interpolateString(
       template,
       {
         user: "admin",
-        steps: { extract_1: { output: "Item $49.99" } },
+        steps: {
+          extract_1: { output: "Item $49.99" },
+          webhook_1: { output: { body: { email: "direct@example.com" } } },
+        },
         webhook: { body: { email: "lead@example.com" } },
       }
     );
-    expect(result).toBe("User: admin, Step: Item $49.99, Webhook: lead@example.com");
+    expect(result).toBe("User: admin, Step: Item $49.99, Webhook: lead@example.com, DirectStep: direct@example.com");
   });
 
   it("serializa JSON si el valor interpolado es un objeto", () => {

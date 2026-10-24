@@ -450,6 +450,114 @@ describe("DSL Validator", () => {
     });
   });
 
+  describe("condition", () => {
+    function conditionRecipe(overrides: {
+      params?: Record<string, unknown>;
+      next?: string;
+      extraNodes?: Record<string, unknown>;
+    } = {}) {
+      return {
+        schema: "rpa/v1",
+        entry: "cond_1",
+        nodes: {
+          cond_1: {
+            id: "cond_1",
+            type: "condition",
+            description: "Condición",
+            params: {
+              expression: "variables.ok",
+              thenNodeId: "then_1",
+              elseNodeId: "else_1",
+              ...overrides.params,
+            },
+            ...(overrides.next ? { next: overrides.next } : {}),
+          },
+          then_1: {
+            id: "then_1",
+            type: "setVariable",
+            description: "Rama then",
+            params: { name: "branch", expression: "'then'" },
+            next: "after",
+          },
+          else_1: {
+            id: "else_1",
+            type: "setVariable",
+            description: "Rama else",
+            params: { name: "branch", expression: "'else'" },
+            next: "after",
+          },
+          after: {
+            id: "after",
+            type: "navigate",
+            description: "Continuación",
+            params: { url: "https://example.com/after" },
+          },
+          ...(overrides.extraNodes ?? {}),
+        },
+        edges: [],
+      };
+    }
+
+    it("acepta la reconvergencia de then y else en un diamante", () => {
+      const result = validateRecipeDsl(conditionRecipe({ next: "after" }));
+      expect(result.success).toBe(true);
+    });
+
+    it("rechaza ramas inexistentes", () => {
+      const result = validateRecipeDsl(
+        conditionRecipe({ params: { elseNodeId: "missing_else" } })
+      );
+      expect(result.success).toBe(false);
+      expect(result.errors?.some((e) => e.includes("elseNodeId"))).toBe(true);
+    });
+
+    it("rechaza que una rama empiece en el propio nodo condition", () => {
+      const result = validateRecipeDsl(
+        conditionRecipe({ params: { thenNodeId: "cond_1" } })
+      );
+      expect(result.success).toBe(false);
+      expect(result.errors?.some((e) => e.includes("propio nodo condition"))).toBe(true);
+    });
+
+    it("rechaza ciclos de 'next' dentro de una rama", () => {
+      const result = validateRecipeDsl(
+        conditionRecipe({
+          next: "after",
+          extraNodes: {
+            then_1: {
+              id: "then_1",
+              type: "setVariable",
+              description: "Then con ciclo",
+              params: { name: "branch", expression: "'then'" },
+              next: "then_1",
+            },
+          },
+        })
+      );
+      expect(result.success).toBe(false);
+      expect(result.errors?.some((e) => e.includes("ciclo de 'next'"))).toBe(true);
+    });
+
+    it("rechaza que una rama vuelva a entrar en el nodo condition", () => {
+      const result = validateRecipeDsl(
+        conditionRecipe({
+          next: "after",
+          extraNodes: {
+            else_1: {
+              id: "else_1",
+              type: "setVariable",
+              description: "Else que reentra",
+              params: { name: "branch", expression: "'else'" },
+              next: "cond_1",
+            },
+          },
+        })
+      );
+      expect(result.success).toBe(false);
+      expect(result.errors?.some((e) => e.includes("vuelve a entrar"))).toBe(true);
+    });
+  });
+
   describe("loop", () => {
     function loopRecipe(overrides: {
       params?: Record<string, unknown>;

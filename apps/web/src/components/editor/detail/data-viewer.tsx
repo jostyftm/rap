@@ -1,8 +1,7 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState } from "react";
 import {
-  ChevronRight,
   ChevronDown,
   Copy,
   Check,
@@ -12,7 +11,11 @@ import {
   Braces,
   Table as TableIcon,
   Code2,
+  X,
 } from "lucide-react";
+import { Badge, type BadgeTone } from "@/components/ui/primitives";
+import { JsonView } from "./json-view";
+import { cn } from "@/lib/utils";
 
 export type DataViewMode = "schema" | "table" | "json";
 
@@ -24,15 +27,15 @@ interface DataViewerProps {
   className?: string;
 }
 
-function getTypeBadge(val: unknown): { label: string; color: string } {
-  if (val === null) return { label: "null", color: "bg-zinc-800 text-zinc-400" };
-  if (Array.isArray(val)) return { label: `array[${val.length}]`, color: "bg-purple-950/80 text-purple-300 border-purple-800/60" };
+function getTypeBadge(val: unknown): { label: string; tone: BadgeTone } {
+  if (val === null) return { label: "null", tone: "neutral" };
+  if (Array.isArray(val)) return { label: `array[${val.length}]`, tone: "violet" };
   const type = typeof val;
-  if (type === "string") return { label: "string", color: "bg-emerald-950/80 text-emerald-300 border-emerald-800/60" };
-  if (type === "number") return { label: "number", color: "bg-blue-950/80 text-blue-300 border-blue-800/60" };
-  if (type === "boolean") return { label: "boolean", color: "bg-amber-950/80 text-amber-300 border-amber-800/60" };
-  if (type === "object") return { label: "object", color: "bg-cyan-950/80 text-cyan-300 border-cyan-800/60" };
-  return { label: type, color: "bg-zinc-800 text-zinc-400" };
+  if (type === "string") return { label: "string", tone: "success" };
+  if (type === "number") return { label: "number", tone: "info" };
+  if (type === "boolean") return { label: "boolean", tone: "accent" };
+  if (type === "object") return { label: "object", tone: "neutral" };
+  return { label: type, tone: "neutral" };
 }
 
 interface TreeNodeProps {
@@ -56,7 +59,6 @@ function SchemaTreeNode({
   const [copied, setCopied] = useState(false);
 
   const isObject = value !== null && typeof value === "object";
-  const isArray = Array.isArray(value);
   const badge = getTypeBadge(value);
 
   const token = currentPath
@@ -77,7 +79,6 @@ function SchemaTreeNode({
     setTimeout(() => setCopied(false), 1500);
   };
 
-  // Filtrado por búsqueda
   const matchesSearch =
     !searchTerm ||
     keyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -88,57 +89,56 @@ function SchemaTreeNode({
   }
 
   return (
-    <div className="text-xs select-none">
+    <div className="text-[12px] select-none">
       <div
         draggable
         onDragStart={handleDragStart}
-        className="flex items-center justify-between py-1 px-1.5 rounded hover:bg-zinc-900 group cursor-grab active:cursor-grabbing transition-colors"
+        className="group flex items-center justify-between gap-2 rounded-md px-1.5 py-1 transition-colors hover:bg-hover focus-within:bg-hover"
       >
-        <div className="flex items-center space-x-1.5 min-w-0 flex-1">
-          <GripVertical className="w-3 h-3 text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <GripVertical className="h-3 w-3 shrink-0 text-fg-subtle opacity-0 transition-opacity group-hover:opacity-100" />
 
           {isObject ? (
             <button
               type="button"
               onClick={() => setIsOpen(!isOpen)}
-              className="p-0.5 text-zinc-400 hover:text-white"
+              aria-label={isOpen ? `Contraer ${keyName}` : `Expandir ${keyName}`}
+              className="shrink-0 rounded p-0.5 text-fg-subtle transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             >
-              {isOpen ? (
-                <ChevronDown className="w-3.5 h-3.5" />
-              ) : (
-                <ChevronRight className="w-3.5 h-3.5" />
-              )}
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform duration-150",
+                  !isOpen && "-rotate-90"
+                )}
+              />
             </button>
           ) : (
-            <span className="w-4 shrink-0" />
+            <span className="w-3.5 shrink-0" />
           )}
 
-          <span className="font-mono text-zinc-200 truncate">{keyName}:</span>
+          <span className="truncate font-mono text-fg">{keyName}:</span>
 
-          <span
-            className={`text-[9px] font-mono px-1.5 py-0.2 rounded border ${badge.color} shrink-0`}
-          >
+          <Badge tone={badge.tone} className="h-5 shrink-0 px-1.5 text-[9.5px]">
             {badge.label}
-          </span>
+          </Badge>
 
           {!isObject && (
-            <span className="font-mono text-zinc-400 truncate max-w-[150px]">
+            <span className="max-w-[160px] truncate font-mono text-fg-muted">
               {typeof value === "string" ? `"${value}"` : String(value)}
             </span>
           )}
         </div>
 
-        {/* Acciones flotantes en hover */}
-        <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
           {onInsertToken && (
             <button
               type="button"
               onClick={() => onInsertToken(token)}
               title="Insertar variable en el campo activo"
-              className="p-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-[10px] flex items-center space-x-0.5"
+              aria-label={`Insertar ${token}`}
+              className="rounded p-1 text-fg-muted transition-colors hover:bg-card hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             >
-              <Plus className="w-3 h-3" />
-              <span className="text-[9px]">Insertar</span>
+              <Plus className="h-3 w-3" />
             </button>
           )}
 
@@ -146,15 +146,23 @@ function SchemaTreeNode({
             type="button"
             onClick={handleCopy}
             title={`Copiar variable ${token}`}
-            className="p-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white"
+            aria-label={`Copiar ${token}`}
+            className={cn(
+              "rounded p-1 text-fg-muted transition-colors hover:bg-card hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+              copied && "rpa-flash text-success-text"
+            )}
           >
-            {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+            {copied ? (
+              <Check className="h-3 w-3 text-success-text" />
+            ) : (
+              <Copy className="h-3 w-3" />
+            )}
           </button>
         </div>
       </div>
 
       {isObject && isOpen && (
-        <div className="pl-4 border-l border-zinc-800/80 ml-2 space-y-0.5 mt-0.5">
+        <div className="mt-0.5 ml-2 space-y-0.5 border-l border-line pl-3">
           {Object.entries(value as Record<string, unknown>).map(([k, v]) => (
             <SchemaTreeNode
               key={k}
@@ -172,6 +180,16 @@ function SchemaTreeNode({
   );
 }
 
+const VIEW_OPTIONS: Array<{
+  value: DataViewMode;
+  label: string;
+  icon: React.ReactNode;
+}> = [
+  { value: "schema", label: "Schema", icon: <Braces className="h-3.5 w-3.5" /> },
+  { value: "table", label: "Table", icon: <TableIcon className="h-3.5 w-3.5" /> },
+  { value: "json", label: "JSON", icon: <Code2 className="h-3.5 w-3.5" /> },
+];
+
 export function DataViewer({
   data,
   baseTokenPrefix = "{{steps.node_1.output",
@@ -188,21 +206,25 @@ export function DataViewer({
     : baseTokenPrefix;
 
   // Detectar si los datos son un arreglo o convertible a tabla
-  const tableData = useMemo(() => {
-    if (!data) return null;
-    if (Array.isArray(data)) return data;
-    if (typeof data === "object") {
-      // Buscar si alguna propiedad es un arreglo de objetos
+  let tableData: unknown[] | null = null;
+  if (data) {
+    if (Array.isArray(data)) {
+      tableData = data;
+    } else if (typeof data === "object") {
       const entries = Object.entries(data);
-      for (const [_, val] of entries) {
+      for (const [, val] of entries) {
         if (Array.isArray(val) && val.length > 0 && typeof val[0] === "object") {
-          return val;
+          tableData = val;
+          break;
         }
       }
-      return [data];
+      if (!tableData) {
+        tableData = [data];
+      }
+    } else {
+      tableData = [{ valor: data }];
     }
-    return [{ valor: data }];
-  }, [data]);
+  }
 
   const handleCopyJson = () => {
     navigator.clipboard.writeText(JSON.stringify(data, null, 2));
@@ -212,80 +234,88 @@ export function DataViewer({
 
   if (data === undefined || data === null) {
     return (
-      <div className={`p-4 text-center text-xs text-zinc-500 font-mono ${className}`}>
+      <div className={cn("p-4 text-center text-xs text-fg-subtle", className)}>
         {emptyMessage}
       </div>
     );
   }
 
   return (
-    <div className={`flex flex-col h-full overflow-hidden ${className}`}>
-      {/* Barra de Controles: Selector de Modo (Schema / Table / JSON) y Buscador */}
-      <div className="flex items-center justify-between p-2 border-b border-zinc-800 gap-2 shrink-0">
-        <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded p-0.5 text-xs font-mono">
-          <button
-            type="button"
-            onClick={() => setViewMode("schema")}
-            className={`flex items-center space-x-1 px-2 py-1 rounded transition-colors ${
-              viewMode === "schema"
-                ? "bg-zinc-800 text-white font-medium"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            <Braces className="w-3 h-3" />
-            <span>Schema</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode("table")}
-            className={`flex items-center space-x-1 px-2 py-1 rounded transition-colors ${
-              viewMode === "table"
-                ? "bg-zinc-800 text-white font-medium"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            <TableIcon className="w-3 h-3" />
-            <span>Table</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode("json")}
-            className={`flex items-center space-x-1 px-2 py-1 rounded transition-colors ${
-              viewMode === "json"
-                ? "bg-zinc-800 text-white font-medium"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            <Code2 className="w-3 h-3" />
-            <span>JSON</span>
-          </button>
+    <div className={cn("flex h-full flex-col overflow-hidden", className)}>
+      {/* Barra de controles */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-2.5 py-2">
+        <div
+          role="tablist"
+          aria-label="Formato de los datos"
+          className="inline-flex items-center gap-0.5 rounded-control border border-line bg-panel p-0.5"
+        >
+          {VIEW_OPTIONS.map((option) => {
+            const active = viewMode === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setViewMode(option.value)}
+                className={cn(
+                  "inline-flex h-7 items-center gap-1.5 rounded-[6px] px-2 text-[11.5px] font-medium",
+                  "transition-[background-color,color,box-shadow] duration-150",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+                  active
+                    ? "bg-raised text-fg shadow-[var(--shadow-card)]"
+                    : "text-fg-muted hover:bg-hover hover:text-fg"
+                )}
+              >
+                {option.icon}
+                <span>{option.label}</span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* Buscador */}
-        <div className="relative flex-1 max-w-[200px]">
-          <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2 top-2" />
+        <div className="relative min-w-[110px] flex-1 md:max-w-[210px]">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-subtle" />
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Filtrar campos..."
-            className="w-full bg-zinc-900 border border-zinc-800 rounded pl-7 pr-2 py-1 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-700"
+            placeholder="Filtrar campos…"
+            aria-label="Filtrar campos"
+            className="h-8 w-full rounded-control border border-line bg-input pl-8 pr-7 text-[11.5px] text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none focus:ring-4 focus:ring-accent/15"
           />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => setSearchTerm("")}
+              aria-label="Limpiar filtro"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-fg-subtle hover:text-fg"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
         </div>
 
         <button
           type="button"
           onClick={handleCopyJson}
           title="Copiar JSON completo"
-          className="p-1.5 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white transition-colors shrink-0"
+          aria-label="Copiar JSON completo"
+          className={cn(
+            "ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-control border border-line bg-card text-fg-muted transition-colors hover:bg-hover hover:text-fg focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/20",
+            copiedAll && "rpa-flash text-success-text"
+          )}
         >
-          {copiedAll ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+          {copiedAll ? (
+            <Check className="h-3.5 w-3.5 text-success-text" />
+          ) : (
+            <Copy className="h-3.5 w-3.5" />
+          )}
         </button>
       </div>
 
-      {/* Cuerpo del Visualizador según Modo */}
-      <div className="flex-1 overflow-auto p-2 text-xs font-mono">
-        {/* 1. MODO SCHEMA (Árbol Expandible con Arrastre) */}
+      {/* Cuerpo del visualizador */}
+      <div className="flex-1 overflow-auto p-2">
         {viewMode === "schema" && (
           <div className="space-y-0.5">
             {typeof data === "object" && data !== null ? (
@@ -313,13 +343,12 @@ export function DataViewer({
           </div>
         )}
 
-        {/* 2. MODO TABLE (Filas y Columnas con Encabezados Arrastrables) */}
         {viewMode === "table" && tableData && (
-          <div className="overflow-x-auto border border-zinc-800 rounded">
-            <table className="w-full text-left text-xs text-zinc-300">
-              <thead className="bg-zinc-900/90 border-b border-zinc-800 text-zinc-400 uppercase font-mono text-[10px]">
+          <div className="overflow-x-auto rounded-control border border-line">
+            <table className="w-full text-left text-[12px] text-fg">
+              <thead className="border-b border-line bg-card font-mono text-[10px] uppercase tracking-wide text-fg-subtle">
                 <tr>
-                  <th className="p-2 w-8 text-zinc-600">#</th>
+                  <th className="w-9 p-2 text-fg-subtle/70">#</th>
                   {Object.keys(tableData[0] || {}).map((col) => {
                     const colToken = `${cleanPrefix}.${col}}}`;
                     return (
@@ -333,11 +362,11 @@ export function DataViewer({
                           );
                           e.dataTransfer.setData("text/plain", colToken);
                         }}
-                        className="p-2 cursor-grab active:cursor-grabbing hover:bg-zinc-800/80 transition-colors"
+                        className="cursor-grab p-2 transition-colors hover:bg-hover active:cursor-grabbing"
                         title={`Arrastrar columna: ${colToken}`}
                       >
-                        <div className="flex items-center space-x-1">
-                          <GripVertical className="w-3 h-3 text-zinc-500" />
+                        <div className="flex items-center gap-1">
+                          <GripVertical className="h-3 w-3 text-fg-subtle" />
                           <span>{col}</span>
                         </div>
                       </th>
@@ -345,15 +374,17 @@ export function DataViewer({
                   })}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-800/60 font-mono text-[11px]">
+              <tbody className="divide-y divide-line font-mono text-[11px]">
                 {tableData.map((row, idx) => (
-                  <tr key={idx} className="hover:bg-zinc-900/40">
-                    <td className="p-2 text-zinc-600">{idx + 1}</td>
-                    {Object.values(row).map((cell: any, cIdx) => (
-                      <td key={cIdx} className="p-2 truncate max-w-[200px]">
-                        {typeof cell === "object" ? JSON.stringify(cell) : String(cell ?? "")}
-                      </td>
-                    ))}
+                  <tr key={idx} className="transition-colors hover:bg-hover">
+                    <td className="p-2 text-fg-subtle/70">{idx + 1}</td>
+                    {Object.values(row as Record<string, unknown>).map(
+                      (cell: unknown, cIdx) => (
+                        <td key={cIdx} className="max-w-[200px] truncate p-2">
+                          {typeof cell === "object" ? JSON.stringify(cell) : String(cell ?? "")}
+                        </td>
+                      )
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -361,11 +392,12 @@ export function DataViewer({
           </div>
         )}
 
-        {/* 3. MODO JSON (Solo Lectura con Resaltado y Copia) */}
         {viewMode === "json" && (
-          <pre className="p-2 bg-zinc-950 border border-zinc-900 rounded text-[11px] text-zinc-300 overflow-x-auto leading-relaxed select-text">
-            {JSON.stringify(data, null, 2)}
-          </pre>
+          <JsonView
+            data={data}
+            className="rounded-control border border-line bg-panel"
+            ariaLabel="Salida JSON"
+          />
         )}
       </div>
     </div>

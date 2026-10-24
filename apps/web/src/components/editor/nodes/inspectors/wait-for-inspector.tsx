@@ -1,29 +1,24 @@
 "use client";
 
 import React from "react";
-import { Crosshair } from "lucide-react";
-import type { WaitForNode, LocatorStrategy } from "@rpa/dsl";
+import { Crosshair, Info } from "lucide-react";
+import type { WaitForNode, LocatorStrategy, RecipeNode } from "@rpa/dsl";
 import { calculateLocatorScore } from "@rpa/locator";
 import type { NodeInspectorProps } from "../types";
 import { useLiveStore } from "@/stores/use-live-store";
 import { useLayoutStore } from "@/stores/use-layout-store";
 import { useRecipeStore } from "@/stores/use-recipe-store";
+import { Button, Field, Select, TextInput } from "@/components/ui/primitives";
 
 export function WaitForInspectorForm({
   node,
   updateParam,
   updateNode,
 }: NodeInspectorProps<WaitForNode>) {
-  const isLiveOpen = useLiveStore((s) => s.isOpen);
-  const liveStatus = useLiveStore((s) => s.status);
   const liveArmedNodeId = useLiveStore((s) => s.armedNodeId);
-  const liveArm = useLiveStore((s) => s.arm);
-  const liveDisarm = useLiveStore((s) => s.disarm);
-  const openAndArm = useLiveStore((s) => s.openAndArm);
-  const startEmbedded = useLiveStore((s) => s.startEmbedded);
   const recipeId = useRecipeStore((s) => s.recipeId);
 
-  const handleStrategyChange = (newStrategy: string) => {
+  const handleStrategyChange = (newStrategy: WaitForNode["params"]["strategy"]) => {
     if (newStrategy === "selector") {
       const existingLocator = node.locator;
       const initialLocator = existingLocator || {
@@ -33,7 +28,7 @@ export function WaitForInspectorForm({
       updateNode({
         params: {
           ...node.params,
-          strategy: newStrategy as any,
+          strategy: newStrategy,
         },
         locator: initialLocator,
       });
@@ -41,7 +36,7 @@ export function WaitForInspectorForm({
       updateNode({
         params: {
           ...node.params,
-          strategy: newStrategy as any,
+          strategy: newStrategy,
         },
         locator: undefined,
       });
@@ -70,10 +65,11 @@ export function WaitForInspectorForm({
       const recId = recipeId || "current";
       const currentDef = useRecipeStore.getState().definition;
       const navNode = Object.values(currentDef.nodes).find(
-        (n) => n.type === "navigate" && (n as any).params?.url
+        (n): n is Extract<RecipeNode, { type: "navigate" }> =>
+          n.type === "navigate" && Boolean(n.params.url)
       );
-      if (navNode && (navNode as any).params?.url) {
-        live.startEmbedded?.(recId, (navNode as any).params.url);
+      if (navNode?.params.url) {
+        live.startEmbedded?.(recId, navNode.params.url);
       }
     }
   };
@@ -94,83 +90,93 @@ export function WaitForInspectorForm({
   const currentStrategy = node.params.strategy || "selector";
 
   return (
-    <div className="space-y-3">
-      <div>
-        <label className="block text-[11px] font-medium text-neutral-400 mb-1">
-          Esperar por
-        </label>
-        <select
+    <div className="space-y-4">
+      <Field
+        label="Esperar por"
+        htmlFor="wait-for-strategy"
+        hint="Qué condición debe cumplirse para continuar con el siguiente paso."
+      >
+        <Select
+          id="wait-for-strategy"
           value={currentStrategy}
-          onChange={(e) => handleStrategyChange(e.target.value)}
-          className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-600 font-medium"
+          onChange={(e) =>
+            handleStrategyChange(e.target.value as WaitForNode["params"]["strategy"])
+          }
         >
           <option value="selector">Elemento visible (selector)</option>
           <option value="networkIdle">Red inactiva (networkidle)</option>
           <option value="timeout">Tiempo fijo (ms)</option>
           <option value="url">URL coincidente</option>
-        </select>
-      </div>
+        </Select>
+      </Field>
 
-      {/* Botón interactivo para seleccionar elemento en vivo cuando la estrategia es selector */}
       {currentStrategy === "selector" && (
-        <button
-          type="button"
-          onClick={handleSelectElementOnSite}
-          className={`w-full flex items-center justify-center space-x-1.5 py-2 px-3 rounded text-xs font-medium transition-colors ${
-            isArmed
-              ? "bg-amber-400 text-zinc-950 font-semibold"
-              : "bg-zinc-800 hover:bg-zinc-750 text-zinc-200 border border-zinc-700/60"
-          }`}
-        >
-          <Crosshair className="w-4 h-4" />
-          <span>
+        <div className="space-y-4">
+          <Button
+            variant={isArmed ? "primary" : "secondary"}
+            onClick={handleSelectElementOnSite}
+            className="w-full"
+          >
+            <Crosshair className="h-4 w-4" />
             {isArmed
-              ? "Haz clic en el elemento en el sitio… (cancelar)"
+              ? "Haz clic en el elemento del sitio… (cancelar)"
               : "Inspeccionar elemento en el sitio"}
-          </span>
-        </button>
-      )}
+          </Button>
 
-      {currentStrategy === "selector" && (
-        <div className="space-y-2.5 pt-1">
-          <div>
-            <label className="block text-[11px] font-medium text-neutral-400 mb-1">
-              Selector del elemento a esperar
-            </label>
-            <input
+          <Field
+            label="Selector del elemento"
+            htmlFor="wait-for-selector"
+            hint="Puedes escribirlo o seleccionarlo directamente en el navegador en vivo."
+          >
+            <TextInput
+              id="wait-for-selector"
               type="text"
               value={node.locator?.primary?.value || ""}
               onChange={(e) => handleSelectorValueChange(e.target.value)}
-              placeholder="#boton-guardar, .alerta-exito, o selector CSS"
-              className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 focus:outline-none focus:border-blue-500 font-mono"
+              placeholder="#boton-guardar, .alerta-exito…"
+              className="font-mono"
             />
-          </div>
-          <div>
-            <label className="block text-[11px] font-medium text-neutral-400 mb-1">
-              Tiempo máximo de espera (ms opcional)
-            </label>
-            <input
-              type="number"
-              value={node.params.value ?? ""}
-              onChange={(e) =>
-                updateParam(
-                  "value",
-                  e.target.value === "" ? undefined : Number(e.target.value)
-                )
-              }
-              placeholder="10000"
-              className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 focus:outline-none focus:border-blue-500 font-mono"
-            />
-          </div>
+          </Field>
+
+          <Field
+            label="Tiempo máximo de espera"
+            htmlFor="wait-for-timeout"
+            hint="Opcional. Si se omite, se usa el timeout global del paso."
+          >
+            <div className="relative">
+              <TextInput
+                id="wait-for-timeout"
+                type="number"
+                value={node.params.value ?? ""}
+                onChange={(e) =>
+                  updateParam(
+                    "value",
+                    e.target.value === "" ? undefined : Number(e.target.value)
+                  )
+                }
+                placeholder="10000"
+                className="pr-10 font-mono"
+              />
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-mono text-fg-subtle">
+                ms
+              </span>
+            </div>
+          </Field>
         </div>
       )}
 
       {(currentStrategy === "timeout" || currentStrategy === "url") && (
-        <div>
-          <label className="block text-[11px] font-medium text-neutral-400 mb-1">
-            {currentStrategy === "timeout" ? "Milisegundos de pausa" : "Patrón URL"}
-          </label>
-          <input
+        <Field
+          label={currentStrategy === "timeout" ? "Milisegundos de pausa" : "Patrón URL"}
+          htmlFor="wait-for-value"
+          hint={
+            currentStrategy === "timeout"
+              ? "Pausa explícita antes de continuar."
+              : "Puede ser una URL completa o un patrón parcial."
+          }
+        >
+          <TextInput
+            id="wait-for-value"
             type="text"
             value={String(node.params.value || "")}
             onChange={(e) =>
@@ -182,15 +188,17 @@ export function WaitForInspectorForm({
               )
             }
             placeholder={currentStrategy === "timeout" ? "ej. 2000" : "ej. /dashboard"}
-            className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 focus:outline-none focus:border-blue-500 font-mono"
+            className="font-mono"
           />
-        </div>
+        </Field>
       )}
 
       {currentStrategy === "networkIdle" && (
-        <div className="p-2.5 rounded-lg bg-neutral-950 border border-neutral-800 text-xs text-neutral-400">
+        <div className="flex items-start gap-2.5 rounded-card border border-line bg-card px-4 py-3 text-[11.5px] leading-relaxed text-fg-muted">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-info-text" />
           <p>
-            Espera hasta que no existan más de 2 peticiones de red activas durante al menos 500 ms.
+            Espera hasta que no existan más de 2 peticiones de red activas durante al menos
+            500 ms.
           </p>
         </div>
       )}

@@ -191,6 +191,95 @@ describe("Loop execution", () => {
     expect(warning?.level).toBe("warn");
   }, 45000);
 
+  it("avisa y ejecuta cero iteraciones cuando la colección no es un arreglo", async () => {
+    emitter.reset();
+
+    const recipe: RecipeDsl = {
+      schema: "rpa/v1",
+      name: "Loop inválido",
+      entry: "init_items",
+      nodes: {
+        init_items: setVariable("init_items", "items", "'no-es-un-arreglo'", "loop_1"),
+        loop_1: loop("loop_1", "body_add", { next: "done" }),
+        body_add: setVariable("body_add", "total", "total + item", "done"),
+        done: setVariable("done", "summary", "true"),
+      },
+      edges: [],
+    };
+
+    const result = await executor.execute({ runId: "run_loop_invalid", recipe });
+    const warning = emitter.logs().find((log) =>
+      log.message.includes("no es un arreglo válido")
+    );
+    const started = emitter.events
+      .filter((e) => e.type === "step.started")
+      .map((e) => e.payload.nodeId);
+
+    expect(result.success).toBe(true);
+    expect(started).not.toContain("body_add");
+    expect(started).toContain("done");
+    expect(warning).toBeDefined();
+    expect(warning?.level).toBe("warn");
+    expect(warning?.context?.invalidCollection).toBe(true);
+    expect(warning?.context?.rawType).toBe("string");
+  }, 45000);
+
+  it("expone loop.index/total/item y restaura las variables al salir", async () => {
+    emitter.reset();
+
+    const recipe: RecipeDsl = {
+      schema: "rpa/v1",
+      name: "Variables del loop",
+      entry: "init_item",
+      nodes: {
+        init_item: setVariable("init_item", "item", "'original'", "init_loop"),
+        init_loop: setVariable("init_loop", "loop", "'original-loop'", "init_items"),
+        init_items: setVariable("init_items", "items", "[10, 20]", "init_total"),
+        init_total: setVariable("init_total", "indexTotal", "0", "init_sum"),
+        init_sum: setVariable("init_sum", "totalSum", "0", "loop_1"),
+        loop_1: loop("loop_1", "body_index", { next: "done" }),
+        body_index: setVariable(
+          "body_index",
+          "indexTotal",
+          "indexTotal + loop.index",
+          "body_item"
+        ),
+        body_item: setVariable("body_item", "lastItem", "loop.item", "body_total"),
+        body_total: setVariable(
+          "body_total",
+          "totalSum",
+          "totalSum + loop.total",
+          "done"
+        ),
+        done: setVariable(
+          "done",
+          "summary",
+          '{"indexTotal": indexTotal, "lastItem": lastItem, "totalSum": totalSum, "item": item, "loop": loop}'
+        ),
+      },
+      edges: [],
+    };
+
+    const result = await executor.execute({ runId: "run_loop_vars", recipe });
+    const doneLog = emitter.logs().find(
+      (log) => log.nodeId === "done" && log.context?.output
+    );
+    const summaryLog = emitter.logs().find(
+      (log) => log.context?.scope === "run" && log.context?.status === "success"
+    );
+
+    expect(result.success).toBe(true);
+    expect(doneLog?.context?.output).toEqual({
+      indexTotal: 3,
+      lastItem: 20,
+      totalSum: 4,
+      item: "original",
+      loop: "original-loop",
+    });
+    expect(summaryLog?.context?.iterations).toBe(2);
+    expect(summaryLog?.context?.loops).toBe(1);
+  }, 45000);
+
   it("soporta bucles anidados con contadores independientes", async () => {
     emitter.reset();
 

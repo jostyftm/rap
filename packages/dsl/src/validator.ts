@@ -384,19 +384,60 @@ export const RecipeDslSchema = z
       }
 
       if (node.type === "condition") {
-        if (!data.nodes[node.params.thenNodeId]) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["nodes", nodeId, "params", "thenNodeId"],
-            message: `El nodo 'thenNodeId' ('${node.params.thenNodeId}') no existe`,
+        const branches: Array<{
+          key: "thenNodeId" | "elseNodeId";
+          label: "then" | "else";
+          id: string;
+        }> = [
+          { key: "thenNodeId", label: "then", id: node.params.thenNodeId },
+        ];
+
+        if (node.params.elseNodeId) {
+          branches.push({
+            key: "elseNodeId",
+            label: "else",
+            id: node.params.elseNodeId,
           });
         }
-        if (node.params.elseNodeId && !data.nodes[node.params.elseNodeId]) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["nodes", nodeId, "params", "elseNodeId"],
-            message: `El nodo 'elseNodeId' ('${node.params.elseNodeId}') no existe`,
-          });
+
+        for (const branch of branches) {
+          if (!data.nodes[branch.id]) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["nodes", nodeId, "params", branch.key],
+              message: `El nodo '${branch.key}' ('${branch.id}') no existe`,
+            });
+            continue;
+          }
+
+          if (branch.id === nodeId) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["nodes", nodeId, "params", branch.key],
+              message: `El bloque '${branch.label}' no puede empezar en el propio nodo condition`,
+            });
+            continue;
+          }
+
+          // Las ramas pueden reconverger (diamante); solo se rechazan ciclos
+          // reales de 'next' y el reingreso al propio nodo condition.
+          const chain = collectNextChain(data.nodes, branch.id, node.next, nodeId);
+
+          if (chain.cycle) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["nodes", nodeId, "params", branch.key],
+              message: `El bloque '${branch.label}' contiene un ciclo de 'next'; debe terminar en la continuación de la condición o en null`,
+            });
+          }
+
+          if (chain.reentersBlock) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["nodes", nodeId, "params", branch.key],
+              message: `El bloque '${branch.label}' vuelve a entrar en el nodo condition`,
+            });
+          }
         }
       }
 

@@ -4,7 +4,8 @@ import React from "react";
 import type { ConditionNode, ConditionDataType, ConditionOperator } from "@rpa/dsl";
 import type { NodeInspectorProps } from "../types";
 import { VariablePicker } from "../../variable-picker";
-import { GitBranch, SlidersHorizontal, Code2 } from "lucide-react";
+import { GitBranch } from "lucide-react";
+import { Field, Select, TextInput } from "@/components/ui/primitives";
 
 interface DataTypeOption {
   value: ConditionDataType;
@@ -122,17 +123,16 @@ export function ConditionInspectorForm({
 
   const handleDataTypeChange = (newType: ConditionDataType) => {
     const firstOp = OPERATORS_BY_TYPE[newType][0]?.value;
-    const updates: any = {
-      params: {
-        ...node.params,
-        dataType: newType,
-        operator: firstOp,
-      },
+    const params = {
+      ...node.params,
+      dataType: newType,
+      operator: firstOp,
+      expression:
+        newType !== "custom" && firstOp
+          ? buildExpression(newType, firstOp, leftOperand, rightOperand)
+          : node.params.expression,
     };
-    if (newType !== "custom" && firstOp) {
-      updates.params.expression = buildExpression(newType, firstOp, leftOperand, rightOperand);
-    }
-    updateNode(updates);
+    updateNode({ params });
   };
 
   const handleOperatorChange = (newOp: ConditionOperator) => {
@@ -143,7 +143,7 @@ export function ConditionInspectorForm({
         operator: newOp,
         expression: newExpr,
       },
-    } as any);
+    });
   };
 
   const handleLeftChange = (val: string) => {
@@ -154,7 +154,7 @@ export function ConditionInspectorForm({
         leftOperand: val,
         expression: newExpr,
       },
-    } as any);
+    });
   };
 
   const handleRightChange = (val: string) => {
@@ -165,116 +165,114 @@ export function ConditionInspectorForm({
         rightOperand: val,
         expression: newExpr,
       },
-    } as any);
+    });
   };
 
   return (
-    <div className="space-y-3.5">
-      {/* Selector de Naturaleza del Dato */}
-      <div>
-        <label className="block text-[11px] font-medium text-zinc-400 mb-1">
-          Naturaleza del dato
-        </label>
-        <select
+    <div className="space-y-4">
+      <Field
+        label="Naturaleza del dato"
+        htmlFor="condition-data-type"
+        hint="Determina los operadores disponibles para la comparación."
+      >
+        <Select
+          id="condition-data-type"
           value={currentDataType}
           onChange={(e) => handleDataTypeChange(e.target.value as ConditionDataType)}
-          className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-600 transition-colors"
         >
           {DATA_TYPES.map((dt) => (
             <option key={dt.value} value={dt.value}>
               {dt.label}
             </option>
           ))}
-        </select>
-      </div>
+        </Select>
+      </Field>
 
       {currentDataType !== "custom" ? (
         <>
-          {/* Operación según el tipo seleccionado */}
-          <div>
-            <label className="block text-[11px] font-medium text-zinc-400 mb-1">
-              Operación
-            </label>
-            <select
+          <Field label="Operación" htmlFor="condition-operator">
+            <Select
+              id="condition-operator"
               value={currentOperator}
               onChange={(e) => handleOperatorChange(e.target.value as ConditionOperator)}
-              className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-200 font-mono focus:outline-none focus:border-zinc-600 transition-colors"
+              className="font-mono text-[12px]"
             >
               {operators.map((op) => (
                 <option key={op.value} value={op.value}>
                   {op.label}
                 </option>
               ))}
-            </select>
-          </div>
+            </Select>
+          </Field>
 
-          {/* Operando Izquierdo con Selector de Variables */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-[11px] font-medium text-zinc-400">
-                Valor o variable a comparar
-              </label>
-              <VariablePicker onSelect={(token) => handleLeftChange(token)} />
-            </div>
-            <input
+          <Field
+            label="Valor o variable a comparar"
+            htmlFor="condition-left"
+            action={<VariablePicker onSelect={(token) => handleLeftChange(token)} />}
+          >
+            <TextInput
+              id="condition-left"
               type="text"
               value={leftOperand}
               onChange={(e) => handleLeftChange(e.target.value)}
               placeholder="ej. {{steps.extract_1.output}} o miVariable"
-              className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-200 font-mono placeholder-zinc-500 focus:outline-none focus:border-zinc-600 transition-colors"
+              className="font-mono"
             />
-          </div>
+          </Field>
 
-          {/* Operando Derecho (si la operación no es unaria) */}
           {!isUnary && (
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-[11px] font-medium text-zinc-400">
-                  Valor esperado
-                </label>
-                <VariablePicker onSelect={(token) => handleRightChange(token)} />
-              </div>
-              <input
+            <Field
+              label="Valor esperado"
+              htmlFor="condition-right"
+              action={<VariablePicker onSelect={(token) => handleRightChange(token)} />}
+            >
+              <TextInput
+                id="condition-right"
                 type="text"
                 value={rightOperand}
                 onChange={(e) => handleRightChange(e.target.value)}
                 placeholder={currentDataType === "number" ? "100" : "texto esperado"}
-                className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-200 font-mono placeholder-zinc-500 focus:outline-none focus:border-zinc-600 transition-colors"
+                className="font-mono"
               />
-            </div>
+            </Field>
           )}
         </>
       ) : (
-        /* Modo expresión JSONata / Avanzada */
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-[11px] font-medium text-zinc-400">
-              Expresión JSONata / JS
-            </label>
-            <VariablePicker onSelect={(token) => updateParam("expression", `${node.params.expression || ""} ${token}`)} />
-          </div>
-          <input
+        <Field
+          label="Expresión JSONata / JS"
+          htmlFor="condition-expression"
+          hint="Debe devolver un valor booleano."
+          action={
+            <VariablePicker
+              onSelect={(token) =>
+                updateParam("expression", `${node.params.expression || ""} ${token}`)
+              }
+            />
+          }
+        >
+          <TextInput
+            id="condition-expression"
             type="text"
             value={node.params.expression || ""}
             onChange={(e) => updateParam("expression", e.target.value)}
             placeholder="total > 100 and status = 'active'"
-            className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-200 font-mono focus:outline-none focus:border-zinc-600 transition-colors"
+            className="font-mono"
           />
-        </div>
+        </Field>
       )}
 
-      {/* Referencia visual de bifurcación */}
-      <div className="p-2.5 rounded bg-zinc-950/80 border border-zinc-800/80 text-[11px] text-zinc-400 space-y-1.5">
-        <span className="font-mono text-[10px] text-zinc-500 uppercase tracking-wider block">
+      <div className="space-y-1.5 rounded-card border border-line bg-card px-4 py-3 text-[11px] text-fg-muted">
+        <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-fg-subtle">
+          <GitBranch className="h-3 w-3" />
           Bifurcaciones del flujo
         </span>
-        <div className="flex items-center space-x-2">
-          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-          <span>Si se cumple: salida izquierda (Verde / then)</span>
+        <div className="flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-success" />
+          <span>Si se cumple: salida izquierda (then)</span>
         </div>
-        <div className="flex items-center space-x-2">
-          <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-          <span>Si no se cumple: salida derecha (Roja / else)</span>
+        <div className="flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-danger" />
+          <span>Si no se cumple: salida derecha (else)</span>
         </div>
       </div>
     </div>

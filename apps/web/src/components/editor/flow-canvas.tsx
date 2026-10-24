@@ -22,6 +22,7 @@ import { CustomFlowEdge } from "./custom-flow-edge";
 import type { RecipeDsl, RecipeNode, RecipeEdge, NodeValidationIssue } from "@rpa/dsl";
 import { analyzeInitializerNodes } from "@rpa/dsl";
 import { nodeRegistry } from "./nodes";
+import { connectionToEdge } from "@/lib/branch-wiring";
 
 export function getSafeNodeIssues(
   issuesRecord: unknown,
@@ -335,23 +336,13 @@ function FlowCanvasInner() {
     (connection: Connection) => {
       if (!connection.source || !connection.target) return;
 
-      const handle = connection.sourceHandle;
-      const edge: RecipeEdge = {
-        from: connection.source,
-        to: connection.target,
-      };
-
-      if (handle === "then") {
-        edge.condition = "true";
-      } else if (handle === "else") {
-        edge.condition = "false";
-      } else if (handle === "try" || handle === "catch" || handle === "finally") {
-        edge.label = handle;
-      } else if (handle === "body") {
-        edge.label = "body";
-      }
-
-      addEdge(edge);
+      addEdge(
+        connectionToEdge(
+          connection.source,
+          connection.target,
+          connection.sourceHandle
+        )
+      );
     },
     [addEdge]
   );

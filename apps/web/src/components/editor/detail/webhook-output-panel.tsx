@@ -16,7 +16,12 @@ import {
 import { buildWebhookUrl } from "@/lib/webhook-url";
 import { DataViewer } from "./data-viewer";
 import { useRecipeStore } from "@/stores/use-recipe-store";
-import { useWebhookTestStore, type WebhookReceivedPayload } from "@/stores/use-webhook-test-store";
+import {
+  useWebhookTestStore,
+  type WebhookReceivedPayload,
+} from "@/stores/use-webhook-test-store";
+import { Badge, Button, IconButton } from "@/components/ui/primitives";
+import { cn } from "@/lib/utils";
 
 interface WebhookOutputPanelProps {
   node: WebhookNode;
@@ -33,13 +38,13 @@ export function WebhookOutputPanel({ node }: WebhookOutputPanelProps) {
   const testEntry = webhookStore.getEntry(node.id);
 
   const existingOutput = nodeOutputs[node.id];
-  const payload = testEntry.payload || (existingOutput as WebhookReceivedPayload | undefined);
+  const payload =
+    testEntry.payload || (existingOutput as WebhookReceivedPayload | undefined);
 
   const path = node.params.path || `/api/v1/webhooks/${node.id}`;
   const method = node.params.httpMethod || "POST";
   const fullUrl = buildWebhookUrl(path);
 
-  // Contador de tiempo restante de escucha
   useEffect(() => {
     if (testEntry.status !== "listening" || !testEntry.expiresAt) {
       return;
@@ -77,37 +82,35 @@ export function WebhookOutputPanel({ node }: WebhookOutputPanelProps) {
     }
   };
 
-  // 1. Estado Éxito (Se recibió el evento o ya había payload)
+  // 1. Estado éxito
   if (testEntry.status === "success" || (testEntry.status === "idle" && payload)) {
     return (
-      <div className="flex flex-col h-full bg-[#0c0c0e] text-zinc-100 overflow-hidden">
-        {/* Cabecera de éxito con método y timestamp */}
-        <div className="p-3 border-b border-zinc-800 bg-zinc-950/70 flex items-center justify-between shrink-0">
-          <div className="flex items-center space-x-2">
-            <span className="flex items-center space-x-1 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-mono font-medium">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Evento Recibido</span>
-            </span>
+      <div className="flex h-full flex-col overflow-hidden bg-panel text-fg transition-colors">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line bg-card px-3 py-2">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <Badge tone="success">
+              <CheckCircle2 className="h-3 w-3" />
+              Evento recibido
+            </Badge>
             {payload?.method && (
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">
+              <Badge tone="neutral" className="font-mono">
                 {payload.method}
-              </span>
+              </Badge>
             )}
           </div>
 
-          <button
-            type="button"
+          <Button
+            size="sm"
+            variant="secondary"
             onClick={handleRestart}
             disabled={!recipeId}
-            className="flex items-center space-x-1 text-[11px] px-2 py-1 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white transition-colors"
           >
-            <RefreshCw className="w-3 h-3 text-amber-400" />
-            <span>Escuchar de nuevo</span>
-          </button>
+            <RefreshCw className="h-3.5 w-3.5" />
+            Escuchar de nuevo
+          </Button>
         </div>
 
-        {/* Visor de datos recibido */}
-        <div className="flex-1 overflow-hidden flex flex-col">
+        <div className="flex flex-1 flex-col overflow-hidden">
           <DataViewer
             data={payload}
             baseTokenPrefix={`{{steps.${node.id}.output`}
@@ -118,70 +121,70 @@ export function WebhookOutputPanel({ node }: WebhookOutputPanelProps) {
     );
   }
 
-  // 2. Estado Escuchando en vivo (Pulsando)
+  // 2. Estado escuchando
   if (testEntry.status === "listening") {
     return (
-      <div className="flex flex-col h-full bg-[#0c0c0e] text-zinc-100 p-6 items-center justify-center text-center space-y-5 overflow-y-auto">
-        {/* Indicador pulsante */}
+      <div className="flex h-full flex-col items-center justify-center gap-5 overflow-y-auto bg-panel p-6 text-center text-fg transition-colors">
         <div className="relative flex items-center justify-center">
-          <div className="w-16 h-16 rounded-full bg-amber-400/15 animate-ping absolute" />
-          <div className="w-16 h-16 rounded-full bg-amber-400/20 border border-amber-400/40 flex items-center justify-center relative">
-            <Radio className="w-7 h-7 text-amber-400 animate-pulse" />
+          <div className="absolute h-16 w-16 animate-ping rounded-full bg-accent/15" />
+          <div className="relative flex h-16 w-16 items-center justify-center rounded-full border border-accent-line bg-accent-soft">
+            <Radio className="h-7 w-7 animate-pulse text-accent-text" />
           </div>
         </div>
 
-        <div className="space-y-1.5 max-w-sm">
-          <h3 className="text-sm font-semibold text-zinc-100 flex items-center justify-center space-x-1.5">
-            <span>Escuchando peticiones en tiempo real...</span>
+        <div className="max-w-sm space-y-2">
+          <h3 className="text-[13px] font-semibold text-fg">
+            Escuchando peticiones en tiempo real…
           </h3>
-          <p className="text-xs text-zinc-400 leading-relaxed font-sans">
+          <p className="text-[11.5px] leading-relaxed text-fg-muted">
             Envía una petición HTTP a la ruta generada. Los datos se capturarán al instante.
           </p>
           {timeLeft !== null && (
-            <div className="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-[11px] font-mono text-zinc-400 mt-1">
-              <Clock className="w-3 h-3 text-amber-400" />
-              <span>Expira en {timeLeft} segundos</span>
-            </div>
+            <Badge tone="warning" className="font-mono">
+              <Clock className="h-3 w-3" />
+              Expira en {timeLeft} s
+            </Badge>
           )}
         </div>
 
-        {/* URL con botón de copiar */}
-        <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 flex items-center justify-between text-left">
-          <div className="min-w-0 flex-1 mr-2">
-            <span className="block text-[10px] font-mono text-zinc-500 uppercase">
+        <div className="flex w-full max-w-md items-center justify-between gap-2 rounded-card border border-line bg-card p-2.5 text-left">
+          <div className="min-w-0 flex-1">
+            <span className="block text-[10px] uppercase tracking-wider text-fg-subtle">
               URL del webhook
             </span>
-            <span className="block text-xs font-mono text-amber-300 truncate">
+            <span className="block truncate font-mono text-[11.5px] text-accent-text">
               {fullUrl}
             </span>
           </div>
-          <button
-            type="button"
-            onClick={handleCopyUrl}
-            className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors shrink-0"
-            title="Copiar URL"
-          >
-            {copiedUrl ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-          </button>
+          <IconButton label="Copiar URL" onClick={handleCopyUrl}>
+            {copiedUrl ? (
+              <Check className="h-3.5 w-3.5 text-success-text" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+          </IconButton>
         </div>
 
-        {/* Comando curl preparado */}
-        <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-left space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="flex items-center space-x-1.5 text-[10px] font-mono text-zinc-400">
-              <Terminal className="w-3 h-3 text-zinc-500" />
-              <span>Ejemplo de prueba rápida (curl)</span>
+        <div className="w-full max-w-md space-y-2 rounded-card border border-line bg-card p-3 text-left">
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-fg-muted">
+              <Terminal className="h-3 w-3" />
+              Prueba rápida (curl)
             </span>
             <button
               type="button"
               onClick={handleCopyCurl}
-              className="text-[10px] font-mono text-zinc-400 hover:text-white flex items-center space-x-1"
+              className="inline-flex items-center gap-1 font-mono text-[10px] text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             >
-              {copiedCurl ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+              {copiedCurl ? (
+                <Check className="h-3 w-3 text-success-text" />
+              ) : (
+                <Copy className="h-3 w-3" />
+              )}
               <span>{copiedCurl ? "Copiado" : "Copiar"}</span>
             </button>
           </div>
-          <pre className="text-[10px] font-mono text-zinc-300 bg-zinc-900/80 p-2 rounded overflow-x-auto whitespace-pre">
+          <pre className="overflow-x-auto whitespace-pre rounded-control border border-line bg-panel p-2 font-mono text-[10px] text-fg-muted">
             {curlExample}
           </pre>
         </div>
@@ -189,58 +192,48 @@ export function WebhookOutputPanel({ node }: WebhookOutputPanelProps) {
     );
   }
 
-  // 3. Estado Error (Timeout o Fallo)
+  // 3. Estado error
   if (testEntry.status === "error") {
     return (
-      <div className="flex flex-col h-full bg-[#0c0c0e] text-zinc-100 p-6 items-center justify-center text-center space-y-4">
-        <div className="w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/30 flex items-center justify-center">
-          <AlertCircle className="w-6 h-6 text-rose-400" />
+      <div className="flex h-full flex-col items-center justify-center gap-4 bg-panel p-6 text-center text-fg transition-colors">
+        <div className="grid h-12 w-12 place-items-center rounded-full border border-danger/25 bg-danger-soft">
+          <AlertCircle className="h-6 w-6 text-danger-text" />
         </div>
-        <div className="space-y-1.5 max-w-sm">
-          <h3 className="text-xs font-semibold text-zinc-200">
+        <div className="max-w-sm space-y-1.5">
+          <h3 className="text-[12.5px] font-semibold text-fg">
             Fallo en la recepción del webhook
           </h3>
-          <p className="text-[11px] text-zinc-400 leading-relaxed">
-            {testEntry.error || "No se pudo recibir la petición a tiempo o hubo un error en la conexión."}
+          <p className="text-[11.5px] leading-relaxed text-fg-muted">
+            {testEntry.error ||
+              "No se pudo recibir la petición a tiempo o hubo un error en la conexión."}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={handleRestart}
-          disabled={!recipeId}
-          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-md bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-medium transition-colors shadow-sm"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          <span>Intentar de nuevo</span>
-        </button>
+        <Button variant="primary" onClick={handleRestart} disabled={!recipeId}>
+          <RefreshCw className="h-3.5 w-3.5" />
+          Intentar de nuevo
+        </Button>
       </div>
     );
   }
 
-  // 4. Estado Idle (Inactivo por defecto)
+  // 4. Estado inactivo
   return (
-    <div className="flex flex-col h-full bg-[#0c0c0e] text-zinc-100 p-6 items-center justify-center text-center space-y-4">
-      <div className="w-12 h-12 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-500">
-        <Inbox className="w-6 h-6" />
+    <div className="flex h-full flex-col items-center justify-center gap-4 bg-panel p-6 text-center text-fg transition-colors">
+      <div className="grid h-12 w-12 place-items-center rounded-full border border-line bg-card text-fg-subtle">
+        <Inbox className="h-6 w-6" />
       </div>
-      <div className="space-y-1.5 max-w-xs">
-        <h3 className="text-xs font-semibold text-zinc-200">
-          Esperando datos...
-        </h3>
-        <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">
-          Haz clic en <span className="text-amber-400 font-medium">&quot;Escuchar evento de prueba&quot;</span> en el panel de configuración para poner este nodo a la escucha y capturar una petición HTTP real.
+      <div className="max-w-xs space-y-1.5">
+        <h3 className="text-[12.5px] font-semibold text-fg">Esperando datos…</h3>
+        <p className="text-[11.5px] leading-relaxed text-fg-muted">
+          Inicia la escucha para capturar una petición HTTP real y ver su{" "}
+          <span className={cn("font-medium text-accent-text")}>payload</span> estructurado.
         </p>
       </div>
 
-      <button
-        type="button"
-        onClick={handleRestart}
-        disabled={!recipeId}
-        className="flex items-center space-x-2 px-3.5 py-2 rounded-md bg-amber-400 hover:bg-amber-300 text-zinc-950 text-xs font-semibold transition-colors shadow-sm disabled:opacity-40"
-      >
-        <Radio className="w-3.5 h-3.5" />
-        <span>Iniciar escucha ahora</span>
-      </button>
+      <Button variant="primary" onClick={handleRestart} disabled={!recipeId}>
+        <Radio className="h-3.5 w-3.5" />
+        Iniciar escucha ahora
+      </Button>
     </div>
   );
 }
