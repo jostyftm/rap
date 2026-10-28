@@ -16,6 +16,8 @@ import {
   Plus,
   X,
   Star,
+  Camera,
+  Monitor,
 } from "lucide-react";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { nodeRegistry } from "../nodes";
@@ -284,6 +286,46 @@ export function NodeConfigPanel({
                 <p className="text-[12px] text-fg-subtle">
                   Este nodo no tiene parámetros configurables.
                 </p>
+              )}
+
+              {/* Captura Visual Previa (Recorder Macro) */}
+              {node.preview?.image && (
+                <SectionCard
+                  title="Captura Visual de Acción"
+                  icon={<Camera className="h-4 w-4 text-accent-text" />}
+                  description={
+                    <span className="flex items-center gap-2 mt-0.5">
+                      <span>Miniatura registrada al grabar la acción.</span>
+                      <Badge tone="accent">
+                        {node.preview.targetScope === "desktop" ? "Escritorio" : "Navegador Web"}
+                      </Badge>
+                    </span>
+                  }
+                >
+                  <div className="space-y-3">
+                    <div className="relative rounded-lg overflow-hidden border border-border bg-black/90 flex items-center justify-center p-1">
+                      <img
+                        src={node.preview.image}
+                        alt="Previsualización"
+                        className="max-h-60 w-auto object-contain rounded"
+                      />
+                    </div>
+                    {node.preview.coordinates && (
+                      <div className="flex justify-between text-[11px] font-mono">
+                        <span className="text-fg-subtle">Coordenadas del cursor:</span>
+                        <span className="text-accent-text font-semibold">
+                          X: {node.preview.coordinates.x}, Y: {node.preview.coordinates.y}
+                        </span>
+                      </div>
+                    )}
+                    {node.preview.windowTitle && (
+                      <div className="flex justify-between text-[11px]">
+                        <span className="text-fg-subtle">Ventana:</span>
+                        <span className="text-fg font-medium">{node.preview.windowTitle}</span>
+                      </div>
+                    )}
+                  </div>
+                </SectionCard>
               )}
             </>
           )}

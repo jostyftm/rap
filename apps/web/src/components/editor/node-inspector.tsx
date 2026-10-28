@@ -11,6 +11,8 @@ import {
   SlidersHorizontal,
   AlertTriangle,
   Maximize2,
+  Camera,
+  Monitor,
 } from "lucide-react";
 import type { RecipeNode, LocatorStrategy, LocatorCandidate } from "@rpa/dsl";
 import { calculateLocatorScore } from "@rpa/locator";
@@ -244,6 +246,48 @@ export function NodeInspector() {
                   updateParam={handleParamChange}
                   updateNode={(updates) => updateNode(node.id, updates)}
                 />
+              )}
+
+              {/* Previsualización de la Acción Capturada */}
+              {node.preview?.image && (
+                <div className="rounded-lg border border-neutral-800 bg-neutral-950/70 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <Camera className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Previsualización Capturada</span>
+                    </span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300 font-mono">
+                      {node.preview.targetScope === "desktop" ? "Escritorio" : "Navegador"}
+                    </span>
+                  </div>
+                  <div className="relative rounded overflow-hidden border border-neutral-800 bg-black flex items-center justify-center">
+                    <img
+                      src={node.preview.image}
+                      alt="Previsualización"
+                      className="max-h-48 w-full object-cover"
+                    />
+                  </div>
+                  {node.preview.coordinates && (
+                    <div className="text-[11px] font-mono text-purple-300 flex justify-between">
+                      <span className="text-neutral-500">Coordenadas:</span>
+                      <span>
+                        X: {node.preview.coordinates.x}, Y: {node.preview.coordinates.y}
+                      </span>
+                    </div>
+                  )}
+                  {node.preview.windowTitle && (
+                    <div className="text-[11px] text-neutral-300 flex justify-between truncate">
+                      <span className="text-neutral-500">Ventana:</span>
+                      <span className="truncate">{node.preview.windowTitle}</span>
+                    </div>
+                  )}
+                  {node.preview.elementSnippet && (
+                    <div className="text-[11px] text-neutral-400 truncate pt-1 border-t border-neutral-800/60 font-mono">
+                      <span className="text-neutral-500 mr-1">Objetivo:</span>
+                      <span>{node.preview.elementSnippet}</span>
+                    </div>
+                  )}
+                </div>
               )}
 
               {/* Localizador Primario y Fallbacks */}

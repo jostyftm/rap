@@ -83,6 +83,7 @@ export interface RecipeStoreState {
   // Grabación en vivo (Recorder)
   isRecording: boolean;
   recordingSessionId: string | null;
+  recordingMode: "browser" | "desktop";
   recordedActionsCount: number;
 
   // Historial (Undo / Redo)
@@ -139,7 +140,7 @@ export interface RecipeStoreState {
   updateNodePosition: (id: string, position: { x: number; y: number }) => void;
 
   // Grabación en vivo
-  startRecording: (sessionId: string) => void;
+  startRecording: (sessionId: string, mode?: "browser" | "desktop") => void;
   stopRecording: () => void;
   appendRecordedAction: (action: {
     type: string;
@@ -147,6 +148,7 @@ export interface RecipeStoreState {
     params?: any;
     url?: string;
     description?: string;
+    preview?: any;
   }) => void;
 }
 
@@ -274,6 +276,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
 
   isRecording: false,
   recordingSessionId: null,
+  recordingMode: "browser",
   recordedActionsCount: 0,
 
   nodeOutputs: {},
@@ -982,10 +985,11 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     });
   },
 
-  startRecording: (recordingSessionId: string) => {
+  startRecording: (recordingSessionId: string, recordingMode: "browser" | "desktop" = "browser") => {
     set({
       isRecording: true,
       recordingSessionId,
+      recordingMode,
       recordedActionsCount: 0,
     });
   },
@@ -994,6 +998,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     set({
       isRecording: false,
       recordingSessionId: null,
+      recordingMode: "browser",
     });
   },
 
@@ -1011,7 +1016,8 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       locator: action.locator,
       params: action.params || {},
       position: nextPos,
-    };
+      preview: action.preview,
+    } as RecipeNode;
 
     const updatedNodes = { ...definition.nodes, [newId]: newNode };
     let newEntry = definition.entry;

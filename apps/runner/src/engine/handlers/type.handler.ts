@@ -8,10 +8,21 @@ import type { NodeActionHandler, ExecutionContext, ActionResult } from "./types.
 export const typeHandler: NodeActionHandler<TypeNode> = {
   type: "type",
   async execute(page: Page, node: TypeNode, ctx: ExecutionContext): Promise<ActionResult> {
-    const resolvedLocator = await resolveLocator(page, node.locator, node.timeout);
     const textToType = interpolateString(node.params.text, ctx.variables, ctx.secrets, {
       onMissingTokens: createMissingTokenReporter(node.id, node.type, ctx),
     });
+
+    if (node.params.targetScope === "desktop") {
+      await page.keyboard.type(textToType, {
+        delay: node.params.delay ?? 20,
+      });
+      if (node.params.pressEnter) {
+        await page.keyboard.press("Enter");
+      }
+      return { success: true, nextNodeId: node.next };
+    }
+
+    const resolvedLocator = await resolveLocator(page, node.locator, node.timeout);
     if (node.params.clear !== false) {
       await resolvedLocator.locator.fill(textToType);
     } else {

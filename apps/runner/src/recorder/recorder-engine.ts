@@ -48,6 +48,45 @@ export class RecorderEngine {
     await page.exposeFunction("rpaCaptureAction", async (actionData: any) => {
       console.log(`[RecorderEngine] Acción capturada en sesión ${sessionId}:`, actionData.type);
 
+      // Generar thumbnail visual del elemento o región interactuada
+      let thumbnail: string | undefined;
+      try {
+        let clipX = actionData.clickX ?? actionData.box?.x ?? 0;
+        let clipY = actionData.clickY ?? actionData.box?.y ?? 0;
+        let clipWidth = actionData.box?.width ?? 200;
+        let clipHeight = actionData.box?.height ?? 100;
+
+        if (clipWidth > 0 && clipWidth <= 450 && clipHeight > 0 && clipHeight <= 300) {
+          clipX = Math.max(0, (actionData.box?.x ?? 0) - 8);
+          clipY = Math.max(0, (actionData.box?.y ?? 0) - 8);
+          clipWidth = Math.min(1280 - clipX, clipWidth + 16);
+          clipHeight = Math.min(800 - clipY, clipHeight + 16);
+        } else {
+          clipX = Math.max(0, clipX - 110);
+          clipY = Math.max(0, clipY - 60);
+          clipWidth = Math.min(1280 - clipX, 220);
+          clipHeight = Math.min(800 - clipY, 120);
+        }
+
+        if (clipWidth >= 10 && clipHeight >= 10) {
+          const buf = await page.screenshot({
+            clip: { x: clipX, y: clipY, width: clipWidth, height: clipHeight },
+            type: "jpeg",
+            quality: 65,
+          });
+          thumbnail = `data:image/jpeg;base64,${buf.toString("base64")}`;
+        }
+      } catch (err: any) {
+        console.warn("[RecorderEngine] No se pudo generar recorte de elemento:", err.message);
+      }
+
+      actionData.preview = {
+        image: thumbnail,
+        targetScope: "browser",
+        capturedAt: Date.now(),
+        elementSnippet: actionData.description || actionData.locator?.primary?.value || actionData.type,
+      };
+
       await (this.eventEmitter as any).redis.xadd(
         (this.eventEmitter as any).streamName,
         "*",
@@ -109,6 +148,17 @@ export class RecorderEngine {
           };
         }
 
+        function getElementBox(el) {
+          if (!el || !(el instanceof HTMLElement)) return { x: 0, y: 0, width: 0, height: 0 };
+          const rect = el.getBoundingClientRect();
+          return {
+            x: Math.max(0, Math.round(rect.left)),
+            y: Math.max(0, Math.round(rect.top)),
+            width: Math.max(0, Math.round(rect.width)),
+            height: Math.max(0, Math.round(rect.height)),
+          };
+        }
+
         // 1. Capturar clicks
         document.addEventListener('click', function(e) {
           const target = e.target;
@@ -118,11 +168,15 @@ export class RecorderEngine {
           if (target === document.body || target === document.documentElement) return;
 
           const loc = getCandidates(target);
+          const box = getElementBox(target);
           window.rpaCaptureAction({
             type: 'click',
             locator: loc,
             params: { button: e.button === 2 ? 'right' : 'left' },
             url: window.location.href,
+            clickX: e.clientX,
+            clickY: e.clientY,
+            box: box,
             description: 'Clic en ' + (loc.primary.value || target.tagName)
           });
         }, true);
@@ -136,11 +190,13 @@ export class RecorderEngine {
           clearTimeout(inputTimer);
           inputTimer = setTimeout(function() {
             const loc = getCandidates(target);
+            const box = getElementBox(target);
             window.rpaCaptureAction({
               type: 'type',
               locator: loc,
               params: { text: target.value, clear: true },
               url: window.location.href,
+              box: box,
               description: 'Escribir en ' + (loc.primary.value || target.name || 'campo')
             });
           }, 400);
@@ -153,11 +209,13 @@ export class RecorderEngine {
             if (target && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {
               clearTimeout(inputTimer);
               const loc = getCandidates(target);
+              const box = getElementBox(target);
               window.rpaCaptureAction({
                 type: 'type',
                 locator: loc,
                 params: { text: target.value, clear: true, pressEnter: true },
                 url: window.location.href,
+                box: box,
                 description: 'Escribir y pulsar Enter en ' + (loc.primary.value || target.name || 'campo')
               });
             }
@@ -170,18 +228,40 @@ export class RecorderEngine {
           if (!target || !(target instanceof HTMLSelectElement)) return;
 
           const loc = getCandidates(target);
+          const box = getElementBox(target);
           window.rpaCaptureAction({
             type: 'select',
             locator: loc,
             params: { value: target.value },
             url: window.location.href,
+            box: box,
             description: 'Seleccionar opción en ' + loc.primary.value
           });
         }, true);
       })();
     `);
 
-    // Emitir acción inicial de navegación
+    // Navegar en la página primero para tener captura visual de destino
+    try {
+      await page.goto(initialUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+      console.log(`[RecorderEngine] Navegación inicial completada para sesión ${sessionId}`);
+    } catch (err: any) {
+      console.warn(`[RecorderEngine] Aviso durante navegación inicial:`, err.message);
+    }
+
+    let initialThumbnail: string | undefined;
+    try {
+      const buf = await page.screenshot({
+        clip: { x: 0, y: 0, width: 320, height: 180 },
+        type: "jpeg",
+        quality: 60,
+      });
+      initialThumbnail = `data:image/jpeg;base64,${buf.toString("base64")}`;
+    } catch {
+      // Ignorar si no está disponible
+    }
+
+    // Emitir acción inicial de navegación con previsualización
     await (this.eventEmitter as any).redis.xadd(
       (this.eventEmitter as any).streamName,
       "*",
@@ -197,18 +277,16 @@ export class RecorderEngine {
         params: { url: initialUrl, waitUntil: "domcontentloaded" },
         url: initialUrl,
         description: `Navegar a ${initialUrl}`,
+        preview: {
+          image: initialThumbnail,
+          targetScope: "browser",
+          capturedAt: Date.now(),
+          elementSnippet: `Navegar a ${initialUrl}`,
+        },
       }),
       "timestamp",
       Date.now().toString()
     );
-
-    // Navegar en la página
-    try {
-      await page.goto(initialUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
-      console.log(`[RecorderEngine] Navegación inicial completada para sesión ${sessionId}`);
-    } catch (err: any) {
-      console.warn(`[RecorderEngine] Aviso durante navegación inicial:`, err.message);
-    }
   }
 
   async stop(sessionId: string): Promise<void> {

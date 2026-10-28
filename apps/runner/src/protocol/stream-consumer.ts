@@ -2,6 +2,7 @@ import type { Redis } from "ioredis";
 import type { RecipeDsl } from "@rpa/dsl";
 import { RecipeExecutor } from "../engine/executor.js";
 import { RecorderEngine } from "../recorder/recorder-engine.js";
+import { DesktopRecorderEngine } from "../recorder/desktop-recorder-engine.js";
 import { SecretClient } from "../secrets/secret-client.js";
 import type { RedisEventEmitter } from "./event-emitter.js";
 
@@ -30,11 +31,12 @@ export class RedisStreamConsumer {
 
     const executor = new RecipeExecutor(this.eventEmitter, this.redis);
     const recorder = new RecorderEngine(this.eventEmitter);
+    const desktopRecorder = new DesktopRecorderEngine(this.eventEmitter);
 
     while (this.isRunning) {
       try {
         if (this.loops % RECLAIM_EVERY_LOOPS === 0) {
-          await this.reclaimPending(executor, recorder);
+          await this.reclaimPending(executor, recorder, desktopRecorder);
         }
         this.loops++;
 
@@ -55,7 +57,7 @@ export class RedisStreamConsumer {
         if (results && results.length > 0) {
           const [, messages] = results[0] as [string, [string, string[]][]];
           for (const [messageId, fields] of messages) {
-            await this.handleMessage(messageId, fields, executor, recorder);
+            await this.handleMessage(messageId, fields, executor, recorder, desktopRecorder);
           }
         }
       } catch (err: unknown) {
@@ -66,6 +68,7 @@ export class RedisStreamConsumer {
     }
 
     await recorder.closeAll();
+    await desktopRecorder.closeAll();
     await executor.close();
     this.secretClient.clearAll();
   }
@@ -78,7 +81,8 @@ export class RedisStreamConsumer {
     messageId: string,
     fields: string[],
     executor: RecipeExecutor,
-    recorder: RecorderEngine
+    recorder: RecorderEngine,
+    desktopRecorder: DesktopRecorderEngine
   ): Promise<void> {
     const data: Record<string, string> = {};
     for (let i = 0; i < fields.length; i += 2) {
@@ -96,7 +100,7 @@ export class RedisStreamConsumer {
 
       console.log(`[StreamConsumer] Comando recibido: ${data.command} (id: ${commandId})`);
 
-      await this.dispatch(data, executor, recorder);
+      await this.dispatch(data, executor, recorder, desktopRecorder);
       await this.redis.set(dedupeKey, "1", "EX", COMMAND_TTL_SECONDS);
     } catch (err) {
       console.error(`[StreamConsumer] Error procesando comando ${commandId}:`, err);
@@ -109,7 +113,8 @@ export class RedisStreamConsumer {
   private async dispatch(
     data: Record<string, string>,
     executor: RecipeExecutor,
-    recorder: RecorderEngine
+    recorder: RecorderEngine,
+    desktopRecorder: DesktopRecorderEngine
   ): Promise<void> {
     switch (data.command) {
       case "run.start":
@@ -127,8 +132,15 @@ export class RedisStreamConsumer {
       case "run.step":
         await this.setControl(data.run_id, "step");
         break;
-      case "recorder.start":
-        if (data.initial_url) {
+      case "recorder.start": {
+        const mode = data.mode || "browser";
+        if (mode === "desktop") {
+          await desktopRecorder.start({
+            sessionId: data.session_id,
+            recipeId: data.recipe_id,
+            targetWindow: data.target_window,
+          });
+        } else if (data.initial_url) {
           await recorder.start({
             sessionId: data.session_id,
             recipeId: data.recipe_id,
@@ -136,9 +148,21 @@ export class RedisStreamConsumer {
           });
         }
         break;
+      }
       case "recorder.stop":
         if (data.session_id) {
           await recorder.stop(data.session_id);
+          await desktopRecorder.stop(data.session_id);
+        }
+        break;
+      case "recorder.desktop_action":
+        if (data.session_id && data.action) {
+          try {
+            const actionInput = JSON.parse(data.action);
+            await desktopRecorder.recordAction(data.session_id, actionInput);
+          } catch (err: any) {
+            console.warn("[StreamConsumer] Error procesando recorder.desktop_action:", err.message);
+          }
         }
         break;
       default:
@@ -246,7 +270,11 @@ export class RedisStreamConsumer {
     }
   }
 
-  private async reclaimPending(executor: RecipeExecutor, recorder: RecorderEngine): Promise<void> {
+  private async reclaimPending(
+    executor: RecipeExecutor,
+    recorder: RecorderEngine,
+    desktopRecorder: DesktopRecorderEngine
+  ): Promise<void> {
     let cursor = "0-0";
 
     do {
@@ -268,7 +296,7 @@ export class RedisStreamConsumer {
       const messages = Array.isArray(result[1]) ? result[1] : [];
 
       for (const [messageId, fields] of messages) {
-        await this.handleMessage(messageId, fields, executor, recorder);
+        await this.handleMessage(messageId, fields, executor, recorder, desktopRecorder);
       }
     } while (cursor !== "0-0" && this.isRunning);
   }

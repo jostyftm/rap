@@ -17,7 +17,7 @@ class RecorderService
         $this->commandStream = (string) config('rpa.runner.command_stream', 'rpa:cmd');
     }
 
-    public function start(Recipe $recipe, string $initialUrl): string
+    public function start(Recipe $recipe, ?string $initialUrl = null, string $mode = 'browser', ?string $targetWindow = null): string
     {
         $sessionId = (string) Str::ulid();
 
@@ -26,9 +26,17 @@ class RecorderService
             'command' => 'recorder.start',
             'session_id' => $sessionId,
             'recipe_id' => $recipe->uuid,
-            'initial_url' => $initialUrl,
+            'mode' => $mode,
             'timestamp' => (string) now()->timestamp,
         ];
+
+        if ($initialUrl) {
+            $payload['initial_url'] = $initialUrl;
+        }
+
+        if ($targetWindow) {
+            $payload['target_window'] = $targetWindow;
+        }
 
         $args = ['XADD', $this->commandStream, '*'];
         foreach ($payload as $key => $val) {

@@ -62,6 +62,22 @@ const RetryPolicySchema = z.object({
   backoff: z.enum(["fixed", "exponential"]).default("exponential"),
 });
 
+const TargetScopeSchema = z.enum(["browser", "desktop"]);
+
+export const NodePreviewSchema = z.object({
+  image: z.string().optional(),
+  targetScope: TargetScopeSchema.default("browser").optional(),
+  capturedAt: z.number().optional(),
+  windowTitle: z.string().optional(),
+  coordinates: z
+    .object({
+      x: z.number(),
+      y: z.number(),
+    })
+    .optional(),
+  elementSnippet: z.string().optional(),
+});
+
 const BaseNodeSchema = z.object({
   id: z.string().min(1, "El ID del nodo es obligatorio"),
   description: z.string(),
@@ -77,6 +93,7 @@ const BaseNodeSchema = z.object({
       y: z.number(),
     })
     .optional(),
+  preview: NodePreviewSchema.optional(),
 });
 
 const NavigateNodeSchema = BaseNodeSchema.extend({
@@ -95,6 +112,14 @@ const ClickNodeSchema = BaseNodeSchema.extend({
       button: z.enum(["left", "right", "middle"]).default("left"),
       clickCount: z.number().int().min(1).default(1),
       delay: z.number().min(0).optional(),
+      coordinates: z
+        .object({
+          x: z.number(),
+          y: z.number(),
+        })
+        .optional(),
+      targetScope: TargetScopeSchema.default("browser").optional(),
+      windowTitle: z.string().optional(),
     })
     .default({ button: "left", clickCount: 1 }),
 });
@@ -108,6 +133,8 @@ const TypeNodeSchema = BaseNodeSchema.extend({
     delay: z.number().min(0).optional(),
     sensitive: z.boolean().default(false),
     pressEnter: z.boolean().default(false),
+    targetScope: TargetScopeSchema.default("browser").optional(),
+    windowTitle: z.string().optional(),
   }),
 });
 

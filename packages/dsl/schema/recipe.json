@@ -152,6 +152,23 @@
           "enum": ["never", "onError", "always"],
           "default": "onError"
         },
+        "preview": {
+          "type": "object",
+          "properties": {
+            "image": { "type": "string" },
+            "targetScope": { "type": "string", "enum": ["browser", "desktop"], "default": "browser" },
+            "capturedAt": { "type": "number" },
+            "windowTitle": { "type": "string" },
+            "coordinates": {
+              "type": "object",
+              "properties": {
+                "x": { "type": "number" },
+                "y": { "type": "number" }
+              }
+            },
+            "elementSnippet": { "type": "string" }
+          }
+        },
         "locator": { "$ref": "#/$defs/LocatorGroup" },
         "params": { "type": "object" },
         "next": { "type": "string" }

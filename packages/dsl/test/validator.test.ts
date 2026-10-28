@@ -690,4 +690,89 @@ describe("DSL Validator", () => {
       expect(result.errors?.some((e) => e.includes("continuación del loop"))).toBe(true);
     });
   });
+
+  describe("NodePreview y Acciones de Escritorio / Macros", () => {
+    it("valida exitosamente un nodo con previsualización visual (preview)", () => {
+      const result = validateRecipeDsl({
+        schema: "rpa/v1",
+        name: "Test Recipe with Preview",
+        entry: "click_1",
+        nodes: {
+          click_1: {
+            id: "click_1",
+            type: "click",
+            description: "Clic en botón con miniatura",
+            locator: {
+              primary: { strategy: "css", value: "#submit-btn", score: 90 },
+              fallbacks: [],
+            },
+            params: { button: "left", clickCount: 1 },
+            preview: {
+              image: "data:image/jpeg;base64,/9j/4AAQSkZJRg==",
+              targetScope: "browser",
+              capturedAt: Date.now(),
+              elementSnippet: "<button id='submit-btn'>Guardar</button>",
+            },
+          },
+        },
+        edges: [],
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it("valida exitosamente nodos tipo macro de escritorio con coordenadas y ventana", () => {
+      const result = validateRecipeDsl({
+        schema: "rpa/v1",
+        name: "Desktop Macro Recipe",
+        entry: "desk_click",
+        nodes: {
+          desk_click: {
+            id: "desk_click",
+            type: "click",
+            description: "Clic en icono de escritorio",
+            locator: {
+              primary: { strategy: "vision", value: "x: 450, y: 320", score: 85 },
+              fallbacks: [],
+            },
+            params: {
+              button: "left",
+              clickCount: 1,
+              targetScope: "desktop",
+              coordinates: { x: 450, y: 320 },
+              windowTitle: "Calculadora",
+            },
+            preview: {
+              image: "data:image/jpeg;base64,mockThumbnail",
+              targetScope: "desktop",
+              windowTitle: "Calculadora",
+              coordinates: { x: 450, y: 320 },
+            },
+            next: "desk_type",
+          },
+          desk_type: {
+            id: "desk_type",
+            type: "type",
+            description: "Escribir en calculadora",
+            locator: {
+              primary: { strategy: "vision", value: "x: 450, y: 320", score: 85 },
+              fallbacks: [],
+            },
+            params: {
+              text: "12345",
+              clear: false,
+              pressEnter: true,
+              targetScope: "desktop",
+              windowTitle: "Calculadora",
+            },
+            preview: {
+              targetScope: "desktop",
+              windowTitle: "Calculadora",
+            },
+          },
+        },
+        edges: [{ from: "desk_click", to: "desk_type" }],
+      });
+      expect(result.success).toBe(true);
+    });
+  });
 });

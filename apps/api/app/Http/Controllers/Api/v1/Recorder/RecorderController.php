@@ -21,12 +21,17 @@ class RecorderController extends Controller
     public function start(RecorderStartRequest $request, Recipe $recipe): JsonResponse
     {
         $validated = $request->validated();
-        $sessionId = $this->recorderService->start($recipe, $validated['initial_url']);
+        $mode = (string) ($validated['mode'] ?? 'browser');
+        $initialUrl = isset($validated['initial_url']) ? (string) $validated['initial_url'] : null;
+        $targetWindow = isset($validated['target_window']) ? (string) $validated['target_window'] : null;
+
+        $sessionId = $this->recorderService->start($recipe, $initialUrl, $mode, $targetWindow);
 
         return response()->json([
             'session_id' => $sessionId,
             'recipe_id' => $recipe->uuid,
             'status' => 'recording',
+            'mode' => $mode,
             'channel' => "recipe.{$recipe->uuid}",
         ], Response::HTTP_CREATED);
     }

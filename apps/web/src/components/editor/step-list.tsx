@@ -113,10 +113,20 @@ export function StepList() {
                     {index + 1}
                   </span>
 
-                  {/* Icono del nodo */}
-                  <div className="w-7 h-7 rounded bg-zinc-800 flex items-center justify-center text-zinc-300 border border-zinc-700/60 shrink-0">
-                    <Icon className="w-3.5 h-3.5" />
-                  </div>
+                  {/* Icono del nodo o miniatura visual */}
+                  {node.preview?.image ? (
+                    <div className="relative w-8 h-8 rounded overflow-hidden border border-zinc-700/80 shrink-0 bg-black shadow-xs">
+                      <img
+                        src={node.preview.image}
+                        alt="Miniatura de acción"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-7 h-7 rounded bg-zinc-800 flex items-center justify-center text-zinc-300 border border-zinc-700/60 shrink-0">
+                      <Icon className="w-3.5 h-3.5" />
+                    </div>
+                  )}
 
                   {/* Datos del paso */}
                   <div className="min-w-0">
@@ -124,6 +134,11 @@ export function StepList() {
                       <span className="text-xs font-mono font-medium uppercase tracking-wide text-zinc-200">
                         {node.type}
                       </span>
+                      {node.preview?.targetScope === "desktop" && (
+                        <span className="px-1.5 py-0.2 rounded bg-purple-950/80 text-purple-300 border border-purple-800/60 text-[9px] font-mono font-medium">
+                          Escritorio
+                        </span>
+                      )}
                       {isEntry && (
                         <span className="flex items-center space-x-1 px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-950 text-[9px] font-mono font-medium uppercase">
                           <Play className="w-2 h-2 fill-current" />

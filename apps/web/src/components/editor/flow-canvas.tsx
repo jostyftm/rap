@@ -122,6 +122,8 @@ function buildCanvasNodes(
         firstErrorMessage,
         issues,
         output: nodeOutputs[currId],
+        preview: node.preview,
+        params: (node as any).params,
       },
     });
 
@@ -172,6 +174,8 @@ function buildCanvasNodes(
           firstErrorMessage,
           issues,
           output: nodeOutputs[key],
+          preview: node.preview,
+          params: (node as any).params,
         },
       });
     }

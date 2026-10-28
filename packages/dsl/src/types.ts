@@ -38,6 +38,20 @@ export type OnErrorBehavior = "fail" | "continue" | "retry";
 export type ScreenshotPolicy = "never" | "onError" | "always";
 export type RetryBackoff = "fixed" | "exponential";
 
+export type TargetScope = "browser" | "desktop";
+
+export interface NodePreview {
+  image?: string;
+  targetScope?: TargetScope;
+  capturedAt?: number;
+  windowTitle?: string;
+  coordinates?: {
+    x: number;
+    y: number;
+  };
+  elementSnippet?: string;
+}
+
 export interface RetryPolicy {
   /** Número total de intentos, incluido el primero (1-10) */
   maxAttempts: number;
@@ -60,6 +74,7 @@ export interface BaseNode {
     x: number;
     y: number;
   };
+  preview?: NodePreview;
 }
 
 export interface NavigateNode extends BaseNode {
@@ -77,6 +92,12 @@ export interface ClickNode extends BaseNode {
     button?: "left" | "right" | "middle";
     clickCount?: number;
     delay?: number;
+    coordinates?: {
+      x: number;
+      y: number;
+    };
+    targetScope?: TargetScope;
+    windowTitle?: string;
   };
 }
 
@@ -89,6 +110,8 @@ export interface TypeNode extends BaseNode {
     delay?: number;
     sensitive?: boolean;
     pressEnter?: boolean;
+    targetScope?: TargetScope;
+    windowTitle?: string;
   };
 }
 
