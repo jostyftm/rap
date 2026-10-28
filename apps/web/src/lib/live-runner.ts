@@ -92,13 +92,19 @@ export async function runRecipeInLivePanel(
       const startTime = Date.now();
 
       // Ejecutar según el tipo de nodo
-      if (node.type === "navigate") {
+      if (node.type === "webhook") {
+        recipeStore.addLog({
+          level: "info",
+          message: `[Panel Interactivo] Nodo Webhook '${node.id}' verificado. Para una ejecución real que espere peticiones HTTP en tiempo real, ejecuta en modo 'Ventana Chromium'.`,
+          nodeId: node.id,
+        });
+      } else if (node.type === "navigate") {
         const targetUrl = (node as any).params?.url;
         if (targetUrl) {
           const recId = recipeStore.recipeId || "current";
           await liveStore.startEmbedded(recId, targetUrl);
-          // Esperar un momento a que el frame cargue
-          await new Promise((r) => setTimeout(r, 1200));
+          // Esperar un momento a que el frame cargue y la SPA inicialice parámetros
+          await new Promise((r) => setTimeout(r, 2000));
         }
       } else {
         const result = await liveStore.exec(node);

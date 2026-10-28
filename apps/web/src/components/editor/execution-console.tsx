@@ -18,11 +18,18 @@ import {
   Database,
   RefreshCw,
   ExternalLink,
+  Radio,
+  Copy,
+  Check,
+  Send,
+  Loader2,
 } from "lucide-react";
+import type { WebhookNode } from "@rpa/dsl";
 import { useRecipeStore, type ExecutionLog } from "../../stores/use-recipe-store";
 import { getEcho } from "../../lib/echo";
 import { apiFetch } from "../../lib/api-client";
 import { dispatchRunControl } from "../../lib/execution-control";
+import { buildWebhookUrl } from "../../lib/webhook-url";
 
 export function ExecutionConsole() {
   const [isOpen, setIsOpen] = useState(false);
@@ -44,6 +51,46 @@ export function ExecutionConsole() {
   const addScreenshot = useRecipeStore((s) => s.addScreenshot);
   const finishRun = useRecipeStore((s) => s.finishRun);
   const clearRunState = useRecipeStore((s) => s.clearRunState);
+
+  const definition = useRecipeStore((s) => s.definition);
+  const [isCopied, setIsCopied] = useState(false);
+  const [isSendingTest, setIsSendingTest] = useState(false);
+
+  // Detectar información del webhook si el flujo inicia con él
+  const entryNode = definition?.entry ? definition.nodes[definition.entry] : undefined;
+  const webhookNode = (entryNode?.type === "webhook"
+    ? entryNode
+    : Object.values(definition?.nodes || {}).find((n) => n.type === "webhook")) as WebhookNode | undefined;
+
+  const webhookPath = webhookNode?.params?.path || (webhookNode ? `/api/v1/webhooks/${webhookNode.id}` : "/webhook");
+  const webhookUrl = buildWebhookUrl(webhookPath);
+  const webhookMethod = webhookNode?.params?.httpMethod || "POST";
+
+  const handleCopyWebhookUrl = () => {
+    navigator.clipboard.writeText(webhookUrl);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
+  };
+
+  const handleSendTestPayload = async () => {
+    setIsSendingTest(true);
+    try {
+      const samplePayload = {
+        fecha: new Date().toISOString().slice(0, 10),
+        timestamp: new Date().toISOString(),
+        origen: "Consola RPA Studio",
+      };
+      await fetch(webhookUrl, {
+        method: webhookMethod === "ANY" ? "POST" : webhookMethod,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(samplePayload),
+      });
+    } catch (err) {
+      console.error("Error al enviar payload de prueba:", err);
+    } finally {
+      setIsSendingTest(false);
+    }
+  };
 
   const logsEndRef = useRef<HTMLDivElement>(null);
 
@@ -140,12 +187,14 @@ export function ExecutionConsole() {
         ".run.updated",
         (e: {
           id: string;
-          status: "queued" | "running" | "paused" | "completed" | "failed";
+          status: "queued" | "running" | "waiting" | "paused" | "completed" | "failed";
           duration_ms?: number;
           error_message?: string;
         }) => {
           if (e.status === "paused") {
             setRunControlState("paused");
+          } else if (e.status === "waiting") {
+            setRunControlState("waiting");
           } else if (e.status === "running") {
             setRunControlState("running");
           } else if (e.status === "completed") {
@@ -196,6 +245,8 @@ export function ExecutionConsole() {
           if (pollingInterval) clearInterval(pollingInterval);
         } else if (runData.status === "paused") {
           setRunControlState("paused");
+        } else if (runData.status === "waiting") {
+          setRunControlState("waiting");
         }
       } catch {
         // Ignorar fallos de sondeo
@@ -294,7 +345,9 @@ export function ExecutionConsole() {
                   <span className="flex items-center space-x-1 text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full text-[10px] font-mono animate-pulse border border-amber-500/20">
                     <Clock className="w-3 h-3" />
                     <span>
-                      {runControlState === "paused"
+                      {runControlState === "waiting"
+                        ? "Esperando petición webhook..."
+                        : runControlState === "paused"
                         ? "Pausado"
                         : runControlState === "stopping"
                         ? "Deteniendo..."
@@ -318,25 +371,26 @@ export function ExecutionConsole() {
                 {/* Controles interactivos de Pausa / Continuar / Detener */}
                 {runStatus === "running" && (
                   <div className="flex items-center space-x-1 bg-neutral-950 border border-neutral-800 rounded px-1 py-0.5">
-                    {runControlState === "paused" ? (
-                      <button
-                        onClick={() => handleControlAction("resume")}
-                        title="Reanudar ejecución"
-                        className="flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition-colors"
-                      >
-                        <Play className="w-3 h-3 fill-current" />
-                        <span>Continuar</span>
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => handleControlAction("pause")}
-                        title="Pausar ejecución"
-                        className="flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-600 hover:bg-amber-500 text-white font-semibold transition-colors"
-                      >
-                        <Pause className="w-3 h-3 fill-current" />
-                        <span>Pausar</span>
-                      </button>
-                    )}
+                    {runControlState !== "waiting" &&
+                      (runControlState === "paused" ? (
+                        <button
+                          onClick={() => handleControlAction("resume")}
+                          title="Reanudar ejecución"
+                          className="flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition-colors"
+                        >
+                          <Play className="w-3 h-3 fill-current" />
+                          <span>Continuar</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleControlAction("pause")}
+                          title="Pausar ejecución"
+                          className="flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-600 hover:bg-amber-500 text-white font-semibold transition-colors"
+                        >
+                          <Pause className="w-3 h-3 fill-current" />
+                          <span>Pausar</span>
+                        </button>
+                      ))}
 
                     <button
                       onClick={() => handleControlAction("stop")}
@@ -470,15 +524,61 @@ export function ExecutionConsole() {
 
             <div className="flex-1 overflow-y-auto p-3">
               {activeTab === "logs" && (
-                filteredLogs.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-neutral-600 text-xs">
-                    {searchFilter ? "No se encontraron logs con ese filtro." : "Sin eventos de ejecución en vivo."}
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    {filteredLogs.map((log) => (
-                      <div
-                        key={log.id}
+                <>
+                  {runControlState === "waiting" && (
+                    <div className="mb-3 p-3 bg-amber-950/40 border border-amber-800/50 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 select-none">
+                      <div className="flex items-start sm:items-center space-x-2.5 min-w-0">
+                        <div className="p-1.5 bg-amber-500/20 text-amber-400 rounded-md shrink-0 animate-pulse mt-0.5 sm:mt-0">
+                          <Radio className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-semibold text-amber-200 flex items-center space-x-2">
+                            <span>Esperando petición Webhook para iniciar</span>
+                            <span className="text-[9px] font-mono bg-amber-500/20 text-amber-300 px-1 rounded border border-amber-500/30">
+                              {webhookMethod}
+                            </span>
+                          </div>
+                          <div className="text-[10.5px] text-zinc-400 font-mono mt-0.5 flex items-center space-x-1.5 truncate">
+                            <span className="truncate">{webhookUrl}</span>
+                            <button
+                              onClick={handleCopyWebhookUrl}
+                              className="p-1 hover:text-white text-zinc-400 transition-colors shrink-0"
+                              title="Copiar URL completa"
+                            >
+                              {isCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
+                        <button
+                          onClick={handleSendTestPayload}
+                          disabled={isSendingTest}
+                          className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white text-[10.5px] font-medium transition-colors disabled:opacity-50"
+                        >
+                          {isSendingTest ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                          <span>Enviar payload simulado</span>
+                        </button>
+                        <button
+                          onClick={() => handleControlAction("stop")}
+                          className="px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-[10.5px] font-medium transition-colors"
+                        >
+                          Detener
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {filteredLogs.length === 0 ? (
+                    <div className="h-full flex items-center justify-center text-neutral-600 text-xs">
+                      {searchFilter ? "No se encontraron logs con ese filtro." : "Sin eventos de ejecución en vivo."}
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      {filteredLogs.map((log) => (
+                        <div
+                          key={log.id}
                         className="flex items-start space-x-2 leading-relaxed hover:bg-neutral-900/50 p-0.5 rounded transition-colors"
                       >
                         <span className="text-neutral-500 shrink-0 text-[11px]">
@@ -532,8 +632,9 @@ export function ExecutionConsole() {
                     ))}
                     <div ref={logsEndRef} />
                   </div>
-                )
-              )}
+                )}
+              </>
+            )}
 
               {activeTab === "screenshots" && (
                 screenshots.length === 0 ? (

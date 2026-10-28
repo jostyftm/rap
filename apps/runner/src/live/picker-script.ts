@@ -236,8 +236,18 @@ export const PICKER_JS = String.raw`
   }
 
   function resolveCandidate(c) {
+    if (!c || !c.value) return null;
     try {
-      if (c.strategy === 'testid') return document.querySelector('[data-testid="' + esc(c.value) + '"]');
+      if (c.strategy === 'testid') {
+        var v = esc(c.value);
+        var el = document.querySelector('[data-testid="' + v + '"], [data-test="' + v + '"], [data-test-id="' + v + '"], [data-cy="' + v + '"], [data-qa="' + v + '"]');
+        if (el) return el;
+        try {
+          return document.getElementById(c.value);
+        } catch (e) {
+          return null;
+        }
+      }
       if (c.strategy === 'css') return document.querySelector(c.value);
       if (c.strategy === 'xpath') {
         return document.evaluate(c.value, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
@@ -372,28 +382,52 @@ export const PICKER_JS = String.raw`
       return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: false, error: 'Elemento no encontrado tras esperar 5s' };
     }
 
-    var found = resolveGroup(cmd.locator);
+    // Acciones que no requieren un localizador obligatorio
+    if (cmd.action === 'screenshot' && (!cmd.locator || !cmd.locator.primary || !cmd.locator.primary.value)) {
+      return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: true, strategy: 'fullPage', output: 'Captura de pantalla simulada' };
+    }
+    if (cmd.action === 'scroll' && cmd.params && cmd.params.mode !== 'element') {
+      var sp = cmd.params || {};
+      var sbeh = sp.behavior || 'smooth';
+      if (sp.mode === 'top') {
+        window.scrollTo({ top: 0, behavior: sbeh });
+        return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: true, strategy: 'top', output: 'Desplazado al inicio' };
+      } else if (sp.mode === 'bottom') {
+        window.scrollTo({ top: document.body.scrollHeight, behavior: sbeh });
+        return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: true, strategy: 'bottom', output: 'Desplazado al final' };
+      } else {
+        var sx = sp.x || 0;
+        var sy = sp.y == null ? 500 : sp.y;
+        window.scrollBy({ left: sx, top: sy, behavior: sbeh });
+        return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: true, strategy: 'coordinates', output: 'Desplazado ' + sy + 'px' };
+      }
+    }
+
+    // Auto-espera activa (polling) hasta que el elemento aparezca y sea visible en el DOM
+    var timeoutMs = Math.min((cmd.timeout && Number(cmd.timeout)) || 3500, 10000);
+    var startTime = Date.now();
+    var found = null;
+    while (Date.now() - startTime < timeoutMs) {
+      found = resolveGroup(cmd.locator);
+      if (found && isVisible(found.el)) break;
+      await new Promise(function (r) { setTimeout(r, 100); });
+    }
+    if (!found) {
+      found = resolveGroup(cmd.locator);
+    }
     if (!found) {
       if (cmd.action === 'screenshot') {
         return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: true, strategy: 'fullPage', output: 'Captura de pantalla simulada' };
       }
-      if (cmd.action === 'scroll' && cmd.params && cmd.params.mode !== 'element') {
-        var sp = cmd.params || {};
-        var sbeh = sp.behavior || 'smooth';
-        if (sp.mode === 'top') {
-          window.scrollTo({ top: 0, behavior: sbeh });
-          return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: true, strategy: 'top', output: 'Desplazado al inicio' };
-        } else if (sp.mode === 'bottom') {
-          window.scrollTo({ top: document.body.scrollHeight, behavior: sbeh });
-          return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: true, strategy: 'bottom', output: 'Desplazado al final' };
-        } else {
-          var sx = sp.x || 0;
-          var sy = sp.y == null ? 500 : sp.y;
-          window.scrollBy({ left: sx, top: sy, behavior: sbeh });
-          return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: true, strategy: 'coordinates', output: 'Desplazado ' + sy + 'px' };
-        }
-      }
-      res.ok = false; res.error = 'Elemento no encontrado con ningún localizador'; return res;
+      var cands = (cmd.locator && [cmd.locator.primary].concat(cmd.locator.fallbacks || []).filter(Boolean)) || [];
+      var details = cands.map(function(c) { return '[' + c.strategy + ': ' + c.value + ']'; }).join(', ');
+      var isPlaceholder = cands.some(function(c) {
+        return c.value === 'action-button' || c.value === 'input-field' || c.value === 'data-text' || c.value === 'select-dropdown';
+      });
+      var hint = isPlaceholder ? ' — El nodo tiene el selector por defecto (' + (cmd.locator && cmd.locator.primary && cmd.locator.primary.value) + '). Configúralo o selecciónalo con el cursor en el simulador.' : '';
+      res.ok = false;
+      res.error = 'Elemento no encontrado tras esperar ' + Math.round(timeoutMs / 1000) + 's' + (details ? ' (' + details + ')' : '') + hint;
+      return res;
     }
     var el = found.el;
     try {
@@ -401,12 +435,23 @@ export const PICKER_JS = String.raw`
       highlight(el, cmd.action + ' → ' + found.strategy, '#10b981');
       setTimeout(hideOverlay, 900);
       var p = cmd.params || {};
-      if (cmd.action === 'click') { el.click(); }
+      if (cmd.action === 'click') {
+        el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+        el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+        el.click();
+      }
       else if (cmd.action === 'type') {
         el.focus();
         setNativeValue(el, p.clear === false ? (el.value || '') + String(p.text == null ? '' : p.text) : String(p.text == null ? '' : p.text));
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
+        if (p.pressEnter) {
+          el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+          el.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+          el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+        }
+        el.dispatchEvent(new Event('blur', { bubbles: true }));
+        if (typeof el.blur === 'function') el.blur();
       } else if (cmd.action === 'select') {
         el.value = p.value;
         el.dispatchEvent(new Event('input', { bubbles: true }));

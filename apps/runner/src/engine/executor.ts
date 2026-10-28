@@ -2,6 +2,8 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 import type { LoopNode, RecipeDsl, RecipeNode, RetryPolicy, TryCatchNode } from "@rpa/dsl";
 import type { RunnerEventEmitter } from "../protocol/event-emitter.js";
 import { executeNodeAction, type ExecutionContext, type ActionResult } from "./action-handlers.js";
+import { createMissingTokenReporter } from "./handlers/token-warnings.js";
+import { hasWebhookPayload, mergeWebhookPayload, waitForWebhookPayload } from "./webhook-wait.js";
 import { evaluateExpression, interpolateString } from "../evaluator/jsonata-evaluator.js";
 import { resolveLocator } from "./locator-resolver.js";
 import { uploadArtifact } from "../storage/s3.js";
@@ -71,6 +73,14 @@ export interface ExecutionOptions {
   parameters?: Record<string, unknown>;
   secrets?: Record<string, string>;
   options?: ExecutionDisplayOptions;
+  /** Origen del run: manual, webhook, schedule, api... */
+  trigger?: string;
+  /** UUID de la receta, necesario para registrar la espera del webhook. */
+  recipeId?: string;
+  /** URL pública del trigger de webhook de la receta. */
+  webhookTriggerUrl?: string | null;
+  /** Indica si el webhook público está habilitado. */
+  webhookEnabled?: boolean;
 }
 
 export class RecipeExecutor {
@@ -96,11 +106,60 @@ export class RecipeExecutor {
   }
 
   async execute(options: ExecutionOptions): Promise<{ success: boolean; durationMs: number; error?: string }> {
-    const { runId, recipe, parameters = {}, secrets = {}, options: displayOpts = {} } = options;
+    const { runId, recipe, secrets = {}, options: displayOpts = {} } = options;
+    let parameters = options.parameters ?? {};
     const isHeaded = displayOpts.display === "headed";
     const slowMo = displayOpts.slowMoMs ?? (isHeaded ? 350 : 0);
     const highlight = displayOpts.highlight ?? isHeaded;
     const keepOpenMs = displayOpts.keepOpenMs ?? (isHeaded ? 4000 : 0);
+
+    const controlKey = `rpa:run:${runId}:control`;
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    // Si el nodo principal es un webhook y el run no trae payload, esperamos la
+    // petición HTTP antes de lanzar el navegador o ejecutar cualquier nodo.
+    const entryNode = recipe.entry ? recipe.nodes[recipe.entry] : undefined;
+    if (entryNode?.type === "webhook" && !hasWebhookPayload(parameters)) {
+      const outcome = await waitForWebhookPayload({
+        runId,
+        recipeId: options.recipeId,
+        node: entryNode,
+        trigger: options.trigger,
+        triggerUrl: options.webhookTriggerUrl,
+        webhookEnabled: options.webhookEnabled,
+        redis: this.redis,
+        controlKey,
+        emitter: this.eventEmitter,
+      });
+
+      if (outcome.kind === "stopped") {
+        await this.eventEmitter.emitRunStopped(runId);
+        return { success: false, durationMs: 0, error: "Ejecución detenida por el usuario" };
+      }
+
+      if (outcome.kind === "timeout") {
+        const message = `No se recibió ninguna petición webhook en ${Math.round(outcome.timeoutMs / 1000)}s`;
+        await this.eventEmitter.emitRunLog(runId, "error", message, entryNode.id, "runner", {
+          scope: "webhook",
+          node_id: entryNode.id,
+          timeout_ms: outcome.timeoutMs,
+        });
+        await this.eventEmitter.emitRunFinished(runId, "failed", 0, message);
+        return { success: false, durationMs: 0, error: message };
+      }
+
+      if (outcome.kind === "unavailable") {
+        const message = `No se puede esperar la petición webhook: ${outcome.reason}`;
+        await this.eventEmitter.emitRunLog(runId, "error", message, entryNode.id, "runner", {
+          scope: "webhook",
+          node_id: entryNode.id,
+        });
+        await this.eventEmitter.emitRunFinished(runId, "failed", 0, message);
+        return { success: false, durationMs: 0, error: message };
+      }
+
+      parameters = mergeWebhookPayload(parameters, entryNode, outcome.payload);
+    }
 
     let dedicatedBrowser: Browser | null = null;
     let browser: Browser;
@@ -207,11 +266,50 @@ export class RecipeExecutor {
       }
     }
 
+    // Mock parametrizable de agente local (ej. TrayIcon Superflex en puerto 9494) para entornos de prueba
+    const mockMac = variables.mock_mac ?? variables.mock_macs ?? variables.tray_mac ?? variables.mac;
+    if (mockMac) {
+      const mockVersion = String(variables.mock_tray_version ?? "4.8.6");
+      const formattedMacs = Array.isArray(mockMac) ? mockMac : [String(mockMac)];
+
+      await page.route(/https?:\/\/(127\.0\.0\.1|localhost):9494\/.*/, async (route) => {
+        const url = route.request().url();
+        if (url.includes("/mac")) {
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            headers: { "access-control-allow-origin": "*" },
+            body: JSON.stringify(formattedMacs),
+          });
+        } else if (url.includes("/version")) {
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            headers: { "access-control-allow-origin": "*" },
+            body: JSON.stringify(mockVersion),
+          });
+        } else {
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            headers: { "access-control-allow-origin": "*" },
+            body: JSON.stringify({ ok: true }),
+          });
+        }
+      });
+    }
+
     const execContext: ExecutionContext = {
       runId,
       variables,
       secrets,
       stepResults: {},
+      parameters,
+      warn: (message, context) => {
+        this.eventEmitter
+          .emitRunLog(runId, "warn", message, activeNodeId, "runner", context)
+          .catch(() => undefined);
+      },
     };
 
     const visitedNodes = new Set<string>();
@@ -228,8 +326,6 @@ export class RecipeExecutor {
     let stepCount = 0;
     let stepMode = false;
     const maxGlobalSteps = 2000;
-    const controlKey = `rpa:run:${runId}:control`;
-    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
     // Espera bloqueante hasta resume / step / stop. Devuelve "stop" o "continue".
     const waitForResume = async (): Promise<"continue" | "stop"> => {
@@ -624,13 +720,16 @@ export class RecipeExecutor {
      * bucle avise y ejecute cero iteraciones sin fallar el nodo.
      */
     const resolveLoopCollection = async (
-      expression: string
+      expression: string,
+      node: LoopNode
     ): Promise<{ items: unknown[]; valid: boolean; rawType: string }> => {
       const trimmed = expression.trim();
       let value: unknown;
 
       if (trimmed.startsWith("{{") && trimmed.endsWith("}}")) {
-        const interpolated = interpolateString(trimmed, execContext.variables, secrets);
+        const interpolated = interpolateString(trimmed, execContext.variables, secrets, {
+          onMissingTokens: createMissingTokenReporter(node.id, node.type, execContext),
+        });
         try {
           value = JSON.parse(interpolated);
         } catch {
@@ -720,7 +819,8 @@ export class RecipeExecutor {
 
       try {
         const resolvedCollection = await resolveLoopCollection(
-          node.params.collectionExpression
+          node.params.collectionExpression,
+          node
         );
         const collection = resolvedCollection.items;
         const maxIterations = Math.min(

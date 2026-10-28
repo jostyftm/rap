@@ -8,6 +8,10 @@ use App\Models\Workspace;
 use Illuminate\Support\Facades\Redis;
 use Laravel\Sanctum\Sanctum;
 
+beforeEach(function () {
+    $this->withoutMiddleware(\Illuminate\Routing\Middleware\ThrottleRequests::class);
+});
+
 function controlFixture(string $status = 'paused'): Run
 {
     $user = User::factory()->create();

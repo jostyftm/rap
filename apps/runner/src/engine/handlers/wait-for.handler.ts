@@ -1,12 +1,20 @@
 import type { Page } from "playwright";
 import type { WaitForNode } from "@rpa/dsl";
 import { resolveLocator, type ResolvedLocator } from "../locator-resolver.js";
+import { interpolateString } from "../../evaluator/jsonata-evaluator.js";
+import { createMissingTokenReporter } from "./token-warnings.js";
 import type { NodeActionHandler, ExecutionContext, ActionResult } from "./types.js";
 
 export const waitForHandler: NodeActionHandler<WaitForNode> = {
   type: "waitFor",
-  async execute(page: Page, node: WaitForNode, _ctx: ExecutionContext): Promise<ActionResult> {
-    const { strategy, value } = node.params;
+  async execute(page: Page, node: WaitForNode, ctx: ExecutionContext): Promise<ActionResult> {
+    const { strategy } = node.params;
+    const value =
+      typeof node.params.value === "string"
+        ? interpolateString(node.params.value, ctx.variables, ctx.secrets, {
+            onMissingTokens: createMissingTokenReporter(node.id, node.type, ctx),
+          })
+        : node.params.value;
     let resolvedLocator: ResolvedLocator | undefined;
 
     if (strategy === "networkIdle") {

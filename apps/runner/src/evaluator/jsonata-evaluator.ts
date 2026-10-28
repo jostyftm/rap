@@ -31,12 +31,29 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   return current;
 }
 
+export interface InterpolateOptions {
+  /**
+   * Se invoca una sola vez por plantilla cuando hay tokens `{{...}}` que no se
+   * pudieron resolver. Permite registrar un aviso sin interrumpir la ejecución.
+   */
+  onMissingTokens?: (tokens: string[]) => void;
+}
+
+/**
+ * Interpola `{{token}}` en una cadena.
+ *
+ * Si un token no se puede resolver se deja intacto (incluidas sus llaves) para
+ * no perder la referencia, y se reporta vía `onMissingTokens`.
+ */
 export function interpolateString(
   template: string,
   variables: Record<string, unknown>,
-  secrets: Record<string, string> = {}
+  secrets: Record<string, string> = {},
+  options: InterpolateOptions = {}
 ): string {
-  return template.replace(/\{\{([^{}]+)\}\}/g, (_, rawKey) => {
+  const missingTokens = new Set<string>();
+
+  const interpolated = template.replace(/\{\{([^{}]+)\}\}/g, (_, rawKey) => {
     const key = rawKey.trim();
     if (key.startsWith("secret.")) {
       const secretName = key.replace("secret.", "");
@@ -93,7 +110,14 @@ export function interpolateString(
       return typeof nested === "object" && nested !== null ? JSON.stringify(nested) : String(nested);
     }
 
+    missingTokens.add(key);
     return `{{${key}}}`;
   });
+
+  if (missingTokens.size > 0) {
+    options.onMissingTokens?.(Array.from(missingTokens));
+  }
+
+  return interpolated;
 }
 

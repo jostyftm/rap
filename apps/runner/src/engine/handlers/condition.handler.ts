@@ -1,6 +1,7 @@
 import type { Page } from "playwright";
 import type { ConditionNode, ConditionDataType, ConditionOperator } from "@rpa/dsl";
 import { evaluateExpression } from "../../evaluator/jsonata-evaluator.js";
+import { createMissingTokenReporter } from "./token-warnings.js";
 import type { NodeActionHandler, ExecutionContext, ActionResult } from "./types.js";
 
 function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
@@ -16,7 +17,11 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   return current;
 }
 
-function resolveOperand(operandStr: string | undefined, ctx: ExecutionContext): unknown {
+function resolveOperand(
+  operandStr: string | undefined,
+  ctx: ExecutionContext,
+  node?: ConditionNode
+): unknown {
   if (operandStr === undefined || operandStr === null) return undefined;
   const trimmed = operandStr.trim();
   if (trimmed.startsWith("{{") && trimmed.endsWith("}}")) {
@@ -29,7 +34,12 @@ function resolveOperand(operandStr: string | undefined, ctx: ExecutionContext): 
     }
     const val = getNestedValue(ctx.variables, key);
     if (val !== undefined) return val;
-    return getNestedValue(ctx.stepResults, key);
+    const stepVal = getNestedValue(ctx.stepResults, key);
+    if (stepVal !== undefined) return stepVal;
+    if (node) {
+      createMissingTokenReporter(node.id, node.type, ctx)([key]);
+    }
+    return undefined;
   }
 
   if (trimmed in ctx.variables) return ctx.variables[trimmed];
@@ -133,8 +143,8 @@ export const conditionHandler: NodeActionHandler<ConditionNode> = {
     const { dataType, operator, leftOperand, rightOperand, expression } = node.params;
 
     if (dataType && dataType !== "custom" && operator) {
-      const leftVal = resolveOperand(leftOperand, ctx);
-      const rightVal = resolveOperand(rightOperand, ctx);
+      const leftVal = resolveOperand(leftOperand, ctx, node);
+      const rightVal = resolveOperand(rightOperand, ctx, node);
       isSatisfied = evaluateTypedCondition(dataType, operator, leftVal, rightVal);
     } else {
       const conditionResult = await evaluateExpression(expression, {

@@ -13,7 +13,8 @@ use Symfony\Component\HttpFoundation\Response;
 class RunService
 {
     public function __construct(
-        private RunnerDispatcher $dispatcher
+        private RunnerDispatcher $dispatcher,
+        private WebhookRunDelivery $webhookRuns
     ) {}
 
     public function get(Run $run): Run
@@ -59,6 +60,10 @@ class RunService
             'trigger' => $trigger,
             'parameters' => $parameters,
         ]);
+
+        // Pre-registramos la espera antes de despachar para que una petición
+        // webhook que llegue antes de que arranque el runner no se pierda.
+        $this->webhookRuns->registerWaitingRun($run, (array) $recipe->latestVersion->definition);
 
         $this->dispatcher->dispatchRun($run, $options);
 

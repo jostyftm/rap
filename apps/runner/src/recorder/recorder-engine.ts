@@ -146,6 +146,24 @@ export class RecorderEngine {
           }, 400);
         }, true);
 
+        // 2b. Capturar tecla Enter en campos de texto
+        document.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter') {
+            const target = e.target;
+            if (target && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {
+              clearTimeout(inputTimer);
+              const loc = getCandidates(target);
+              window.rpaCaptureAction({
+                type: 'type',
+                locator: loc,
+                params: { text: target.value, clear: true, pressEnter: true },
+                url: window.location.href,
+                description: 'Escribir y pulsar Enter en ' + (loc.primary.value || target.name || 'campo')
+              });
+            }
+          }
+        }, true);
+
         // 3. Capturar selects
         document.addEventListener('change', function(e) {
           const target = e.target;

@@ -8,6 +8,9 @@ interface LiveSession {
   id: string;
   origin: string;
   lastUsed: number;
+  mockMac?: string | string[];
+  mockVersion?: string;
+  cookies: Map<string, string>;
 }
 
 const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
@@ -78,7 +81,12 @@ export class LiveServer {
       s.lastUsed = Date.now();
       return s;
     }
-    const s: LiveSession = { id: randomBytes(6).toString("hex"), origin, lastUsed: Date.now() };
+    const s: LiveSession = {
+      id: randomBytes(6).toString("hex"),
+      origin,
+      lastUsed: Date.now(),
+      cookies: new Map(),
+    };
     this.sessions.set(s.id, s);
     this.originToSession.set(origin, s.id);
     return s;
@@ -123,6 +131,18 @@ export class LiveServer {
         await this.handleRpaProxy(sid, req, res);
         return;
       }
+      if (urlPath.startsWith("/__rpa_mock/mac")) {
+        this.handleMockMac(sid, req, res);
+        return;
+      }
+      if (urlPath.startsWith("/__rpa_mock/version")) {
+        this.handleMockVersion(sid, req, res);
+        return;
+      }
+      if (urlPath.startsWith("/__rpa_cookie_sync")) {
+        await this.handleCookieSync(sid, req, res);
+        return;
+      }
       await this.handleProxy(sid, req, res);
       return;
     }
@@ -161,6 +181,8 @@ export class LiveServer {
         return this.json(res, 422, { error: "URL inválida" });
       }
       const session = this.sessionFor(target.origin);
+      if (body.mock_mac !== undefined) session.mockMac = body.mock_mac;
+      if (body.mock_version !== undefined) session.mockVersion = body.mock_version;
       return this.json(res, 201, {
         session_id: session.id,
         origin: target.origin,
@@ -221,6 +243,74 @@ export class LiveServer {
       .replace(/\s+integrity=(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
 
     return result;
+  }
+
+  private handleMockMac(sid: string, req: http.IncomingMessage, res: http.ServerResponse): void {
+    const session = this.sessions.get(sid);
+    const headers: Record<string, string | string[]> = {
+      "content-type": "application/json; charset=utf-8",
+    };
+    this.applyCorsHeaders(headers, req);
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, headers);
+      res.end();
+      return;
+    }
+
+    const mockMac = session?.mockMac;
+    const body = mockMac ? (Array.isArray(mockMac) ? mockMac : [String(mockMac)]) : [];
+    res.writeHead(200, headers);
+    res.end(JSON.stringify(body));
+  }
+
+  private handleMockVersion(sid: string, req: http.IncomingMessage, res: http.ServerResponse): void {
+    const session = this.sessions.get(sid);
+    const headers: Record<string, string | string[]> = {
+      "content-type": "application/json; charset=utf-8",
+    };
+    this.applyCorsHeaders(headers, req);
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, headers);
+      res.end();
+      return;
+    }
+
+    const version = session?.mockVersion || "4.8.6";
+    res.writeHead(200, headers);
+    res.end(JSON.stringify(version));
+  }
+
+  private async handleCookieSync(sid: string, req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    const session = this.sessions.get(sid);
+    const corsHeaders: Record<string, string | string[]> = {
+      "content-type": "application/json; charset=utf-8",
+    };
+    this.applyCorsHeaders(corsHeaders, req);
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, corsHeaders);
+      res.end();
+      return;
+    }
+
+    if (session) {
+      try {
+        const bodyBuf = await this.readBody(req);
+        const data = JSON.parse(bodyBuf.toString("utf8") || "{}");
+        if (data.name) {
+          if (data.value === "" || (data.expires && data.expires <= Date.now())) {
+            session.cookies.delete(data.name);
+          } else {
+            session.cookies.set(data.name, String(data.value));
+          }
+        }
+      } catch {}
+    }
+
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify({ ok: true }));
   }
 
   /**
@@ -358,6 +448,28 @@ export class LiveServer {
     if (headers.origin) headers.origin = session.origin;
     if (headers.referer) headers.referer = headers.referer.split(proxyOrigin).join(session.origin);
 
+    // Sincronizar cookies enviadas por el cliente (vía x-rpa-cookie o cookie)
+    const clientCookies = (req.headers["x-rpa-cookie"] as string) || (req.headers.cookie as string) || "";
+    if (clientCookies) {
+      const parts = clientCookies.split(";");
+      for (const p of parts) {
+        const eq = p.indexOf("=");
+        if (eq > 0) {
+          const k = p.slice(0, eq).trim();
+          const v = p.slice(eq + 1).trim();
+          if (k) session.cookies.set(k, v);
+        }
+      }
+    }
+
+    // Inyectar cookies acumuladas de sesión para upstream
+    if (session.cookies.size > 0) {
+      const cookieHeader = Array.from(session.cookies.entries())
+        .map(([k, v]) => `${k}=${v}`)
+        .join("; ");
+      headers["cookie"] = cookieHeader;
+    }
+
     const hasBody = !["GET", "HEAD"].includes(req.method || "GET");
     const body = hasBody ? await this.readBody(req) : undefined;
 
@@ -378,6 +490,20 @@ export class LiveServer {
       const sc = (upstream.headers as any).getSetCookie?.() as string[] | undefined;
       if (sc && sc.length) {
         accumulatedCookies.push(...sc);
+        for (const cookieItem of sc) {
+          const first = cookieItem.split(";")[0];
+          const eq = first.indexOf("=");
+          if (eq > 0) {
+            const k = first.slice(0, eq).trim();
+            const v = first.slice(eq + 1).trim();
+            const isExpired = /expires=Thu, 01 Jan 1970/i.test(cookieItem) || /max-age=0/i.test(cookieItem);
+            if (isExpired) {
+              session.cookies.delete(k);
+            } else if (k) {
+              session.cookies.set(k, v);
+            }
+          }
+        }
       }
 
       const location = upstream.headers.get("location");
@@ -483,8 +609,14 @@ export class LiveServer {
       text = this.rewriteText(text, session.origin, proxyOrigin);
       if (/text\/html/i.test(contentType)) {
         // Inyectar interceptor síncrono al inicio de <head> antes de que corran scripts de la página
+        const mocks = { mac: session.mockMac, version: session.mockVersion };
+        const initialCookies = Object.fromEntries(session.cookies);
         const inject =
-          `<script>window.__RPA_ORIGIN__=${JSON.stringify(session.origin)};\n${PROXY_CLIENT_JS}</script>` +
+          `<script>` +
+          `window.__RPA_ORIGIN__=${JSON.stringify(session.origin)};\n` +
+          `window.__RPA_MOCKS__=${JSON.stringify(mocks)};\n` +
+          `window.__RPA_INITIAL_COOKIES__=${JSON.stringify(initialCookies)};\n` +
+          `${PROXY_CLIENT_JS}</script>` +
           `<script src="/__rpa/picker.js"></script>`;
         text = /<head[^>]*>/i.test(text)
           ? text.replace(/<head[^>]*>/i, (m) => m + inject)

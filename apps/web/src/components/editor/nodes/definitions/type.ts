@@ -22,9 +22,12 @@ export const typeDefinition: NodeDefinition<TypeNode> = {
       primary: { strategy: "testid", value: "input-field", score: 95 },
       fallbacks: [],
     },
-    params: { text: "Texto de ejemplo", clear: true },
+    params: { text: "Texto de ejemplo", clear: true, pressEnter: false },
   }),
-  getHighlight: (node: TypeNode) => (node.params?.text ? `"${node.params.text}"` : undefined),
+  getHighlight: (node: TypeNode) =>
+    node.params?.text
+      ? `"${node.params.text}"${node.params.pressEnter ? " + ↵" : ""}`
+      : undefined,
   InspectorForm: TypeInspectorForm,
   AdvancedOptionsForm: TypeAdvancedForm,
 };

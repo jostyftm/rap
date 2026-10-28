@@ -131,9 +131,23 @@ export const useLiveStore = create<LiveState>((set, get) => ({
   startEmbedded: async (recipeId, url) => {
     set({ status: "starting", error: null, kind: "embedded", armedNodeId: null });
     try {
+      const def = useRecipeStore.getState().definition;
+      const macVar = def?.variables?.find((v) =>
+        ["mock_mac", "mock_macs", "tray_mac", "mac"].includes(v.name)
+      );
+      const versionVar = def?.variables?.find((v) => v.name === "mock_tray_version");
+
+      const payload: Record<string, unknown> = { url };
+      if (macVar?.defaultValue !== undefined) {
+        payload.mock_mac = macVar.defaultValue;
+      }
+      if (versionVar?.defaultValue !== undefined) {
+        payload.mock_version = versionVar.defaultValue;
+      }
+
       const res = await apiFetch<{ session_id: string; proxy_url: string; origin: string }>(
         `/api/v1/recipes/${recipeId}/live/start`,
-        { method: "POST", body: JSON.stringify({ url }) }
+        { method: "POST", body: JSON.stringify(payload) }
       );
       set({
         status: "ready",
@@ -310,6 +324,7 @@ export const useLiveStore = create<LiveState>((set, get) => ({
         action: node.type,
         locator: n.locator,
         params: n.params,
+        timeout: Math.min(n.timeout || (n.params as any)?.timeout || 3500, Math.max(1000, timeoutMs - 1000)),
       });
     });
   },

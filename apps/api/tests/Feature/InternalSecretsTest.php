@@ -116,7 +116,7 @@ it('rechaza una firma expirada', function () {
 
 it('rechaza la reutilización del nonce', function () {
     ['run' => $run] = internalSecretFixture();
-    $headers = runnerSignatureHeaders($run->uuid, nonce: 'nonce-repetido');
+    $headers = runnerSignatureHeaders($run->uuid, nonce: 'nonce-'.uniqid());
 
     $this->withHeaders($headers)
         ->postJson("/api/internal/v1/runs/{$run->uuid}/secrets", ['refs' => ['PORTAL_PASSWORD']])

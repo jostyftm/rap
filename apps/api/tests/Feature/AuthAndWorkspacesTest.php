@@ -7,6 +7,8 @@ use App\Models\User;
 use App\Models\Workspace;
 use Laravel\Sanctum\Sanctum;
 
+beforeEach(fn () => $this->withoutMiddleware(\Illuminate\Routing\Middleware\ThrottleRequests::class));
+
 function registerPayload(array $override = []): array
 {
     return array_merge([

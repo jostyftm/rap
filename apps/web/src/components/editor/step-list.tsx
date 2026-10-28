@@ -26,7 +26,9 @@ import { nodeRegistry } from "./nodes";
 export function StepList() {
   const definition = useRecipeStore((s) => s.definition);
   const selectedNodeId = useRecipeStore((s) => s.selectedNodeId);
+  const selectedNodeIds = useRecipeStore((s) => s.selectedNodeIds);
   const setSelectedNodeId = useRecipeStore((s) => s.setSelectedNodeId);
+  const toggleNodeSelection = useRecipeStore((s) => s.toggleNodeSelection);
   const reorderNodes = useRecipeStore((s) => s.reorderNodes);
   const deleteNode = useRecipeStore((s) => s.deleteNode);
   const addNode = useRecipeStore((s) => s.addNode);
@@ -83,14 +85,20 @@ export function StepList() {
         <div className="space-y-1.5">
           {orderedNodes.map((node, index) => {
             const Icon = nodeRegistry.get(node.type)?.icon || Globe;
-            const isSelected = selectedNodeId === node.id;
+            const isSelected =
+              selectedNodeIds.length > 0
+                ? selectedNodeIds.includes(node.id)
+                : selectedNodeId === node.id;
             const isRunning = runningNodeId === node.id;
             const isEntry = definition.entry === node.id;
 
             return (
               <div
                 key={node.id}
-                onClick={() => setSelectedNodeId(node.id)}
+                onClick={(e) => {
+                  const isMulti = e.shiftKey || e.metaKey || e.ctrlKey;
+                  toggleNodeSelection(node.id, isMulti);
+                }}
                 className={`group flex items-center justify-between p-3 rounded-lg border transition-colors cursor-pointer ${
                   isRunning
                     ? "bg-amber-950/20 border-amber-400/80 ring-1 ring-amber-400/30"

@@ -3,6 +3,7 @@ export const FIELD_LABELS: Record<string, string> = {
   "locator.primary.strategy": "Tipo de selector",
   "params.url": "URL de navegación",
   "params.text": "Texto a escribir",
+  "params.pressEnter": "Presionar Enter al finalizar",
   "params.value": "Valor o parámetro del paso",
   "params.variable": "Nombre de la variable",
   "params.name": "Nombre de la variable",

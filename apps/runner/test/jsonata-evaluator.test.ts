@@ -39,6 +39,19 @@ describe("JSONata Evaluator & Interpolation", () => {
     expect(result).toBe('Payload: {"key":"val"}');
   });
 
+  it("reporta los tokens sin resolver sin interrumpir la interpolación", () => {
+    const missing: string[] = [];
+    const result = interpolateString(
+      "{{webhook.body.email}} - {{steps.extract_1.output}} - {{otro}}",
+      { steps: { extract_1: { output: "ok" } } },
+      {},
+      { onMissingTokens: (tokens) => missing.push(...tokens) }
+    );
+
+    expect(result).toBe("{{webhook.body.email}} - ok - {{otro}}");
+    expect(missing).toEqual(["webhook.body.email", "otro"]);
+  });
+
   it("evalúa expresiones condicionales sin eval", async () => {
     const isGreater = await evaluateExpression("score > 80", { score: 95 });
     expect(isGreater).toBe(true);

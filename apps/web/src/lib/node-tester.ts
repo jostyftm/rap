@@ -1,13 +1,29 @@
-import type { RecipeNode } from "@rpa/dsl";
+import type { RecipeNode, RecipeDsl } from "@rpa/dsl";
 import { resolveExpression } from "@rpa/dsl";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { useLiveStore } from "@/stores/use-live-store";
+import { useLayoutStore } from "@/stores/use-layout-store";
 
 export interface NodeTestResult {
   ok: boolean;
   output?: unknown;
   error?: string;
   durationMs: number;
+}
+
+export interface MultiStepProgress {
+  currentStepIndex: number;
+  totalSteps: number;
+  currentNodeId: string;
+  isTesting: boolean;
+}
+
+export interface SequentialTestResult {
+  completed: boolean;
+  executedCount: number;
+  totalCount: number;
+  error?: string;
+  failedNodeId?: string;
 }
 
 function resolveValue(
@@ -318,12 +334,36 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
                   nodeOutputs: currentStepOutputs,
                   variables: currentVariables,
                 });
+                if (evalRes.hasError) {
+                  store.addLog({
+                    level: "warn",
+                    message: `[Test] Token(es) sin resolver en '${node.description || node.type}': ${evalRes.missingTokens.join(", ")}`,
+                    nodeId: node.id,
+                  });
+                }
                 resolvedParams[k] = evalRes.resolvedStr;
               } else {
                 resolvedParams[k] = v;
               }
             }
             resolvedNode = { ...node, params: resolvedParams } as any;
+          }
+
+          // Verificar si el nodo usa un selector por defecto que aún no ha sido capturado
+          const loc = (resolvedNode as any).locator;
+          const primVal = loc?.primary?.value;
+          const isDefaultPlaceholder =
+            (primVal === "action-button" && resolvedNode.type === "click") ||
+            (primVal === "input-field" && resolvedNode.type === "type") ||
+            (primVal === "select-dropdown" && resolvedNode.type === "select") ||
+            (primVal === "data-text" && resolvedNode.type === "extract");
+
+          if (isDefaultPlaceholder) {
+            store.addLog({
+              level: "warn",
+              message: `[Test] Paso '${resolvedNode.description || resolvedNode.type}' (${resolvedNode.id}) tiene el selector por defecto '${primVal}'. Si no se encuentra en el simulador, captúralo con la herramienta de selección visual.`,
+              nodeId: resolvedNode.id,
+            });
           }
 
           const liveResult = await live.exec(resolvedNode);
@@ -384,5 +424,188 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
     });
     console.error(`[NodeTester] Error en testRecipeNode:`, err);
     return { ok: false, error: errorMsg, durationMs };
+  }
+}
+
+/**
+ * Ordena un conjunto de IDs de nodos de acuerdo con el flujo topológico de ejecución de la receta.
+ * Comienza desde `entry` siguiendo los enlaces `.next` y aristas, y añade los nodos desconectados al final.
+ */
+export function sortNodesInExecutionOrder(
+  definition: RecipeDsl,
+  nodeIds: string[]
+): RecipeNode[] {
+  if (!definition?.nodes) return [];
+  const allOrdered: RecipeNode[] = [];
+  const visited = new Set<string>();
+
+  // 1. Recorrido lineal principal desde el entry
+  let currId: string | undefined = definition.entry;
+  while (currId && definition.nodes[currId] && !visited.has(currId)) {
+    visited.add(currId);
+    allOrdered.push(definition.nodes[currId]);
+    currId = definition.nodes[currId].next;
+  }
+
+  // 2. Agregar nodos desconectados o ramas restantes en orden de definición
+  for (const key of Object.keys(definition.nodes)) {
+    if (!visited.has(key)) {
+      visited.add(key);
+      allOrdered.push(definition.nodes[key]);
+    }
+  }
+
+  const selectedSet = new Set(nodeIds);
+  return allOrdered.filter((node) => selectedSet.has(node.id));
+}
+
+let activeSequentialAbort: { aborted: boolean } | null = null;
+
+/**
+ * Cancela inmediatamente cualquier prueba secuencial de pasos que esté en curso.
+ */
+export function stopSequentialTesting(): void {
+  if (activeSequentialAbort) {
+    activeSequentialAbort.aborted = true;
+  }
+  const store = useRecipeStore.getState();
+  store.setIsTestingSteps(false, null);
+  store.setRunningNodeId(null);
+  store.addLog({
+    level: "warn",
+    message: "[Test] Ejecución secuencial detenida por el usuario.",
+  });
+}
+
+/**
+ * Ejecuta una lista de nodos seleccionados en orden secuencial contra el simulador en vivo,
+ * abriendo el simulador en split mode si está cerrado y aplicando un retardo visual entre pasos.
+ */
+export async function testSequentialNodes(
+  nodeIds: string[],
+  options: {
+    delayMs?: number;
+    onProgress?: (progress: MultiStepProgress) => void;
+  } = {}
+): Promise<SequentialTestResult> {
+  const delayMs = options.delayMs ?? 600;
+  const store = useRecipeStore.getState();
+  const live = useLiveStore.getState();
+  const layout = useLayoutStore.getState();
+
+  const orderedNodes = sortNodesInExecutionOrder(store.definition, nodeIds);
+  if (orderedNodes.length === 0) {
+    return { completed: true, executedCount: 0, totalCount: 0 };
+  }
+
+  // Asegurar apertura del simulador en modo split
+  if (!live.isOpen) {
+    live.open();
+  }
+  if (layout.mode === "flow") {
+    layout.setMode("split");
+  }
+
+  // Si el primer paso no es un navegador y el simulador está cerrado/idle, intentar inicializarlo con la URL de la receta
+  const firstNode = orderedNodes[0];
+  if (firstNode.type !== "navigate" && (live.status === "idle" || !live.proxyUrl)) {
+    const navNode = Object.values(store.definition.nodes).find((n) => n.type === "navigate");
+    const entryNode = store.definition.entry ? store.definition.nodes[store.definition.entry] : null;
+    const targetUrl = (navNode as any)?.params?.url || (entryNode as any)?.params?.url;
+    if (targetUrl) {
+      store.addLog({
+        level: "info",
+        message: `[Test] Preparando simulador para la secuencia de pasos en ${targetUrl}...`,
+      });
+      const recipeId = store.recipeId || "current";
+      await live.startEmbedded(recipeId, targetUrl);
+      let waited = 0;
+      while (waited < 3000 && useLiveStore.getState().status !== "ready") {
+        await new Promise((r) => setTimeout(r, 200));
+        waited += 200;
+      }
+    }
+  }
+
+  const currentAbort = { aborted: false };
+  activeSequentialAbort = currentAbort;
+
+  store.setIsTestingSteps(true, {
+    current: 1,
+    total: orderedNodes.length,
+    nodeId: orderedNodes[0].id,
+  });
+  store.addLog({
+    level: "info",
+    message: `[Test] Iniciando ejecución secuencial de ${orderedNodes.length} pasos seleccionados en el simulador...`,
+  });
+
+  try {
+    for (let i = 0; i < orderedNodes.length; i++) {
+      if (currentAbort.aborted) {
+        return {
+          completed: false,
+          executedCount: i,
+          totalCount: orderedNodes.length,
+          error: "Ejecución cancelada por el usuario",
+        };
+      }
+
+      const currentNode = orderedNodes[i];
+      store.setRunningNodeId(currentNode.id);
+      store.setIsTestingSteps(true, {
+        current: i + 1,
+        total: orderedNodes.length,
+        nodeId: currentNode.id,
+      });
+
+      options.onProgress?.({
+        currentStepIndex: i,
+        totalSteps: orderedNodes.length,
+        currentNodeId: currentNode.id,
+        isTesting: true,
+      });
+
+      const result = await testRecipeNode(currentNode);
+
+      if (!result.ok) {
+        store.setRunningNodeId(null);
+        store.setIsTestingSteps(false, null);
+        store.addLog({
+          level: "error",
+          message: `[Test] Ejecución secuencial detenida por error en el paso '${currentNode.description || currentNode.id}': ${result.error}`,
+          nodeId: currentNode.id,
+        });
+        return {
+          completed: false,
+          executedCount: i,
+          totalCount: orderedNodes.length,
+          error: result.error,
+          failedNodeId: currentNode.id,
+        };
+      }
+
+      // Pausa visual entre pasos para apreciar la interacción en el simulador
+      if (delayMs > 0 && i < orderedNodes.length - 1) {
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
+
+    store.setRunningNodeId(null);
+    store.setIsTestingSteps(false, null);
+    store.addLog({
+      level: "success",
+      message: `[Test] Ejecución secuencial completada exitosamente (${orderedNodes.length}/${orderedNodes.length} pasos).`,
+    });
+
+    return {
+      completed: true,
+      executedCount: orderedNodes.length,
+      totalCount: orderedNodes.length,
+    };
+  } finally {
+    activeSequentialAbort = null;
+    store.setRunningNodeId(null);
+    store.setIsTestingSteps(false, null);
   }
 }

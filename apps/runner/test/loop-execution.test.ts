@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll } from "vitest";
 import type { RecipeDsl } from "@rpa/dsl";
 import { RecipeExecutor } from "../src/engine/executor.js";
-import type { RunnerEventEmitter } from "../src/protocol/event-emitter.js";
+import type { RunnerEventEmitter, RunWaitingInfo } from "../src/protocol/event-emitter.js";
 
 class MockEventEmitter implements RunnerEventEmitter {
   public events: { type: string; payload: any }[] = [];
@@ -16,6 +16,9 @@ class MockEventEmitter implements RunnerEventEmitter {
 
   async emitRunStarted(runId: string): Promise<void> {
     this.events.push({ type: "run.started", payload: { runId } });
+  }
+  async emitRunWaiting(runId: string, nodeId: string, info: RunWaitingInfo): Promise<void> {
+    this.events.push({ type: "run.waiting", payload: { runId, nodeId, info } });
   }
   async emitStepStarted(runId: string, nodeId: string): Promise<void> {
     this.events.push({ type: "step.started", payload: { runId, nodeId } });

@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { RecipeDsl } from "@rpa/dsl";
 import { RecipeExecutor } from "../src/engine/executor.js";
-import type { RunnerEventEmitter } from "../src/protocol/event-emitter.js";
+import type { RunnerEventEmitter, RunWaitingInfo } from "../src/protocol/event-emitter.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const testsiteDir = path.resolve(__dirname, "../../../testsite");
@@ -52,6 +52,9 @@ class MockEventEmitter implements RunnerEventEmitter {
 
   async emitRunStarted(runId: string): Promise<void> {
     this.events.push({ type: "run.started", payload: { runId } });
+  }
+  async emitRunWaiting(runId: string, nodeId: string, info: RunWaitingInfo): Promise<void> {
+    this.events.push({ type: "run.waiting", payload: { runId, nodeId, info } });
   }
   async emitStepStarted(runId: string, nodeId: string): Promise<void> {
     this.events.push({ type: "step.started", payload: { runId, nodeId } });

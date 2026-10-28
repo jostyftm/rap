@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { reconcileRecipeRoot } from "@rpa/dsl";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { useLiveStore } from "@/stores/use-live-store";
 import { useLayoutStore } from "@/stores/use-layout-store";
@@ -86,9 +87,23 @@ export function useRecipeEditor(recipeId: string) {
       return false;
     }
 
+    const currentStore = useRecipeStore.getState();
+    let safeDef = reconcileRecipeRoot(currentStore.definition);
+    const nodeKeys = Object.keys(safeDef.nodes || {});
+    if (nodeKeys.length > 0 && (!safeDef.entry || !safeDef.nodes[safeDef.entry])) {
+      safeDef = {
+        ...safeDef,
+        entry: nodeKeys[0],
+      };
+    }
+
+    if (safeDef.entry !== currentStore.definition.entry) {
+      useRecipeStore.setState({ definition: safeDef });
+    }
+
     setIsSaving(true);
     try {
-      await recipeEditorService.saveRecipe(recipeId, recipeName, definition);
+      await recipeEditorService.saveRecipe(recipeId, currentStore.recipeName, safeDef);
       return true;
     } catch (err) {
       console.error("Error al guardar la receta:", err);
@@ -96,7 +111,7 @@ export function useRecipeEditor(recipeId: string) {
     } finally {
       setIsSaving(false);
     }
-  }, [recipeId, recipeName, definition, notFound]);
+  }, [recipeId, notFound]);
 
   // Atajos de teclado: Ctrl+\ o Cmd+\ (layout) y Ctrl+B (paleta) y Ctrl+S (guardar)
   useEffect(() => {

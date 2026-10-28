@@ -107,6 +107,7 @@ const TypeNodeSchema = BaseNodeSchema.extend({
     clear: z.boolean().default(true),
     delay: z.number().min(0).optional(),
     sensitive: z.boolean().default(false),
+    pressEnter: z.boolean().default(false),
   }),
 });
 

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { RecipeDsl, RecipeNode, RecipeEdge, LocatorGroup, NodeValidationIssue } from "@rpa/dsl";
+import type { RecipeDsl, RecipeNode, RecipeEdge, LocatorGroup, NodeValidationIssue, RecipeVariable } from "@rpa/dsl";
 import { validateRecipeDslDetailed, reconcileRecipeRoot, analyzeInitializerNodes } from "@rpa/dsl";
 import { calculateLocatorScore } from "@rpa/locator";
 import { nodeRegistry } from "@/components/editor/nodes";
@@ -39,18 +39,31 @@ export interface RecipeStoreState {
   validationErrors: string[];
   nodeIssues: Record<string, NodeValidationIssue[]>;
   selectedNodeId: string | null;
+  selectedNodeIds: string[];
+  isTestingSteps: boolean;
+  testingStepsProgress: { current: number; total: number; nodeId?: string } | null;
   activeView: EditorView;
   isDirty: boolean;
+
+  // Acciones de selección
+  setSelectedNodeIds: (ids: string[]) => void;
+  toggleNodeSelection: (id: string, multi?: boolean) => void;
+  clearSelection: () => void;
+  setIsTestingSteps: (
+    isTesting: boolean,
+    progress?: { current: number; total: number; nodeId?: string } | null
+  ) => void;
 
   // Vista de detalle de nodo estilo n8n
   activeDetailNodeId: string | null;
   openNodeDetail: (nodeId: string) => void;
   closeNodeDetail: () => void;
+  setRecipeVariables: (variables: RecipeVariable[]) => void;
 
   // Ejecución en vivo
   runId: string | null;
   runStatus: "idle" | "running" | "success" | "failed";
-  runControlState: "idle" | "running" | "paused" | "stopping";
+  runControlState: "idle" | "running" | "paused" | "stopping" | "waiting";
   runningNodeId: string | null;
   logs: ExecutionLog[];
   screenshots: ExecutionScreenshot[];
@@ -114,7 +127,7 @@ export interface RecipeStoreState {
   // Control de Ejecución
   startRun: (runId: string) => void;
   setRunningNodeId: (nodeId: string | null) => void;
-  setRunControlState: (state: "idle" | "running" | "paused" | "stopping") => void;
+  setRunControlState: (state: "idle" | "running" | "paused" | "stopping" | "waiting") => void;
   addLog: (log: Omit<ExecutionLog, "id" | "timestamp">) => void;
   addScreenshot: (screenshot: Omit<ExecutionScreenshot, "id" | "timestamp">) => void;
   finishRun: (status: "success" | "failed") => void;
@@ -218,11 +231,19 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   validationErrors: initialValidation.errors,
   nodeIssues: initialValidation.nodeIssues,
   selectedNodeId: "step_navigate",
+  selectedNodeIds: ["step_navigate"],
+  isTestingSteps: false,
+  testingStepsProgress: null,
   activeView: "canvas",
   isDirty: false,
 
   activeDetailNodeId: null,
-  openNodeDetail: (nodeId) => set({ activeDetailNodeId: nodeId, selectedNodeId: nodeId }),
+  openNodeDetail: (nodeId) =>
+    set({
+      activeDetailNodeId: nodeId,
+      selectedNodeId: nodeId,
+      selectedNodeIds: [nodeId],
+    }),
   closeNodeDetail: () => set({ activeDetailNodeId: null }),
 
   runId: null,
@@ -274,6 +295,11 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       validationErrors: errors || [],
       nodeIssues: nodeIssues || {},
       selectedNodeId: safeDef.entry || Object.keys(safeDef.nodes || {})[0] || null,
+      selectedNodeIds: safeDef.entry
+        ? [safeDef.entry]
+        : Object.keys(safeDef.nodes || {})[0]
+        ? [Object.keys(safeDef.nodes || {})[0]]
+        : [],
       history: [JSON.parse(JSON.stringify(safeDef))],
       historyIndex: 0,
       isDirty: false,
@@ -292,6 +318,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       validationErrors: errors || [],
       nodeIssues: nodeIssues || {},
       selectedNodeId: definition.entry || null,
+      selectedNodeIds: definition.entry ? [definition.entry] : [],
       activeDetailNodeId: null,
       history: [JSON.parse(JSON.stringify(definition))],
       historyIndex: 0,
@@ -328,7 +355,42 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   setName: (recipeName) => set({ recipeName, isDirty: true }),
   setDescription: (recipeDescription) => set({ recipeDescription, isDirty: true }),
   setActiveView: (activeView) => set({ activeView }),
-  setSelectedNodeId: (selectedNodeId) => set({ selectedNodeId }),
+  setSelectedNodeId: (selectedNodeId) =>
+    set({
+      selectedNodeId,
+      selectedNodeIds: selectedNodeId ? [selectedNodeId] : [],
+    }),
+
+  setSelectedNodeIds: (selectedNodeIds) =>
+    set({
+      selectedNodeIds,
+      selectedNodeId:
+        selectedNodeIds.length > 0 ? selectedNodeIds[selectedNodeIds.length - 1] : null,
+    }),
+
+  toggleNodeSelection: (id, multi = false) => {
+    const { selectedNodeIds } = get();
+    if (!multi) {
+      set({
+        selectedNodeId: id,
+        selectedNodeIds: [id],
+      });
+      return;
+    }
+    const exists = selectedNodeIds.includes(id);
+    const nextIds = exists
+      ? selectedNodeIds.filter((item) => item !== id)
+      : [...selectedNodeIds, id];
+    set({
+      selectedNodeIds: nextIds,
+      selectedNodeId: nextIds.length > 0 ? nextIds[nextIds.length - 1] : null,
+    });
+  },
+
+  clearSelection: () => set({ selectedNodeId: null, selectedNodeIds: [] }),
+
+  setIsTestingSteps: (isTestingSteps, testingStepsProgress = null) =>
+    set({ isTestingSteps, testingStepsProgress }),
 
   addNode: (type) => {
     const { definition, history, historyIndex, selectedNodeId } = get();
@@ -343,11 +405,13 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     let newEntry = definition.entry;
     const updatedEdges = [...definition.edges];
 
-    if (!newEntry || Object.keys(definition.nodes).length === 0) {
+    const isTrigger = type === "webhook";
+
+    if (!newEntry || !updatedNodes[newEntry] || Object.keys(definition.nodes).length === 0) {
       newEntry = newId;
-    } else {
+    } else if (!isTrigger) {
       // Conectar automáticamente desde el nodo seleccionado si existe y no tiene 'next',
-      // o desde el último nodo disponible sin 'next'
+      // o desde el último nodo disponible sin 'next' (excepto para triggers como webhook)
       const candidateSourceId =
         selectedNodeId && definition.nodes[selectedNodeId]
           ? selectedNodeId
@@ -362,13 +426,14 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       }
     }
 
-    const updatedDsl: RecipeDsl = {
+    const rawDsl: RecipeDsl = {
       ...definition,
       entry: newEntry,
       nodes: updatedNodes,
       edges: updatedEdges,
     };
 
+    const updatedDsl = reconcileRecipeRoot(rawDsl);
     const { errors, nodeIssues } = validateDsl(updatedDsl);
     const hist = pushHistory(history, historyIndex, updatedDsl);
 
@@ -377,6 +442,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       validationErrors: errors,
       nodeIssues,
       selectedNodeId: newId,
+      selectedNodeIds: [newId],
       isDirty: true,
       ...hist,
     });
@@ -498,7 +564,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     const nextEdges = definition.edges.filter((e) => e.from !== id && e.to !== id);
 
     let nextEntry = definition.entry;
-    if (nextEntry === id) {
+    if (nextEntry === id || !nextNodes[nextEntry]) {
       nextEntry = Object.keys(nextNodes)[0] || "";
     }
 
@@ -514,13 +580,14 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     const { errors, nodeIssues } = validateDsl(updatedDsl);
     const hist = pushHistory(history, historyIndex, updatedDsl);
 
-    const { activeDetailNodeId } = get();
+    const { activeDetailNodeId, selectedNodeIds } = get();
 
     set({
       definition: updatedDsl,
       validationErrors: errors,
       nodeIssues,
       selectedNodeId: selectedNodeId === id ? (updatedDsl.entry || null) : selectedNodeId,
+      selectedNodeIds: selectedNodeIds.filter((item) => item !== id),
       activeDetailNodeId: activeDetailNodeId === id ? null : activeDetailNodeId,
       isDirty: true,
       ...hist,
@@ -558,6 +625,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       validationErrors: errors,
       nodeIssues,
       selectedNodeId: newId,
+      selectedNodeIds: [newId],
       activeDetailNodeId: newId,
       isDirty: true,
       ...hist,
@@ -598,12 +666,13 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       }
     }
 
-    const updatedDsl: RecipeDsl = {
+    const targetEntry = orderedIds[0] || definition.entry || Object.keys(newNodes)[0] || "";
+    const updatedDsl: RecipeDsl = reconcileRecipeRoot({
       ...definition,
-      entry: orderedIds[0],
+      entry: targetEntry,
       nodes: newNodes,
       edges: newEdges,
-    };
+    });
 
     const { errors, nodeIssues } = validateDsl(updatedDsl);
     const hist = pushHistory(history, historyIndex, updatedDsl);
@@ -619,7 +688,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
 
   setEntryNode: (id) => {
     const { definition, history, historyIndex } = get();
-    if (!definition.nodes[id]) return;
+    if (!id || !definition.nodes[id]) return;
 
     const updatedDsl = { ...definition, entry: id };
     const { errors, nodeIssues } = validateDsl(updatedDsl);
@@ -629,6 +698,8 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       definition: updatedDsl,
       validationErrors: errors,
       nodeIssues,
+      selectedNodeId: id,
+      selectedNodeIds: [id],
       isDirty: true,
       ...hist,
     });
@@ -762,6 +833,23 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     const { errors, nodeIssues } = validateDsl(updatedDsl);
     const hist = pushHistory(history, historyIndex, updatedDsl);
 
+    set({
+      definition: updatedDsl,
+      validationErrors: errors,
+      nodeIssues,
+      isDirty: true,
+      ...hist,
+    });
+  },
+
+  setRecipeVariables: (variables) => {
+    const { definition, history, historyIndex } = get();
+    const updatedDsl: RecipeDsl = {
+      ...definition,
+      variables,
+    };
+    const { errors, nodeIssues } = validateDsl(updatedDsl);
+    const hist = pushHistory(history, historyIndex, updatedDsl);
     set({
       definition: updatedDsl,
       validationErrors: errors,
@@ -956,6 +1044,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       validationErrors: errors,
       nodeIssues,
       selectedNodeId: newId,
+      selectedNodeIds: [newId],
       isDirty: true,
       recordedActionsCount: recordedActionsCount + 1,
       ...hist,

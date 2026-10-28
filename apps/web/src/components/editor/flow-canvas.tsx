@@ -48,7 +48,8 @@ function buildCanvasNodes(
   nodeIssues: unknown,
   nodeOutputs: Record<string, unknown>,
   existingNodesMap?: Map<string, { x: number; y: number }>,
-  disabledNodeIds: string[] = []
+  disabledNodeIds: string[] = [],
+  selectedNodeIds: string[] = []
 ): Node[] {
   const nodesMap = definition?.nodes ?? {};
   const nodeKeys = Object.keys(nodesMap);
@@ -101,7 +102,10 @@ function buildCanvasNodes(
       id: currId,
       type: "customNode",
       position: nodePos,
-      selected: selectedNodeId === currId,
+      selected:
+        selectedNodeIds.length > 0
+          ? selectedNodeIds.includes(currId)
+          : selectedNodeId === currId,
       data: {
         id: currId,
         type: node.type,
@@ -148,7 +152,10 @@ function buildCanvasNodes(
         id: key,
         type: "customNode",
         position: nodePos,
-        selected: selectedNodeId === key,
+        selected:
+          selectedNodeIds.length > 0
+            ? selectedNodeIds.includes(key)
+            : selectedNodeId === key,
         data: {
           id: key,
           type: node.type,
@@ -274,7 +281,11 @@ function CanvasViewportController() {
 function FlowCanvasInner() {
   const definition = useRecipeStore((s) => s.definition);
   const selectedNodeId = useRecipeStore((s) => s.selectedNodeId);
+  const selectedNodeIds = useRecipeStore((s) => s.selectedNodeIds);
   const setSelectedNodeId = useRecipeStore((s) => s.setSelectedNodeId);
+  const setSelectedNodeIds = useRecipeStore((s) => s.setSelectedNodeIds);
+  const toggleNodeSelection = useRecipeStore((s) => s.toggleNodeSelection);
+  const clearSelection = useRecipeStore((s) => s.clearSelection);
   const addEdge = useRecipeStore((s) => s.addEdge);
   const removeEdge = useRecipeStore((s) => s.removeEdge);
   const nodeIssues = useRecipeStore((s) => s.nodeIssues);
@@ -282,6 +293,7 @@ function FlowCanvasInner() {
   const updateNodePosition = useRecipeStore((s) => s.updateNodePosition);
   const disabledNodeIds = useRecipeStore((s) => s.disabledNodeIds);
   const openNodeDetail = useRecipeStore((s) => s.openNodeDetail);
+  const deleteNode = useRecipeStore((s) => s.deleteNode);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -301,10 +313,19 @@ function FlowCanvasInner() {
         nodeIssues,
         nodeOutputs,
         existingMap,
-        disabledNodeIds
+        disabledNodeIds,
+        selectedNodeIds
       );
     });
-  }, [definition, selectedNodeId, nodeIssues, nodeOutputs, disabledNodeIds, setNodes]);
+  }, [
+    definition,
+    selectedNodeId,
+    selectedNodeIds,
+    nodeIssues,
+    nodeOutputs,
+    disabledNodeIds,
+    setNodes,
+  ]);
 
   // Sincronizar aristas cuando cambia la definición
   useEffect(() => {
@@ -348,10 +369,11 @@ function FlowCanvasInner() {
   );
 
   const onNodeClick = useCallback(
-    (_: React.MouseEvent, node: Node) => {
-      setSelectedNodeId(node.id);
+    (e: React.MouseEvent, node: Node) => {
+      const isMulti = e.shiftKey || e.metaKey || e.ctrlKey;
+      toggleNodeSelection(node.id, isMulti);
     },
-    [setSelectedNodeId]
+    [toggleNodeSelection]
   );
 
   const onNodeDoubleClick = useCallback(
@@ -362,8 +384,18 @@ function FlowCanvasInner() {
   );
 
   const onPaneClick = useCallback(() => {
-    setSelectedNodeId(null);
-  }, [setSelectedNodeId]);
+    clearSelection();
+  }, [clearSelection]);
+
+  const onSelectionChange = useCallback(
+    ({ nodes: selectedFlowNodes }: { nodes: Node[] }) => {
+      const ids = selectedFlowNodes.map((n) => n.id);
+      if (ids.length > 1) {
+        setSelectedNodeIds(ids);
+      }
+    },
+    [setSelectedNodeIds]
+  );
 
   const onNodeDragStart: OnNodeDrag = useCallback(() => {
     isDraggingRef.current = true;
@@ -389,6 +421,15 @@ function FlowCanvasInner() {
     [removeEdge]
   );
 
+  const onNodesDelete = useCallback(
+    (deletedNodes: Node[]) => {
+      for (const node of deletedNodes) {
+        deleteNode(node.id);
+      }
+    },
+    [deleteNode]
+  );
+
   return (
     <div className="flex-1 h-full bg-neutral-950 relative">
       <ReactFlow
@@ -403,11 +444,14 @@ function FlowCanvasInner() {
         onEdgesChange={onEdgesChange}
         onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
+        onNodesDelete={onNodesDelete}
         onEdgesDelete={onEdgesDelete}
         onConnect={onConnect}
         onNodeClick={onNodeClick}
         onNodeDoubleClick={onNodeDoubleClick}
         onPaneClick={onPaneClick}
+        onSelectionChange={onSelectionChange}
+        multiSelectionKeyCode={["Meta", "Control", "Shift"]}
         fitView
         fitViewOptions={{ padding: 0.2 }}
         minZoom={0.2}

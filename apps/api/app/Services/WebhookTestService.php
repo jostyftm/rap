@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Events\WebhookTestReceived;
 use App\Models\Recipe;
+use App\Support\WebhookPayload;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
@@ -14,6 +15,10 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 class WebhookTestService
 {
     private const TTL_SECONDS = 120;
+
+    public function __construct(
+        private WebhookRunDelivery $webhookRuns
+    ) {}
 
     /**
      * Inicia una sesión de escucha efímera para un nodo webhook.
@@ -96,6 +101,19 @@ class WebhookTestService
 
         $session = Cache::get($pathKey);
         if (! $session) {
+            $deliveredRunIds = $this->webhookRuns->deliverByPath($normalizedPath, $request);
+            if ($deliveredRunIds !== []) {
+                return [
+                    'response_code' => 200,
+                    'response_body' => json_encode([
+                        'ok' => true,
+                        'message' => 'Petición entregada a la ejecución en espera.',
+                        'delivered_to_runs' => $deliveredRunIds,
+                    ], JSON_UNESCAPED_SLASHES),
+                    'method_match' => true,
+                ];
+            }
+
             return null;
         }
 
@@ -116,21 +134,18 @@ class WebhookTestService
             Cache::forget("webhook_test:listen:{$session['listen_id']}");
         }
 
-        $headers = collect($request->headers->all())->map(function ($value) {
-            return is_array($value) && count($value) === 1 ? $value[0] : $value;
-        })->all();
+        $payload = WebhookPayload::fromRequest($request, $normalizedPath);
 
-        $body = $request->isJson() ? $request->json()->all() : ($request->all() ?: $request->getContent());
-
-        $payload = [
-            'method' => $requestMethod,
-            'path' => $normalizedPath,
-            'headers' => $headers,
-            'params' => [],
-            'query' => $request->query(),
-            'body' => $body,
-            'timestamp' => now()->toIso8601String(),
-        ];
+        // Si hay una ejecución esperando este nodo, entregamos la petición para
+        // que el flujo continúe sin lanzar un run adicional.
+        $recipe = Recipe::query()->where('uuid', $session['recipe_uuid'] ?? '')->first();
+        if ($recipe !== null) {
+            $this->webhookRuns->deliverToRecipe($recipe, $payload, [
+                'node_id' => (string) ($session['node_id'] ?? ''),
+                'path' => $normalizedPath,
+                'method' => $requestMethod,
+            ]);
+        }
 
         event(new WebhookTestReceived(
             listenId: $session['listen_id'],

@@ -158,6 +158,10 @@ export class RedisStreamConsumer {
     const parameters = data.parameters ? JSON.parse(data.parameters) : {};
     const options = data.options ? JSON.parse(data.options) : {};
     const secretRefs = this.parseSecretRefs(data.secret_refs);
+    const trigger = data.trigger || "manual";
+    const recipeId = data.recipe_id || undefined;
+    const webhookTriggerUrl = data.webhook_trigger_url || null;
+    const webhookEnabled = data.webhook_enabled === "1";
 
     let secrets: Record<string, string> = {};
 
@@ -194,6 +198,10 @@ export class RedisStreamConsumer {
         parameters,
         secrets,
         options,
+        trigger,
+        recipeId,
+        webhookTriggerUrl,
+        webhookEnabled,
       });
     } catch (err) {
       // Errores fuera del bucle del executor (p. ej. lanzar Chromium).

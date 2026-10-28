@@ -205,6 +205,16 @@ export function WebhookInspectorForm({
         )}
       </div>
 
+      <div className="flex items-start gap-2.5 rounded-card border border-line bg-card px-4 py-3 text-[11.5px] leading-relaxed text-fg-muted">
+        <Radio className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent-text" />
+        <span>
+          Si este nodo es el inicio del flujo, la ejecución esperará la petición HTTP
+          antes de abrir el navegador o ejecutar el siguiente nodo. En ejecuciones de
+          prueba espera hasta 5 minutos; en producción espera indefinidamente. Puedes
+          alimentar la espera con esta escucha o con la URL del trigger público.
+        </span>
+      </div>
+
       <div className="overflow-hidden rounded-card border border-line bg-card">
         <button
           type="button"

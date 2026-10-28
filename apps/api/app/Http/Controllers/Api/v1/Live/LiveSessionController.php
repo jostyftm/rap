@@ -39,10 +39,21 @@ class LiveSessionController extends Controller
 
     public function start(Request $request, Recipe $recipe): JsonResponse
     {
-        $data = $request->validate(['url' => ['required', 'url', 'max:500']]);
+        $data = $request->validate([
+            'url' => ['required', 'url', 'max:500'],
+            'mock_mac' => ['nullable'],
+            'mock_version' => ['nullable', 'string', 'max:50'],
+        ]);
 
         try {
-            $res = $this->runner()->post('/live/sessions', ['url' => $data['url']]);
+            $payload = ['url' => $data['url']];
+            if (isset($data['mock_mac'])) {
+                $payload['mock_mac'] = $data['mock_mac'];
+            }
+            if (isset($data['mock_version'])) {
+                $payload['mock_version'] = $data['mock_version'];
+            }
+            $res = $this->runner()->post('/live/sessions', $payload);
         } catch (\Throwable $e) {
             return $this->unavailable($e);
         }

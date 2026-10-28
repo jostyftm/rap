@@ -230,6 +230,9 @@ export function exportToPlaywright(recipe: RecipeDsl, options: PlaywrightExportO
         } else {
           nodeLines.push(`await loc_${node.id}.fill(${JSON.stringify(node.params.text)});`);
         }
+        if (node.params.pressEnter) {
+          nodeLines.push(`await loc_${node.id}.press('Enter');`);
+        }
         break;
       }
 

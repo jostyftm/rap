@@ -58,7 +58,7 @@ it('deduplica eventos por id ULID', function () {
     $ingestor = app(RunnerEventIngestor::class);
 
     $payload = [
-        'id' => '01JEVENTDEDUPE0000000001',
+        'id' => (string) Illuminate\Support\Str::ulid(),
         'event' => 'run.log',
         'run_id' => $run->uuid,
         'level' => 'info',
@@ -75,7 +75,7 @@ it('redacta los secretos del workspace antes de persistir logs', function () {
     $run = eventFixture(['PORTAL_PASSWORD' => 'Sup3rS3cret!']);
 
     app(RunnerEventIngestor::class)->ingest([
-        'id' => '01JEVENTREDACT000000000001',
+        'id' => (string) Illuminate\Support\Str::ulid(),
         'event' => 'run.log',
         'run_id' => $run->uuid,
         'level' => 'error',
@@ -94,7 +94,7 @@ it('no vuelve a finalizar una ejecución ya cerrada', function () {
     $ingestor = app(RunnerEventIngestor::class);
 
     $ingestor->ingest([
-        'id' => '01JEVENTFINISH00000000001',
+        'id' => (string) Illuminate\Support\Str::ulid(),
         'event' => 'run.finished',
         'run_id' => $run->uuid,
         'status' => 'success',
@@ -102,7 +102,7 @@ it('no vuelve a finalizar una ejecución ya cerrada', function () {
     ]);
 
     $ingestor->ingest([
-        'id' => '01JEVENTFINISH00000000002',
+        'id' => (string) Illuminate\Support\Str::ulid(),
         'event' => 'run.finished',
         'run_id' => $run->uuid,
         'status' => 'failed',

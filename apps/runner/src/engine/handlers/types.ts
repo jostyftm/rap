@@ -7,6 +7,10 @@ export interface ExecutionContext {
   variables: Record<string, unknown>;
   secrets: Record<string, string>;
   stepResults: Record<string, unknown>;
+  /** Parámetros crudos recibidos al iniciar la ejecución (payload de webhook, API, etc.). */
+  parameters?: Record<string, unknown>;
+  /** Registra un aviso en el log de la ejecución sin interrumpirla. */
+  warn?: (message: string, context?: Record<string, unknown>) => void;
 }
 
 export interface ActionResult {

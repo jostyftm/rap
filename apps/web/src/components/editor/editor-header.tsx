@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { reconcileRecipeRoot, type RecipeDsl, type WebhookNode } from "@rpa/dsl";
 import {
   ChevronLeft,
   Save,
@@ -40,9 +41,12 @@ import { useAuth } from "../../context/auth-context";
 import { ExportModal } from "./export-modal";
 import { TriggersModal } from "./triggers-modal";
 import { SecretsModal } from "./secrets-modal";
+import { VariablesModal } from "./variables-modal";
 import { useLiveStore } from "../../stores/use-live-store";
+import { useWebhookTestStore } from "../../stores/use-webhook-test-store";
 import { dispatchRunControl } from "../../lib/execution-control";
 import { runRecipeInLivePanel } from "../../lib/live-runner";
+import { testSequentialNodes, stopSequentialTesting } from "../../lib/node-tester";
 import { ThemeToggle } from "../theme-toggle";
 
 interface EditorHeaderProps {
@@ -75,6 +79,28 @@ function formatValidationError(err: string, nodes: Record<string, any> = {}): st
   return `Paso [${nodeLabel}]: ${rest}`;
 }
 
+/**
+ * Construye los parámetros de la ejecución a partir del payload de webhook
+ * capturado en la escucha de prueba, para que los tokens `{{webhook.body.*}}`
+ * resuelvan igual que en una ejecución disparada por el webhook real.
+ */
+function buildRunParameters(definition: RecipeDsl): Record<string, unknown> {
+  const webhookNodes = Object.values(definition.nodes || {}).filter(
+    (node): node is WebhookNode => node.type === "webhook"
+  );
+
+  const webhookNode =
+    webhookNodes.find((node) => node.id === definition.entry || node.isInitializer) ??
+    webhookNodes[0];
+
+  if (!webhookNode) return {};
+
+  const captured = useWebhookTestStore.getState().getEntry(webhookNode.id).payload;
+  if (!captured) return {};
+
+  return { [webhookNode.params.outputVariable || "webhook"]: captured };
+}
+
 export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
   const recipeName = useRecipeStore((s) => s.recipeName);
   const setName = useRecipeStore((s) => s.setName);
@@ -102,10 +128,22 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
   const startRecording = useRecipeStore((s) => s.startRecording);
   const appendRecordedAction = useRecipeStore((s) => s.appendRecordedAction);
 
+  // Selección y Prueba Secuencial de Pasos
+  const selectedNodeIds = useRecipeStore((s) => s.selectedNodeIds);
+  const isTestingSteps = useRecipeStore((s) => s.isTestingSteps);
+  const testingStepsProgress = useRecipeStore((s) => s.testingStepsProgress);
+
   const [isExecuting, setIsExecuting] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
   const { user, logout } = useAuth();
+
+  const webhookByNode = useWebhookTestStore((s) => s.byNode);
+  const entryNode = definition?.entry ? definition.nodes[definition.entry] : undefined;
+  const isEntryWebhook = entryNode?.type === "webhook";
+  const capturedWebhookPayload = isEntryWebhook && entryNode
+    ? webhookByNode[entryNode.id]?.payload
+    : null;
 
   // Estados de menús desplegables
   const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false);
@@ -118,6 +156,7 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isTriggersOpen, setIsTriggersOpen] = useState(false);
   const [isSecretsOpen, setIsSecretsOpen] = useState(false);
+  const [isVariablesOpen, setIsVariablesOpen] = useState(false);
 
   // Parámetros de grabación y ejecución
   const [recordUrl, setRecordUrl] = useState("http://localhost:8099/index.html");
@@ -167,12 +206,36 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
     return !!user;
   };
 
-  const handleRun = async () => {
+  const handleTestSelectedSteps = async () => {
+    if (selectedNodeIds.length <= 1 || isTestingSteps || isExecuting || runStatus === "running") {
+      return;
+    }
+    if (!liveOpen) useLiveStore.getState().open();
+    if (layoutMode === "flow") setLayoutMode("split");
+
+    await testSequentialNodes(selectedNodeIds, {
+      delayMs: slowMoMs > 0 ? slowMoMs : 500,
+    });
+  };
+
+  const handleStopSelectedSteps = () => {
+    stopSequentialTesting();
+  };
+
+  const handleRun = async (useCapturedWebhook = false) => {
     if (!recipeId || runStatus === "running") return;
     setIsExecuting(true);
     setIsRunOptionsOpen(false);
 
     try {
+      if (isDirty) {
+        const saved = await handleSaveInternal();
+        if (saved === false) {
+          setIsExecuting(false);
+          return;
+        }
+      }
+
       if (displayMode === "live") {
         if (!liveOpen) useLiveStore.getState().open();
         if (layoutMode === "flow") setLayoutMode("split");
@@ -181,12 +244,13 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
       }
 
       await ensureAuthenticated();
+      const parameters = useCapturedWebhook ? buildRunParameters(definition) : {};
       const res = await apiFetch<{ data: { id: string } }>(
         `/api/v1/recipes/${recipeId}/runs`,
         {
           method: "POST",
           body: JSON.stringify({
-            parameters: {},
+            parameters,
             options: {
               display: displayMode,
               slow_mo_ms: slowMoMs,
@@ -220,7 +284,7 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
     setTimeout(() => setSaveFailed(false), 4000);
   };
 
-  const handleSaveInternal = async () => {
+  const handleSaveInternal = async (): Promise<boolean> => {
     setSaveFailed(false);
     await ensureAuthenticated();
 
@@ -228,28 +292,41 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
       const result = await onSave();
       if (result === false) {
         showSaveFailure();
+        return false;
       } else {
         showSaveSuccess();
+        return true;
       }
-      return;
     }
 
     if (!recipeId || recipeId === "new") {
       showSaveFailure();
-      return;
+      return false;
     }
     try {
+      const currentStore = useRecipeStore.getState();
+      let safeDef = reconcileRecipeRoot(currentStore.definition);
+      const nodeKeys = Object.keys(safeDef.nodes || {});
+      if (nodeKeys.length > 0 && (!safeDef.entry || !safeDef.nodes[safeDef.entry])) {
+        safeDef = { ...safeDef, entry: nodeKeys[0] };
+      }
+      if (safeDef.entry !== currentStore.definition.entry) {
+        useRecipeStore.setState({ definition: safeDef });
+      }
+
       await apiFetch(`/api/v1/recipes/${recipeId}`, {
         method: "PUT",
         body: JSON.stringify({
-          name: recipeName,
-          definition,
+          name: currentStore.recipeName,
+          definition: safeDef,
         }),
       });
       showSaveSuccess();
+      return true;
     } catch (err) {
       console.error("Error al guardar la receta:", err);
       showSaveFailure();
+      return false;
     }
   };
 
@@ -399,6 +476,47 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
         {/* ZONA 3 (DERECHA): Solo 4 Elementos (Web, Ejecutar, ⋯, Usuario) */}
         {/* ============================================================== */}
         <div className="flex items-center space-x-2">
+          {/* Botón contextual: Probar pasos seleccionados */}
+          {selectedNodeIds.length > 1 && (
+            <div className="flex items-center space-x-1 animate-in fade-in duration-200">
+              <button
+                onClick={handleTestSelectedSteps}
+                disabled={isTestingSteps || runStatus === "running" || isExecuting}
+                className={`flex items-center space-x-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all shadow-sm ${
+                  isTestingSteps
+                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 cursor-wait"
+                    : "bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500/40 active:scale-95 cursor-pointer"
+                }`}
+                title={`Ejecutar secuencialmente los ${selectedNodeIds.length} pasos seleccionados en el simulador`}
+              >
+                {isTestingSteps ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                    <span>
+                      {testingStepsProgress
+                        ? `Probando ${testingStepsProgress.current}/${testingStepsProgress.total}...`
+                        : "Probando..."}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>Probar pasos ({selectedNodeIds.length})</span>
+                  </>
+                )}
+              </button>
+              {isTestingSteps && (
+                <button
+                  onClick={handleStopSelectedSteps}
+                  className="p-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 transition-colors cursor-pointer"
+                  title="Detener prueba de pasos"
+                >
+                  <Square className="w-3.5 h-3.5 fill-current" />
+                </button>
+              )}
+            </div>
+          )}
+
           {/* 3.1 Botón Sitio Web */}
           <div className="relative">
             <div
@@ -496,6 +614,11 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
                     <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
                     <span className="hidden sm:inline">Pausado</span>
                   </span>
+                ) : runControlState === "waiting" ? (
+                  <span className="flex items-center space-x-1 text-sky-400">
+                    <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
+                    <span className="hidden sm:inline">Esperando webhook</span>
+                  </span>
                 ) : (
                   <span className="flex items-center space-x-1 text-emerald-400">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block mr-0.5" />
@@ -504,7 +627,7 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
                 )}
               </div>
 
-              {runControlState === "paused" ? (
+              {runControlState === "waiting" ? null : runControlState === "paused" ? (
                 <button
                   onClick={() => dispatchRunControl("resume", runId)}
                   className="flex items-center space-x-1 px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition shadow"
@@ -537,8 +660,8 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
             <div className="relative flex items-center">
               <div className="flex items-center rounded-lg overflow-hidden shadow-md bg-emerald-600 hover:bg-emerald-500 transition-colors">
                 <button
-                  onClick={handleRun}
-                  disabled={isExecuting || validationErrors.length > 0}
+                  onClick={() => handleRun(false)}
+                  disabled={isExecuting || isTestingSteps || validationErrors.length > 0}
                   className="flex items-center space-x-1.5 px-3 py-1.5 text-white text-xs font-semibold disabled:opacity-40 transition-colors"
                 >
                   {isExecuting ? (
@@ -566,6 +689,24 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
                     <span>Opciones de Ejecución</span>
                     <span className="text-[10px] text-neutral-400 font-normal">Playwright & Runner</span>
                   </div>
+
+                  {isEntryWebhook && capturedWebhookPayload && (
+                    <div className="mb-3 p-2.5 bg-amber-500/10 border border-amber-500/25 rounded-lg">
+                      <div className="text-[11px] font-semibold text-amber-300 mb-1 flex items-center space-x-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        <span>Payload de prueba en memoria</span>
+                      </div>
+                      <p className="text-[10.5px] text-zinc-400 mb-2 leading-relaxed">
+                        Tienes un evento recibido previamente. Puedes ejecutar el flujo usándolo sin esperar una nueva petición externa.
+                      </p>
+                      <button
+                        onClick={() => handleRun(true)}
+                        className="w-full py-1.5 px-2 rounded bg-amber-600 hover:bg-amber-500 text-white font-medium text-center text-[11px] transition-colors shadow-sm"
+                      >
+                        Ejecutar con payload previo
+                      </button>
+                    </div>
+                  )}
 
                   <div className="space-y-1.5 mb-3">
                     <label className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
@@ -725,6 +866,20 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
                   <div>
                     <div className="font-medium text-neutral-100">Programación (Triggers)</div>
                     <div className="text-[10px] text-neutral-400">Automatizar con Cron y Webhooks</div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setIsVariablesOpen(true);
+                    setIsToolsMenuOpen(false);
+                  }}
+                  className="w-full flex items-start space-x-2.5 px-2.5 py-2 rounded-lg text-left text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
+                >
+                  <SlidersHorizontal className="w-4 h-4 text-purple-400 mt-0.5 shrink-0" />
+                  <div>
+                    <div className="font-medium text-neutral-100">Variables de Receta</div>
+                    <div className="text-[10px] text-neutral-400">Valores iniciales y parámetros (ej. mock_mac)</div>
                   </div>
                 </button>
 
@@ -892,6 +1047,11 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
       <SecretsModal
         isOpen={isSecretsOpen}
         onClose={() => setIsSecretsOpen(false)}
+      />
+
+      <VariablesModal
+        isOpen={isVariablesOpen}
+        onClose={() => setIsVariablesOpen(false)}
       />
     </>
   );

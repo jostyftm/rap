@@ -7,7 +7,10 @@ namespace App\Http\Controllers\Api\v1\Webhook;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Run\RunResource;
 use App\Models\Recipe;
+use App\Models\Run;
 use App\Services\RunService;
+use App\Services\WebhookRunDelivery;
+use App\Support\WebhookPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -16,7 +19,8 @@ use Illuminate\Support\Str;
 class WebhookTriggerController extends Controller
 {
     public function __construct(
-        private RunService $runService
+        private RunService $runService,
+        private WebhookRunDelivery $webhookRuns
     ) {}
 
     /**
@@ -33,11 +37,29 @@ class WebhookTriggerController extends Controller
             abort(Response::HTTP_NOT_FOUND, 'Token de webhook inválido o webhook deshabilitado.');
         }
 
-        $parameters = $request->isJson() ? $request->json()->all() : $request->all();
+        $payload = WebhookPayload::fromRequest($request);
+        $body = is_array($payload['body']) ? $payload['body'] : [];
+
+        // Si hay una ejecución esperando este webhook, la petición la alimenta
+        // en lugar de crear un run nuevo (evita ejecutar el flujo dos veces).
+        $waitingRunIds = $this->webhookRuns->deliverToRecipe($recipe, $payload);
+        if ($waitingRunIds !== []) {
+            $waitingRun = Run::query()->where('uuid', $waitingRunIds[0])->first();
+
+            if ($waitingRun !== null) {
+                return (new RunResource($waitingRun))
+                    ->response()
+                    ->setStatusCode(Response::HTTP_ACCEPTED);
+            }
+        }
+
+        // El envelope `webhook` es la fuente principal del contexto; el cuerpo
+        // también se expone en la raíz por retrocompatibilidad con {{campo}}.
+        $parameters = ['webhook' => $payload] + $body;
 
         $run = $this->runService->dispatchDirect(
             recipe: $recipe,
-            parameters: is_array($parameters) ? $parameters : [],
+            parameters: $parameters,
             trigger: 'webhook'
         );
 

@@ -67,6 +67,32 @@ describe("Playwright Exporter", () => {
     expect(code).toContain("username-field");
     expect(code).toContain("button[name='Entrar']");
     expect(code).toContain("variables[\"token\"] = (await loc_step_extract.innerText()).trim();");
+    expect(code).not.toContain("loc_step_type_user.press('Enter')");
+  });
+
+  it("exporta nodo type con opción pressEnter activada", () => {
+    const recipe: RecipeDsl = {
+      schema: "rpa/v1",
+      name: "Búsqueda con Enter",
+      entry: "step_search",
+      nodes: {
+        step_search: {
+          id: "step_search",
+          type: "type",
+          description: "Escribir búsqueda y dar Enter",
+          locator: {
+            primary: { strategy: "css", value: "input#search", score: 90 },
+            fallbacks: [],
+          },
+          params: { text: "playwright testing", clear: true, pressEnter: true },
+        },
+      },
+      edges: [],
+    };
+
+    const code = exportToPlaywright(recipe);
+    expect(code).toContain("await loc_step_search.fill(\"playwright testing\");");
+    expect(code).toContain("await loc_step_search.press('Enter');");
   });
 
   it("soporta condiciones, esperas y capturas de pantalla", () => {

@@ -2,8 +2,17 @@ import type { Redis } from "ioredis";
 import { SecretRedactor } from "./redactor.js";
 import { ulid } from "./ulid.js";
 
+export interface RunWaitingInfo {
+  method: string;
+  path: string;
+  timeoutMs: number | null;
+  triggerUrl?: string | null;
+  recipeId?: string;
+}
+
 export interface RunnerEventEmitter {
   emitRunStarted(runId: string): Promise<void>;
+  emitRunWaiting(runId: string, nodeId: string, info: RunWaitingInfo): Promise<void>;
   emitStepStarted(runId: string, nodeId: string): Promise<void>;
   emitStepFinished(
     runId: string,
@@ -86,6 +95,20 @@ export class RedisEventEmitter implements RunnerEventEmitter {
     await this.emit({
       event: "run.started",
       run_id: runId,
+      timestamp: Date.now(),
+    });
+  }
+
+  async emitRunWaiting(runId: string, nodeId: string, info: RunWaitingInfo): Promise<void> {
+    await this.emit({
+      event: "run.waiting",
+      run_id: runId,
+      node_id: nodeId,
+      method: info.method,
+      path: info.path,
+      timeout_ms: info.timeoutMs ?? undefined,
+      trigger_url: info.triggerUrl ?? undefined,
+      recipe_id: info.recipeId,
       timestamp: Date.now(),
     });
   }

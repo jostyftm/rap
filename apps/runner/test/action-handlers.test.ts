@@ -8,6 +8,7 @@ import type {
   ScrollNode,
   WebhookNode,
   RecipeNode,
+  TypeNode,
 } from "@rpa/dsl";
 import {
   executeNodeAction,
@@ -26,6 +27,13 @@ describe("Action Handlers & Strategy Registry", () => {
   });
 
   const createMockPage = () => {
+    const mockLocator = {
+      first: vi.fn().mockReturnThis(),
+      waitFor: vi.fn().mockResolvedValue(undefined),
+      fill: vi.fn().mockResolvedValue(undefined),
+      pressSequentially: vi.fn().mockResolvedValue(undefined),
+      press: vi.fn().mockResolvedValue(undefined),
+    };
     return {
       goto: vi.fn().mockResolvedValue(undefined),
       evaluate: vi.fn().mockResolvedValue(undefined),
@@ -33,7 +41,10 @@ describe("Action Handlers & Strategy Registry", () => {
       waitForTimeout: vi.fn().mockResolvedValue(undefined),
       waitForURL: vi.fn().mockResolvedValue(undefined),
       screenshot: vi.fn().mockResolvedValue(Buffer.from("dummy-png")),
-    } as unknown as Page;
+      locator: vi.fn().mockReturnValue(mockLocator),
+      getByTestId: vi.fn().mockReturnValue(mockLocator),
+      _mockLocator: mockLocator,
+    } as unknown as Page & { _mockLocator: typeof mockLocator };
   };
 
   describe("ActionHandlerRegistry", () => {
@@ -265,6 +276,61 @@ describe("Action Handlers & Strategy Registry", () => {
       expect(result.output).toEqual(ctx.variables.myWebhook);
     });
 
+    it("webhook normaliza los parámetros crudos de la ejecución dentro de body", async () => {
+      const ctx = createMockContext({
+        variables: {},
+        parameters: { fecha: "2026-10-23T10:00:00Z", email: "lead@example.com" },
+      });
+      const mockPage = createMockPage();
+      const node: WebhookNode = {
+        id: "webhook-raw",
+        type: "webhook",
+        description: "Webhook con payload crudo",
+        params: { httpMethod: "POST", outputVariable: "webhook" },
+        next: "step-process",
+      };
+
+      const result = await executeNodeAction(mockPage, node, ctx);
+
+      expect(result.success).toBe(true);
+      expect((result.output as any).body).toEqual({
+        fecha: "2026-10-23T10:00:00Z",
+        email: "lead@example.com",
+      });
+      expect((ctx.variables.webhook as any).body.email).toBe("lead@example.com");
+    });
+
+    it("webhook respeta un payload ya estructurado (method/path/query/body)", async () => {
+      const payload = {
+        method: "POST",
+        path: "/api/v1/webhooks/recipes/token/trigger",
+        headers: { "x-test": "1" },
+        params: {},
+        query: { foo: "bar" },
+        body: { email: "structured@example.com" },
+        timestamp: "2026-10-23T10:00:00Z",
+      };
+      const ctx = createMockContext({
+        variables: { webhook: payload },
+        parameters: { webhook: payload },
+      });
+      const mockPage = createMockPage();
+      const node: WebhookNode = {
+        id: "webhook-structured",
+        type: "webhook",
+        description: "Webhook estructurado",
+        params: { httpMethod: "POST", outputVariable: "webhook" },
+        next: "step-process",
+      };
+
+      const result = await executeNodeAction(mockPage, node, ctx);
+
+      expect(result.success).toBe(true);
+      expect((result.output as any).query).toEqual({ foo: "bar" });
+      expect((result.output as any).body).toEqual({ email: "structured@example.com" });
+      expect((result.output as any).headers["x-test"]).toBe("1");
+    });
+
     it("evalúa condición tipada según naturaleza del dato (string contains, number greater_than)", async () => {
       const ctx = createMockContext({
         variables: { userRole: "superadmin", totalOrder: 250 },
@@ -310,6 +376,54 @@ describe("Action Handlers & Strategy Registry", () => {
       expect(resultNumber.success).toBe(true);
       expect(resultNumber.output).toBe(false);
       expect(resultNumber.nextNodeId).toBe("normal-step");
+    });
+
+    it("typeHandler escribe texto y presiona Enter si pressEnter es true", async () => {
+      const ctx = createMockContext();
+      const mockPage = createMockPage();
+      const node: TypeNode = {
+        id: "type-with-enter",
+        type: "type",
+        description: "Buscar con Enter",
+        locator: {
+          primary: { strategy: "testid", value: "search-box", score: 95 },
+          fallbacks: [],
+        },
+        params: {
+          text: "consulta de prueba",
+          clear: true,
+          pressEnter: true,
+        },
+      };
+
+      const result = await executeNodeAction(mockPage, node, ctx);
+      expect(result.success).toBe(true);
+      expect(mockPage._mockLocator.fill).toHaveBeenCalledWith("consulta de prueba");
+      expect(mockPage._mockLocator.press).toHaveBeenCalledWith("Enter");
+    });
+
+    it("typeHandler no presiona Enter si pressEnter es false o no está definido", async () => {
+      const ctx = createMockContext();
+      const mockPage = createMockPage();
+      const node: TypeNode = {
+        id: "type-no-enter",
+        type: "type",
+        description: "Solo escribir",
+        locator: {
+          primary: { strategy: "testid", value: "username", score: 95 },
+          fallbacks: [],
+        },
+        params: {
+          text: "usuario_normal",
+          clear: true,
+          pressEnter: false,
+        },
+      };
+
+      const result = await executeNodeAction(mockPage, node, ctx);
+      expect(result.success).toBe(true);
+      expect(mockPage._mockLocator.fill).toHaveBeenCalledWith("usuario_normal");
+      expect(mockPage._mockLocator.press).not.toHaveBeenCalled();
     });
   });
 });

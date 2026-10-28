@@ -246,4 +246,58 @@ describe("Initializer Nodes & Root Detection", () => {
     expect(body?.isRoot).toBe(false);
     expect(analysis.primaryRootId).toBe("nav");
   });
+
+  it("repara automáticamente el entry cuando está vacío ('') o apunta a un nodo inexistente", () => {
+    const dslBroken: RecipeDsl = {
+      schema: "rpa/v1",
+      entry: "",
+      nodes: {
+        step_1: {
+          id: "step_1",
+          type: "click",
+          description: "Click",
+          locator: { primary: { strategy: "css", value: "#btn", score: 80 }, fallbacks: [] },
+          params: {},
+          next: "step_2",
+        },
+        step_2: {
+          id: "step_2",
+          type: "type",
+          description: "Type",
+          locator: { primary: { strategy: "css", value: "#input", score: 80 }, fallbacks: [] },
+          params: { text: "hola" },
+        },
+      },
+      edges: [{ from: "step_1", to: "step_2" }],
+    };
+
+    const reconciled = reconcileRecipeRoot(dslBroken);
+    expect(reconciled.entry).toBe("step_1");
+  });
+
+  it("mantiene el webhook como entry principal cuando el usuario lo define como principal", () => {
+    const dslWithWebhook: RecipeDsl = {
+      schema: "rpa/v1",
+      entry: "webhook_start",
+      nodes: {
+        webhook_start: {
+          id: "webhook_start",
+          type: "webhook",
+          description: "Webhook principal",
+          params: { httpMethod: "POST" },
+          next: "step_navigate",
+        },
+        step_navigate: {
+          id: "step_navigate",
+          type: "navigate",
+          description: "Navegar",
+          params: { url: "https://example.com" },
+        },
+      },
+      edges: [{ from: "webhook_start", to: "step_navigate" }],
+    };
+
+    const reconciled = reconcileRecipeRoot(dslWithWebhook);
+    expect(reconciled.entry).toBe("webhook_start");
+  });
 });

@@ -147,8 +147,14 @@ export function analyzeInitializerNodes(recipe: RecipeDsl): RootInitializerAnaly
     const currentInit = initializers.find((init) => init.id === recipe.entry);
     primaryRootId = currentInit ? currentInit.id : initializers[0].id;
   } else {
-    // Si no hay ningún inicializador en la receta, mantener la entrada existente
-    primaryRootId = recipe.entry || null;
+    // Si no hay ningún inicializador en la receta, mantener la entrada existente si es válida
+    if (recipe.entry && nodes[recipe.entry]) {
+      primaryRootId = recipe.entry;
+    } else {
+      // Buscar cualquier nodo raíz (sin conexiones entrantes)
+      const rootNodeKey = Object.keys(nodes).find((id) => (inDegrees[id] || 0) === 0);
+      primaryRootId = rootNodeKey || Object.keys(nodes)[0] || null;
+    }
   }
 
   // Actualizar la bandera isPrincipal con el primaryRootId definitivo
@@ -164,14 +170,38 @@ export function analyzeInitializerNodes(recipe: RecipeDsl): RootInitializerAnaly
 
 /**
  * Reconcilia la receta asegurando que el nodo inicializador raíz esté
- * asignado como principal (entry) del flujo.
+ * asignado como principal (entry) del flujo, y garantizando que jamás se deje
+ * un entry vacío o que apunte a un nodo inexistente si hay nodos en la receta.
  */
 export function reconcileRecipeRoot(recipe: RecipeDsl): RecipeDsl {
+  const nodes = recipe.nodes || {};
+  const nodeKeys = Object.keys(nodes);
+  if (nodeKeys.length === 0) {
+    return recipe;
+  }
+
   const analysis = analyzeInitializerNodes(recipe);
-  if (analysis.primaryRootId && analysis.primaryRootId !== recipe.entry) {
+  let resolvedEntry = recipe.entry;
+
+  if (analysis.primaryRootId && nodes[analysis.primaryRootId]) {
+    // Si la entrada actual no existe o no es un inicializador raíz activo
+    const currentIsRootInit = analysis.initializers.find(
+      (init) => init.id === resolvedEntry && init.isRoot
+    );
+    if (!resolvedEntry || !nodes[resolvedEntry] || !currentIsRootInit) {
+      resolvedEntry = analysis.primaryRootId;
+    }
+  }
+
+  // Garantía absoluta: si resolvedEntry sigue siendo inválido, nulo o vacío pero existen nodos
+  if (!resolvedEntry || !nodes[resolvedEntry]) {
+    resolvedEntry = analysis.primaryRootId || nodeKeys[0];
+  }
+
+  if (resolvedEntry !== recipe.entry) {
     return {
       ...recipe,
-      entry: analysis.primaryRootId,
+      entry: resolvedEntry,
     };
   }
   return recipe;

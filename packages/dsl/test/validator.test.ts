@@ -32,6 +32,31 @@ describe("DSL Validator", () => {
     const result = validateRecipeDsl(validRecipe);
     expect(result.success).toBe(true);
     expect(result.data?.nodes.node_1.type).toBe("navigate");
+    expect((result.data?.nodes.node_2 as any).params.pressEnter).toBe(false);
+  });
+
+  it("valida nodo type con pressEnter activado", () => {
+    const recipe = {
+      schema: "rpa/v1",
+      entry: "node_type",
+      nodes: {
+        node_type: {
+          id: "node_type",
+          type: "type",
+          description: "Escribir y presionar Enter",
+          locator: {
+            primary: { strategy: "css", value: "input[type='search']", score: 90 },
+            fallbacks: [],
+          },
+          params: { text: "zapatillas running", clear: true, pressEnter: true },
+        },
+      },
+      edges: [],
+    };
+
+    const result = validateRecipeDsl(recipe);
+    expect(result.success).toBe(true);
+    expect((result.data?.nodes.node_type as any).params.pressEnter).toBe(true);
   });
 
   it("rechaza recetas donde el nodo inicial no existe", () => {

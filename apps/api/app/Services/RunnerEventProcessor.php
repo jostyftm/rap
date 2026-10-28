@@ -79,6 +79,14 @@ final class RunnerEventProcessor
                 event(new RunUpdated($run));
                 break;
 
+            case 'run.waiting':
+                if ($run->finished_at !== null) {
+                    break;
+                }
+                $run->update(['status' => 'waiting']);
+                event(new RunUpdated($run));
+                break;
+
             case 'run.paused':
                 $run->update(['status' => 'paused']);
                 event(new RunUpdated($run));

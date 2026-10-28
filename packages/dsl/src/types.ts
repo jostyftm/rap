@@ -88,6 +88,7 @@ export interface TypeNode extends BaseNode {
     clear?: boolean;
     delay?: number;
     sensitive?: boolean;
+    pressEnter?: boolean;
   };
 }
 
