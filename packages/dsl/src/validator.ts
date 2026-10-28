@@ -359,7 +359,7 @@ export const RecipeDslSchema = z
       )
       .default([]),
     secrets: z.array(z.string()).default([]),
-    entry: z.string().min(1),
+    entry: z.string(),
     nodes: z.record(RecipeNodeSchema),
     edges: z
       .array(
@@ -374,12 +374,23 @@ export const RecipeDslSchema = z
   })
   .superRefine((data, ctx) => {
     // 1. Validar que el entryNode exista
-    if (!data.nodes[data.entry]) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["entry"],
-        message: `El nodo inicial '${data.entry}' no existe en el catálogo de nodos`,
-      });
+    const nodeCount = Object.keys(data.nodes).length;
+    if (nodeCount > 0) {
+      if (!data.entry || !data.nodes[data.entry]) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["entry"],
+          message: `El nodo inicial '${data.entry}' no existe en el catálogo de nodos`,
+        });
+      }
+    } else {
+      if (data.entry !== "") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["entry"],
+          message: `En un flujo vacío sin nodos, el nodo inicial debe estar vacío`,
+        });
+      }
     }
 
     // 2. Validar referencias de edges

@@ -15,13 +15,17 @@ export class RecorderEngine {
 
   async initialize(): Promise<void> {
     if (!this.browser) {
+      const isHeadless =
+        process.env.RUNNER_HEADLESS === "true" || process.env.RUNNER_RECORDER_HEADLESS === "true";
+      console.log(
+        `[RecorderEngine] Iniciando Chromium para grabador (modo: ${isHeadless ? "headless" : "visible / headed"})...`
+      );
       this.browser = await chromium.launch({
-        headless: process.env.RUNNER_HEADLESS !== "false",
+        headless: isHeadless,
         args: [
           "--no-sandbox",
           "--disable-setuid-sandbox",
           "--disable-dev-shm-usage",
-          "--disable-gpu",
         ],
       });
     }

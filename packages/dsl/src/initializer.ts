@@ -177,6 +177,12 @@ export function reconcileRecipeRoot(recipe: RecipeDsl): RecipeDsl {
   const nodes = recipe.nodes || {};
   const nodeKeys = Object.keys(nodes);
   if (nodeKeys.length === 0) {
+    if (recipe.entry !== "") {
+      return {
+        ...recipe,
+        entry: "",
+      };
+    }
     return recipe;
   }
 
