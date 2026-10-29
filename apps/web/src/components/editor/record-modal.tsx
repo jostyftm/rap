@@ -172,8 +172,8 @@ export function RecordModal({
         ) : (
           <>
             <p className="text-xs text-neutral-400 mb-3 leading-relaxed">
-              Registra acciones a nivel de sistema operativo: clics por coordenadas, atajos de
-              teclado y captura una <strong>miniatura visual</strong> de cada interacción.
+              Selecciona tu pantalla completa o cualquier ventana externa (ej: Calculadora, Excel, Terminal).
+              Podrás <strong>hacer clic y tipear directamente sobre cualquier ventana fuera del navegador</strong> con captura de coordenadas y miniaturas visuales.
             </p>
             <label className="block text-[11px] font-medium text-neutral-300 mb-1">
               Ventana o aplicación objetivo (opcional)

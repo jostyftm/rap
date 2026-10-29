@@ -55,4 +55,20 @@ class RecorderController extends Controller
             'status' => 'stopped',
         ]);
     }
+
+    public function action(Request $request, Recipe $recipe): JsonResponse
+    {
+        $sessionId = (string) $request->input('session_id', '');
+        $action = (array) $request->input('action', []);
+
+        if ($sessionId && ! empty($action)) {
+            $this->recorderService->recordAction($recipe, $sessionId, $action);
+        }
+
+        return response()->json([
+            'recipe_id' => $recipe->uuid,
+            'session_id' => $sessionId,
+            'status' => 'recorded',
+        ]);
+    }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Events\RecordingActionCaptured;
 use App\Models\Recipe;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Str;
@@ -69,6 +70,35 @@ class RecorderService
             'command' => 'recorder.stop',
             'session_id' => $sessionId,
             'recipe_id' => $recipe->uuid,
+            'timestamp' => (string) now()->timestamp,
+        ];
+
+        $args = ['XADD', $this->commandStream, '*'];
+        foreach ($payload as $key => $val) {
+            $args[] = (string) $key;
+            $args[] = (string) $val;
+        }
+
+        try {
+            Redis::executeRaw($args);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $action
+     */
+    public function recordAction(Recipe $recipe, string $sessionId, array $action): void
+    {
+        event(new RecordingActionCaptured($recipe->uuid, $sessionId, $action));
+
+        $payload = [
+            'id' => (string) Str::ulid(),
+            'command' => 'recorder.desktop_action',
+            'session_id' => $sessionId,
+            'recipe_id' => $recipe->uuid,
+            'action' => (string) json_encode($action),
             'timestamp' => (string) now()->timestamp,
         ];
 
