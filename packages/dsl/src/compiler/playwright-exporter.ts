@@ -200,18 +200,6 @@ export function exportToPlaywright(recipe: RecipeDsl, options: PlaywrightExportO
       }
 
       case "click": {
-        if (node.params.targetScope === "desktop") {
-          const coords = node.params.coordinates
-            ? `({ x: ${node.params.coordinates.x}, y: ${node.params.coordinates.y} })`
-            : "";
-          nodeLines.push(
-            `// Macro de escritorio: Clic en coordenadas ${coords} - Ventana: ${JSON.stringify(node.params.windowTitle || "Activa")}`
-          );
-          if (node.params.coordinates) {
-            nodeLines.push(`await page.mouse.click(${node.params.coordinates.x}, ${node.params.coordinates.y});`);
-          }
-          break;
-        }
         const candidates = getCandidatesJson(node.locator);
         nodeLines.push(`const loc_${node.id} = await resolveLocator(page, ${candidates}, ${node.timeout || 5000});`);
         const clickOpts: string[] = [];
@@ -230,16 +218,6 @@ export function exportToPlaywright(recipe: RecipeDsl, options: PlaywrightExportO
       }
 
       case "type": {
-        if (node.params.targetScope === "desktop") {
-          nodeLines.push(
-            `// Macro de escritorio: Escribir texto - Ventana: ${JSON.stringify(node.params.windowTitle || "Activa")}`
-          );
-          nodeLines.push(`await page.keyboard.type(${JSON.stringify(node.params.text)});`);
-          if (node.params.pressEnter) {
-            nodeLines.push(`await page.keyboard.press("Enter");`);
-          }
-          break;
-        }
         const candidates = getCandidatesJson(node.locator);
         nodeLines.push(`const loc_${node.id} = await resolveLocator(page, ${candidates}, ${node.timeout || 5000});`);
         if (node.params.clear) {

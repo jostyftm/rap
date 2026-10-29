@@ -21,17 +21,13 @@ class RecorderController extends Controller
     public function start(RecorderStartRequest $request, Recipe $recipe): JsonResponse
     {
         $validated = $request->validated();
-        $mode = (string) ($validated['mode'] ?? 'browser');
-        $initialUrl = isset($validated['initial_url']) ? (string) $validated['initial_url'] : null;
-        $targetWindow = isset($validated['target_window']) ? (string) $validated['target_window'] : null;
+        $initialUrl = (string) $validated['initial_url'];
         $typeDebounceMs = isset($validated['type_debounce_ms']) ? (int) $validated['type_debounce_ms'] : 1000;
         $captureScroll = isset($validated['capture_scroll']) ? (bool) $validated['capture_scroll'] : true;
 
         $sessionId = $this->recorderService->start(
             $recipe,
             $initialUrl,
-            $mode,
-            $targetWindow,
             $typeDebounceMs,
             $captureScroll
         );
@@ -40,7 +36,7 @@ class RecorderController extends Controller
             'session_id' => $sessionId,
             'recipe_id' => $recipe->uuid,
             'status' => 'recording',
-            'mode' => $mode,
+            'mode' => 'browser',
             'channel' => "recipe.{$recipe->uuid}",
         ], Response::HTTP_CREATED);
     }
@@ -53,22 +49,6 @@ class RecorderController extends Controller
         return response()->json([
             'recipe_id' => $recipe->uuid,
             'status' => 'stopped',
-        ]);
-    }
-
-    public function action(Request $request, Recipe $recipe): JsonResponse
-    {
-        $sessionId = (string) $request->input('session_id', '');
-        $action = (array) $request->input('action', []);
-
-        if ($sessionId && ! empty($action)) {
-            $this->recorderService->recordAction($recipe, $sessionId, $action);
-        }
-
-        return response()->json([
-            'recipe_id' => $recipe->uuid,
-            'session_id' => $sessionId,
-            'status' => 'recorded',
         ]);
     }
 }

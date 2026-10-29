@@ -1,14 +1,14 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { CircleDot, X, Globe, Monitor, Loader2, Clock, MoveVertical } from "lucide-react";
+import { CircleDot, X, Globe, Loader2, Clock, MoveVertical } from "lucide-react";
 import { apiFetch } from "../../lib/api-client";
 
 export interface RecordModalProps {
   isOpen: boolean;
   onClose: () => void;
   recipeId: string;
-  onRecordingStarted: (sessionId: string, mode: "browser" | "desktop") => void;
+  onRecordingStarted: (sessionId: string, mode?: string) => void;
   defaultUrl?: string;
 }
 
@@ -19,9 +19,7 @@ export function RecordModal({
   onRecordingStarted,
   defaultUrl = "http://localhost:8099/index.html",
 }: RecordModalProps) {
-  const [recordMode, setRecordMode] = useState<"browser" | "desktop">("browser");
   const [recordUrl, setRecordUrl] = useState(defaultUrl);
-  const [recordTargetWindow, setRecordTargetWindow] = useState("");
   const [typeDebounceMs, setTypeDebounceMs] = useState<number>(1000);
   const [captureScroll, setCaptureScroll] = useState<boolean>(true);
   const [isStarting, setIsStarting] = useState(false);
@@ -34,7 +32,7 @@ export function RecordModal({
         inputRef.current?.focus();
       }, 50);
     }
-  }, [isOpen, recordMode]);
+  }, [isOpen]);
 
   // Cerrar al pulsar Escape
   useEffect(() => {
@@ -54,8 +52,7 @@ export function RecordModal({
   if (!isOpen) return null;
 
   const handleStart = async () => {
-    if (!recipeId) return;
-    if (recordMode === "browser" && !recordUrl.trim()) return;
+    if (!recipeId || !recordUrl.trim()) return;
 
     setIsStarting(true);
     try {
@@ -64,10 +61,8 @@ export function RecordModal({
         {
           method: "POST",
           body: JSON.stringify({
-            mode: recordMode,
-            initial_url: recordMode === "browser" ? recordUrl.trim() : undefined,
-            target_window:
-              recordMode === "desktop" ? recordTargetWindow.trim() || undefined : undefined,
+            mode: "browser",
+            initial_url: recordUrl.trim(),
             type_debounce_ms: typeDebounceMs,
             capture_scroll: captureScroll,
           }),
@@ -75,7 +70,7 @@ export function RecordModal({
       );
 
       if (res.session_id) {
-        onRecordingStarted(res.session_id, (res.mode as any) || recordMode);
+        onRecordingStarted(res.session_id, "browser");
         onClose();
       }
     } catch (err: any) {
@@ -110,7 +105,7 @@ export function RecordModal({
         <div className="flex items-center justify-between mb-3">
           <div className="text-sm font-semibold text-neutral-100 flex items-center space-x-2">
             <CircleDot className="w-4 h-4 text-rose-500 animate-pulse" />
-            <span>Grabar Acciones y Macros</span>
+            <span>Grabar Acciones Web</span>
           </div>
           <button
             type="button"
@@ -122,73 +117,28 @@ export function RecordModal({
           </button>
         </div>
 
-        {/* Pestañas de Selección de Modo */}
-        <div className="flex rounded-lg bg-neutral-950 p-1 mb-4 border border-neutral-800 select-none">
-          <button
-            type="button"
-            onClick={() => setRecordMode("browser")}
-            className={`flex-1 flex items-center justify-center space-x-2 py-1.5 px-3 rounded-md text-xs font-medium transition-all cursor-pointer ${
-              recordMode === "browser"
-                ? "bg-rose-600 text-white shadow-sm"
-                : "text-neutral-400 hover:text-neutral-200"
-            }`}
-          >
-            <Globe className="w-3.5 h-3.5" />
-            <span>Navegador Web</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setRecordMode("desktop")}
-            className={`flex-1 flex items-center justify-center space-x-2 py-1.5 px-3 rounded-md text-xs font-medium transition-all cursor-pointer ${
-              recordMode === "desktop"
-                ? "bg-purple-600 text-white shadow-sm"
-                : "text-neutral-400 hover:text-neutral-200"
-            }`}
-          >
-            <Monitor className="w-3.5 h-3.5" />
-            <span>Escritorio (Macro)</span>
-          </button>
-        </div>
+        <p className="text-xs text-neutral-400 mb-3 leading-relaxed">
+          Playwright abrirá la URL e insertará cada clic, escritura y desplazamiento interactuado directamente como
+          bloques con <strong>previsualización visual instantánea</strong> y locators resilientes en el flujo.
+        </p>
 
-        {recordMode === "browser" ? (
-          <>
-            <p className="text-xs text-neutral-400 mb-3 leading-relaxed">
-              Playwright abrirá la URL e insertará cada clic o texto interactuado directamente como
-              bloques con <strong>previsualización visual instantánea</strong> en el flujo.
-            </p>
-            <label className="block text-[11px] font-medium text-neutral-300 mb-1">
-              URL del sitio web
-            </label>
-            <input
-              ref={inputRef}
-              type="text"
-              value={recordUrl}
-              onChange={(e) => setRecordUrl(e.target.value)}
-              onKeyDown={handleInputKeyDown}
-              placeholder="http://localhost:8099/index.html"
-              className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-xs text-neutral-100 mb-4 outline-none focus:border-rose-500 font-mono transition-colors"
-            />
-          </>
-        ) : (
-          <>
-            <p className="text-xs text-neutral-400 mb-3 leading-relaxed">
-              Selecciona tu pantalla completa o cualquier ventana externa (ej: Calculadora, Excel, Terminal).
-              Podrás <strong>hacer clic y tipear directamente sobre cualquier ventana fuera del navegador</strong> con captura de coordenadas y miniaturas visuales.
-            </p>
-            <label className="block text-[11px] font-medium text-neutral-300 mb-1">
-              Ventana o aplicación objetivo (opcional)
-            </label>
-            <input
-              ref={inputRef}
-              type="text"
-              value={recordTargetWindow}
-              onChange={(e) => setRecordTargetWindow(e.target.value)}
-              onKeyDown={handleInputKeyDown}
-              placeholder="Ej: Calculadora, Bloc de notas, o dejar vacío"
-              className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-xs text-neutral-100 mb-4 outline-none focus:border-purple-500 font-mono transition-colors"
-            />
-          </>
-        )}
+        <label className="block text-[11px] font-medium text-neutral-300 mb-1">
+          URL del sitio web
+        </label>
+        <div className="relative mb-4">
+          <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-neutral-500">
+            <Globe className="w-3.5 h-3.5" />
+          </div>
+          <input
+            ref={inputRef}
+            type="text"
+            value={recordUrl}
+            onChange={(e) => setRecordUrl(e.target.value)}
+            onKeyDown={handleInputKeyDown}
+            placeholder="http://localhost:8099/index.html"
+            className="w-full bg-neutral-950 border border-neutral-800 rounded-lg pl-8 pr-3 py-2 text-xs text-neutral-100 outline-none focus:border-rose-500 font-mono transition-colors"
+          />
+        </div>
 
         {/* Opciones de Grabación: Debounce y Scroll */}
         <div className="bg-neutral-950/70 border border-neutral-800/80 rounded-lg p-3 mb-4 space-y-3">
@@ -239,17 +189,11 @@ export function RecordModal({
           <button
             type="button"
             onClick={handleStart}
-            disabled={isStarting || (recordMode === "browser" && !recordUrl.trim())}
-            className={`flex items-center space-x-1.5 px-4 py-1.5 rounded-lg text-white text-xs font-semibold shadow transition-colors cursor-pointer disabled:opacity-50 ${
-              recordMode === "desktop"
-                ? "bg-purple-600 hover:bg-purple-500"
-                : "bg-rose-600 hover:bg-rose-500"
-            }`}
+            disabled={isStarting || !recordUrl.trim()}
+            className="flex items-center space-x-1.5 px-4 py-1.5 rounded-lg text-white text-xs font-semibold shadow transition-colors cursor-pointer disabled:opacity-50 bg-rose-600 hover:bg-rose-500"
           >
             {isStarting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            <span>
-              {recordMode === "desktop" ? "Iniciar Macro Escritorio" : "Comenzar Grabación"}
-            </span>
+            <span>Comenzar Grabación</span>
           </button>
         </div>
       </div>

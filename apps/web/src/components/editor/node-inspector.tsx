@@ -257,7 +257,7 @@ export function NodeInspector() {
                       <span>Previsualización Capturada</span>
                     </span>
                     <span className="text-[9px] px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300 font-mono">
-                      {node.preview.targetScope === "desktop" ? "Escritorio" : "Navegador"}
+                      Navegador
                     </span>
                   </div>
                   <div className="relative rounded overflow-hidden border border-neutral-800 bg-black flex items-center justify-center">

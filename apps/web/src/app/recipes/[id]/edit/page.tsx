@@ -12,7 +12,6 @@ import { StepList } from "@/components/editor/step-list";
 import { CodeEditor } from "@/components/editor/code-editor";
 import { ExecutionConsole } from "@/components/editor/execution-console";
 import { RecorderBar } from "@/components/editor/recorder-bar";
-import { DesktopRecorderCanvas } from "@/components/editor/desktop-recorder-canvas";
 import { LiveSitePanel } from "@/components/editor/live-site-panel";
 import { NodeDetailModal } from "@/components/editor/detail/node-detail-modal";
 import { Loader2, Plus } from "lucide-react";
@@ -85,7 +84,6 @@ function RecipeEditorContent() {
 
       {/* 1.1 Barra flotante de grabación interactiva */}
       <RecorderBar />
-      <DesktopRecorderCanvas />
 
       {/* 2. Área Central de Trabajo (Flujo / Dividido / Sitio Completo) */}
       <div ref={splitContainerRef} className="flex-1 flex overflow-hidden relative">

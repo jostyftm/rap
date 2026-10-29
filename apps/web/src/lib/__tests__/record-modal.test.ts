@@ -1,77 +1,51 @@
 import { describe, it, expect } from "vitest";
 
 describe("RecordModal Component & Interaction Logic", () => {
-  it("contiene los modos de captura 'browser' y 'desktop'", () => {
-    const modes = ["browser", "desktop"] as const;
-    expect(modes).toContain("browser");
-    expect(modes).toContain("desktop");
-  });
-
   it("construye el payload correcto para inicio de grabación en navegador", () => {
-    const mode = "browser";
     const url = "https://example.com/login";
 
     const payload = {
-      mode,
-      initial_url: mode === "browser" ? url.trim() : undefined,
-      target_window: undefined,
+      mode: "browser",
+      initial_url: url.trim(),
+      type_debounce_ms: 1000,
+      capture_scroll: true,
     };
 
     expect(payload.mode).toBe("browser");
     expect(payload.initial_url).toBe("https://example.com/login");
-    expect(payload.target_window).toBeUndefined();
+    expect(payload.type_debounce_ms).toBe(1000);
+    expect(payload.capture_scroll).toBe(true);
   });
 
-  it("construye el payload correcto para inicio de macros de escritorio", () => {
-    function buildPayload(mode: "browser" | "desktop", url?: string, targetWindow?: string) {
-      return {
-        mode,
-        initial_url: mode === "browser" ? url?.trim() : undefined,
-        target_window: mode === "desktop" ? targetWindow?.trim() || undefined : undefined,
-      };
-    }
+  it("valida que la URL es estrictamente requerida", () => {
+    const isUrlValid = (url: string) => url.trim().length > 0;
 
-    const payload = buildPayload("desktop", undefined, "Calculadora");
-
-    expect(payload.mode).toBe("desktop");
-    expect(payload.initial_url).toBeUndefined();
-    expect(payload.target_window).toBe("Calculadora");
+    expect(isUrlValid("")).toBe(false);
+    expect(isUrlValid("   ")).toBe(false);
+    expect(isUrlValid("http://localhost:3000")).toBe(true);
+    expect(isUrlValid("https://example.com")).toBe(true);
   });
 
-  it("valida que la URL es requerida en modo navegador y opcional en modo escritorio", () => {
-    const isBrowserValid = (url: string) => url.trim().length > 0;
-    const isDesktopValid = (_targetWindow: string) => true;
-
-    expect(isBrowserValid("")).toBe(false);
-    expect(isBrowserValid("http://localhost:3000")).toBe(true);
-
-    expect(isDesktopValid("")).toBe(true);
-    expect(isDesktopValid("Bloc de notas")).toBe(true);
-  });
-
-  it("incluye type_debounce_ms y capture_scroll en el payload de inicio", () => {
+  it("incluye type_debounce_ms y capture_scroll configurables en el payload de inicio", () => {
     function buildStartPayload(
-      mode: "browser" | "desktop",
-      url?: string,
-      targetWindow?: string,
+      url: string,
       typeDebounceMs = 1000,
       captureScroll = true
     ) {
       return {
-        mode,
-        initial_url: mode === "browser" ? url?.trim() : undefined,
-        target_window: mode === "desktop" ? targetWindow?.trim() || undefined : undefined,
+        mode: "browser",
+        initial_url: url.trim(),
         type_debounce_ms: typeDebounceMs,
         capture_scroll: captureScroll,
       };
     }
 
-    const payload = buildStartPayload("browser", "https://example.com", undefined, 1500, true);
-    expect(payload.type_debounce_ms).toBe(1500);
-    expect(payload.capture_scroll).toBe(true);
+    const payloadFast = buildStartPayload("https://example.com", 500, false);
+    expect(payloadFast.type_debounce_ms).toBe(500);
+    expect(payloadFast.capture_scroll).toBe(false);
 
-    const deskPayload = buildStartPayload("desktop", undefined, "Excel", 800, false);
-    expect(deskPayload.type_debounce_ms).toBe(800);
-    expect(deskPayload.capture_scroll).toBe(false);
+    const payloadSlow = buildStartPayload("https://example.com", 2000, true);
+    expect(payloadSlow.type_debounce_ms).toBe(2000);
+    expect(payloadSlow.capture_scroll).toBe(true);
   });
 });

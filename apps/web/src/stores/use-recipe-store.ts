@@ -140,7 +140,7 @@ export interface RecipeStoreState {
   updateNodePosition: (id: string, position: { x: number; y: number }) => void;
 
   // Grabación en vivo
-  startRecording: (sessionId: string, mode?: "browser" | "desktop") => void;
+  startRecording: (sessionId: string, mode?: string) => void;
   stopRecording: () => void;
   appendRecordedAction: (action: {
     type: string;
@@ -985,11 +985,11 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     });
   },
 
-  startRecording: (recordingSessionId: string, recordingMode: "browser" | "desktop" = "browser") => {
+  startRecording: (recordingSessionId: string) => {
     set({
       isRecording: true,
       recordingSessionId,
-      recordingMode,
+      recordingMode: "browser",
       recordedActionsCount: 0,
     });
   },
@@ -1010,16 +1010,12 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     const lastNode = lastKey ? definition.nodes[lastKey] : undefined;
 
     // 1. Fusión inteligente de tipeo consecutivo en el mismo campo
-    if (type === "type" && lastNode && lastNode.type === "type") {
+    if (type === "type" && lastKey && lastNode && lastNode.type === "type") {
       const sameLocator =
         Boolean(action.locator?.primary?.value) &&
         action.locator?.primary?.value === lastNode.locator?.primary?.value;
-      const sameDesktopCoords =
-        (action.params as any)?.targetScope === "desktop" &&
-        (lastNode.params as any)?.coordinates?.x === (action.params as any)?.coordinates?.x &&
-        (lastNode.params as any)?.coordinates?.y === (action.params as any)?.coordinates?.y;
 
-      if (sameLocator || sameDesktopCoords) {
+      if (sameLocator) {
         const updatedNode: RecipeNode = {
           ...lastNode,
           params: {
@@ -1059,6 +1055,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     if (
       type === "scroll" &&
       action.params?.mode === "coordinates" &&
+      lastKey &&
       lastNode &&
       lastNode.type === "scroll" &&
       lastNode.params?.mode === "coordinates"

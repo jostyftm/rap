@@ -20,9 +20,7 @@ class RecorderService
 
     public function start(
         Recipe $recipe,
-        ?string $initialUrl = null,
-        string $mode = 'browser',
-        ?string $targetWindow = null,
+        string $initialUrl,
         int $typeDebounceMs = 1000,
         bool $captureScroll = true
     ): string
@@ -34,19 +32,12 @@ class RecorderService
             'command' => 'recorder.start',
             'session_id' => $sessionId,
             'recipe_id' => $recipe->uuid,
-            'mode' => $mode,
+            'initial_url' => $initialUrl,
+            'mode' => 'browser',
             'type_debounce_ms' => (string) $typeDebounceMs,
             'capture_scroll' => $captureScroll ? 'true' : 'false',
             'timestamp' => (string) now()->timestamp,
         ];
-
-        if ($initialUrl) {
-            $payload['initial_url'] = $initialUrl;
-        }
-
-        if ($targetWindow) {
-            $payload['target_window'] = $targetWindow;
-        }
 
         $args = ['XADD', $this->commandStream, '*'];
         foreach ($payload as $key => $val) {
@@ -70,35 +61,6 @@ class RecorderService
             'command' => 'recorder.stop',
             'session_id' => $sessionId,
             'recipe_id' => $recipe->uuid,
-            'timestamp' => (string) now()->timestamp,
-        ];
-
-        $args = ['XADD', $this->commandStream, '*'];
-        foreach ($payload as $key => $val) {
-            $args[] = (string) $key;
-            $args[] = (string) $val;
-        }
-
-        try {
-            Redis::executeRaw($args);
-        } catch (\Throwable $e) {
-            report($e);
-        }
-    }
-
-    /**
-     * @param  array<string, mixed>  $action
-     */
-    public function recordAction(Recipe $recipe, string $sessionId, array $action): void
-    {
-        event(new RecordingActionCaptured($recipe->uuid, $sessionId, $action));
-
-        $payload = [
-            'id' => (string) Str::ulid(),
-            'command' => 'recorder.desktop_action',
-            'session_id' => $sessionId,
-            'recipe_id' => $recipe->uuid,
-            'action' => (string) json_encode($action),
             'timestamp' => (string) now()->timestamp,
         ];
 

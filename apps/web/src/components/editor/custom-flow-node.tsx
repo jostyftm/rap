@@ -10,7 +10,6 @@ import {
   Crosshair,
   Maximize2,
   Sparkles,
-  Monitor,
   Camera,
   X,
 } from "lucide-react";
@@ -166,19 +165,10 @@ export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selec
                 setIsPreviewZoomOpen(true);
               }}
             />
-            {/* Badge de ámbito (Web vs Escritorio) */}
+            {/* Badge de ámbito */}
             <div className="absolute top-1 left-1 flex items-center space-x-1 px-1.5 py-0.5 rounded bg-black/75 backdrop-blur-xs text-[9px] font-mono text-zinc-200 border border-zinc-700/60">
-              {nodeData.preview.targetScope === "desktop" ? (
-                <>
-                  <Monitor className="w-2.5 h-2.5 text-purple-400" />
-                  <span>Escritorio</span>
-                </>
-              ) : (
-                <>
-                  <Globe className="w-2.5 h-2.5 text-rose-400" />
-                  <span>Web</span>
-                </>
-              )}
+              <Globe className="w-2.5 h-2.5 text-rose-400" />
+              <span>Web</span>
             </div>
 
             {/* Coordenadas */}
@@ -417,7 +407,7 @@ export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selec
                   Previsualización de Acción Capturada
                 </span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono">
-                  {nodeData.preview.targetScope === "desktop" ? "Escritorio" : "Web"}
+                  Web
                 </span>
               </div>
               <button

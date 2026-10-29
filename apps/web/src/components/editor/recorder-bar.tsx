@@ -1,14 +1,13 @@
 "use client";
 
 import React, { useState } from "react";
-import { Square, Loader2, Globe, Monitor } from "lucide-react";
+import { Square, Loader2, Globe } from "lucide-react";
 import { useRecipeStore } from "../../stores/use-recipe-store";
 import { apiFetch } from "../../lib/api-client";
 
 export function RecorderBar() {
   const isRecording = useRecipeStore((s) => s.isRecording);
   const recordingSessionId = useRecipeStore((s) => s.recordingSessionId);
-  const recordingMode = useRecipeStore((s) => s.recordingMode);
   const recordedActionsCount = useRecipeStore((s) => s.recordedActionsCount);
   const stopRecording = useRecipeStore((s) => s.stopRecording);
   const recipeId = useRecipeStore((s) => s.recipeId);
@@ -34,27 +33,17 @@ export function RecorderBar() {
     }
   };
 
-  const isDesktop = recordingMode === "desktop";
-
   return (
     <div className="h-10 bg-zinc-900 border-b border-zinc-800 px-4 flex items-center justify-between text-xs select-none shadow-sm z-30">
       <div className="flex items-center space-x-3">
-        <div className={`flex items-center space-x-2 font-medium ${isDesktop ? "text-purple-400" : "text-rose-400"}`}>
+        <div className="flex items-center space-x-2 font-medium text-rose-400">
           <span className="relative flex h-2 w-2">
-            <span
-              className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                isDesktop ? "bg-purple-400" : "bg-rose-400"
-              }`}
-            />
-            <span
-              className={`relative inline-flex rounded-full h-2 w-2 ${
-                isDesktop ? "bg-purple-500" : "bg-rose-500"
-              }`}
-            />
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-rose-400" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
           </span>
-          {isDesktop ? <Monitor className="w-3.5 h-3.5" /> : <Globe className="w-3.5 h-3.5" />}
+          <Globe className="w-3.5 h-3.5" />
           <span className="text-[11px] font-mono tracking-wide">
-            {isDesktop ? "Grabando Macro Escritorio" : "Grabando Navegador Web"}
+            Grabando Navegador Web
           </span>
         </div>
 
@@ -72,9 +61,7 @@ export function RecorderBar() {
 
       <div className="flex items-center space-x-3">
         <span className="text-[11px] text-zinc-500 hidden md:inline">
-          {isDesktop
-            ? "Capturando clics por coordenadas, atajos y recortes visuales del sistema"
-            : "Interactúa en la página para capturar acciones con recortes visuales automáticamente"}
+          Interactúa en la página para capturar acciones con recortes visuales automáticamente
         </span>
 
         <button

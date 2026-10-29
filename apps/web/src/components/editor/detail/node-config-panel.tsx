@@ -17,7 +17,6 @@ import {
   X,
   Star,
   Camera,
-  Monitor,
 } from "lucide-react";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { nodeRegistry } from "../nodes";
@@ -297,7 +296,7 @@ export function NodeConfigPanel({
                     <span className="flex items-center gap-2 mt-0.5">
                       <span>Miniatura registrada al grabar la acción.</span>
                       <Badge tone="accent">
-                        {node.preview.targetScope === "desktop" ? "Escritorio" : "Navegador Web"}
+                        Navegador Web
                       </Badge>
                     </span>
                   }

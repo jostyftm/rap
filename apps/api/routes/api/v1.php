@@ -76,7 +76,6 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function (): void {
     // Grabador de Acciones en Vivo (Recorder)
     Route::post('recipes/{recipe}/recorder/start', [RecorderController::class, 'start']);
     Route::post('recipes/{recipe}/recorder/stop', [RecorderController::class, 'stop']);
-    Route::post('recipes/{recipe}/recorder/action', [RecorderController::class, 'action']);
 
     // Sitio en Vivo (proxy embebido / Chromium externo)
     Route::post('recipes/{recipe}/live/start', [LiveSessionController::class, 'start']);
