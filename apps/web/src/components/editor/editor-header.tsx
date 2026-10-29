@@ -191,6 +191,7 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
     const channel = echo.channel(`recipe.${recipeId}`);
     channel.listen(".recording.action", (e: { action: any }) => {
       if (e?.action) {
+        console.log("[Recorder] Acción recibida en tiempo real:", e.action.type, e.action);
         appendRecordedAction(e.action);
       }
     });

@@ -90,7 +90,12 @@ export function useRecipeEditor(recipeId: string) {
     const currentStore = useRecipeStore.getState();
     let safeDef = reconcileRecipeRoot(currentStore.definition);
     const nodeKeys = Object.keys(safeDef.nodes || {});
-    if (nodeKeys.length > 0 && (!safeDef.entry || !safeDef.nodes[safeDef.entry])) {
+    if (nodeKeys.length === 0) {
+      safeDef = {
+        ...safeDef,
+        entry: "",
+      };
+    } else if (!safeDef.entry || !safeDef.nodes[safeDef.entry]) {
       safeDef = {
         ...safeDef,
         entry: nodeKeys[0],

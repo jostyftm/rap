@@ -61,10 +61,6 @@ final class DslValidator
             if (! is_string($entry) || ! isset($nodes[$entry])) {
                 $errors[] = "entry: El nodo inicial '{$entry}' no existe en la lista de nodos";
             }
-        } else {
-            if (! is_string($entry) || $entry !== '') {
-                $errors[] = "entry: El nodo inicial '{$entry}' no existe en la lista de nodos vacía";
-            }
         }
 
         foreach ($nodes as $nodeId => $node) {
