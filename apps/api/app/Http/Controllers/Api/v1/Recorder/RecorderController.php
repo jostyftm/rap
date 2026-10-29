@@ -24,8 +24,17 @@ class RecorderController extends Controller
         $mode = (string) ($validated['mode'] ?? 'browser');
         $initialUrl = isset($validated['initial_url']) ? (string) $validated['initial_url'] : null;
         $targetWindow = isset($validated['target_window']) ? (string) $validated['target_window'] : null;
+        $typeDebounceMs = isset($validated['type_debounce_ms']) ? (int) $validated['type_debounce_ms'] : 1000;
+        $captureScroll = isset($validated['capture_scroll']) ? (bool) $validated['capture_scroll'] : true;
 
-        $sessionId = $this->recorderService->start($recipe, $initialUrl, $mode, $targetWindow);
+        $sessionId = $this->recorderService->start(
+            $recipe,
+            $initialUrl,
+            $mode,
+            $targetWindow,
+            $typeDebounceMs,
+            $captureScroll
+        );
 
         return response()->json([
             'session_id' => $sessionId,

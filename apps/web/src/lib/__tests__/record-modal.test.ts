@@ -48,4 +48,30 @@ describe("RecordModal Component & Interaction Logic", () => {
     expect(isDesktopValid("")).toBe(true);
     expect(isDesktopValid("Bloc de notas")).toBe(true);
   });
+
+  it("incluye type_debounce_ms y capture_scroll en el payload de inicio", () => {
+    function buildStartPayload(
+      mode: "browser" | "desktop",
+      url?: string,
+      targetWindow?: string,
+      typeDebounceMs = 1000,
+      captureScroll = true
+    ) {
+      return {
+        mode,
+        initial_url: mode === "browser" ? url?.trim() : undefined,
+        target_window: mode === "desktop" ? targetWindow?.trim() || undefined : undefined,
+        type_debounce_ms: typeDebounceMs,
+        capture_scroll: captureScroll,
+      };
+    }
+
+    const payload = buildStartPayload("browser", "https://example.com", undefined, 1500, true);
+    expect(payload.type_debounce_ms).toBe(1500);
+    expect(payload.capture_scroll).toBe(true);
+
+    const deskPayload = buildStartPayload("desktop", undefined, "Excel", 800, false);
+    expect(deskPayload.type_debounce_ms).toBe(800);
+    expect(deskPayload.capture_scroll).toBe(false);
+  });
 });

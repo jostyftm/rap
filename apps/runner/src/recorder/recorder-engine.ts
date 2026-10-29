@@ -5,6 +5,8 @@ export interface RecorderOptions {
   sessionId: string;
   recipeId: string;
   initialUrl: string;
+  typeDebounceMs?: number;
+  captureScroll?: boolean;
 }
 
 export class RecorderEngine {
@@ -38,6 +40,11 @@ export class RecorderEngine {
     }
 
     const { sessionId, recipeId, initialUrl } = options;
+    const typeDebounceMs =
+      typeof options.typeDebounceMs === "number" && options.typeDebounceMs >= 200
+        ? options.typeDebounceMs
+        : 1000;
+    const captureScroll = options.captureScroll !== false;
 
     const context = await this.browser.newContext({
       viewport: { width: 1280, height: 800 },
@@ -55,30 +62,39 @@ export class RecorderEngine {
       // Generar thumbnail visual del elemento o región interactuada
       let thumbnail: string | undefined;
       try {
-        let clipX = actionData.clickX ?? actionData.box?.x ?? 0;
-        let clipY = actionData.clickY ?? actionData.box?.y ?? 0;
-        let clipWidth = actionData.box?.width ?? 200;
-        let clipHeight = actionData.box?.height ?? 100;
-
-        if (clipWidth > 0 && clipWidth <= 450 && clipHeight > 0 && clipHeight <= 300) {
-          clipX = Math.max(0, (actionData.box?.x ?? 0) - 8);
-          clipY = Math.max(0, (actionData.box?.y ?? 0) - 8);
-          clipWidth = Math.min(1280 - clipX, clipWidth + 16);
-          clipHeight = Math.min(800 - clipY, clipHeight + 16);
-        } else {
-          clipX = Math.max(0, clipX - 110);
-          clipY = Math.max(0, clipY - 60);
-          clipWidth = Math.min(1280 - clipX, 220);
-          clipHeight = Math.min(800 - clipY, 120);
-        }
-
-        if (clipWidth >= 10 && clipHeight >= 10) {
+        if (actionData.type === "scroll") {
           const buf = await page.screenshot({
-            clip: { x: clipX, y: clipY, width: clipWidth, height: clipHeight },
+            clip: { x: 0, y: 0, width: 360, height: 200 },
             type: "jpeg",
-            quality: 65,
+            quality: 60,
           });
           thumbnail = `data:image/jpeg;base64,${buf.toString("base64")}`;
+        } else {
+          let clipX = actionData.clickX ?? actionData.box?.x ?? 0;
+          let clipY = actionData.clickY ?? actionData.box?.y ?? 0;
+          let clipWidth = actionData.box?.width ?? 200;
+          let clipHeight = actionData.box?.height ?? 100;
+
+          if (clipWidth > 0 && clipWidth <= 450 && clipHeight > 0 && clipHeight <= 300) {
+            clipX = Math.max(0, (actionData.box?.x ?? 0) - 8);
+            clipY = Math.max(0, (actionData.box?.y ?? 0) - 8);
+            clipWidth = Math.min(1280 - clipX, clipWidth + 16);
+            clipHeight = Math.min(800 - clipY, clipHeight + 16);
+          } else {
+            clipX = Math.max(0, clipX - 110);
+            clipY = Math.max(0, clipY - 60);
+            clipWidth = Math.min(1280 - clipX, 220);
+            clipHeight = Math.min(800 - clipY, 120);
+          }
+
+          if (clipWidth >= 10 && clipHeight >= 10) {
+            const buf = await page.screenshot({
+              clip: { x: clipX, y: clipY, width: clipWidth, height: clipHeight },
+              type: "jpeg",
+              quality: 65,
+            });
+            thumbnail = `data:image/jpeg;base64,${buf.toString("base64")}`;
+          }
         }
       } catch (err: any) {
         console.warn("[RecorderEngine] No se pudo generar recorte de elemento:", err.message);
@@ -185,39 +201,65 @@ export class RecorderEngine {
           });
         }, true);
 
-        // 2. Capturar escritura (input/change con debounce)
+        // 2. Capturar escritura (input con debounce configurable y vaciado en blur)
+        const TYPE_DEBOUNCE_MS = ${typeDebounceMs};
+        const CAPTURE_SCROLL = ${captureScroll};
+
         let inputTimer = null;
+        let lastInputTarget = null;
+
+        function flushInput(target) {
+          if (!target) return;
+          clearTimeout(inputTimer);
+          inputTimer = null;
+          lastInputTarget = null;
+          const loc = getCandidates(target);
+          const box = getElementBox(target);
+          const textVal = target.value || '';
+          if (textVal.length === 0) return;
+
+          window.rpaCaptureAction({
+            type: 'type',
+            locator: loc,
+            params: { text: textVal, clear: true },
+            url: window.location.href,
+            box: box,
+            description: 'Escribir en ' + (loc.primary.value || target.name || 'campo')
+          });
+        }
+
         document.addEventListener('input', function(e) {
           const target = e.target;
           if (!target || !(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
 
+          lastInputTarget = target;
           clearTimeout(inputTimer);
           inputTimer = setTimeout(function() {
-            const loc = getCandidates(target);
-            const box = getElementBox(target);
-            window.rpaCaptureAction({
-              type: 'type',
-              locator: loc,
-              params: { text: target.value, clear: true },
-              url: window.location.href,
-              box: box,
-              description: 'Escribir en ' + (loc.primary.value || target.name || 'campo')
-            });
-          }, 400);
+            flushInput(target);
+          }, TYPE_DEBOUNCE_MS);
         }, true);
 
-        // 2b. Capturar tecla Enter en campos de texto
+        // Vaciado inmediato en blur al cambiar de foco o hacer clic fuera
+        document.addEventListener('blur', function(e) {
+          if (inputTimer && lastInputTarget) {
+            flushInput(lastInputTarget);
+          }
+        }, true);
+
+        // 2b. Capturar tecla Enter en campos de texto (vaciado inmediato con pressEnter)
         document.addEventListener('keydown', function(e) {
           if (e.key === 'Enter') {
             const target = e.target;
             if (target && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {
               clearTimeout(inputTimer);
+              inputTimer = null;
+              lastInputTarget = null;
               const loc = getCandidates(target);
               const box = getElementBox(target);
               window.rpaCaptureAction({
                 type: 'type',
                 locator: loc,
-                params: { text: target.value, clear: true, pressEnter: true },
+                params: { text: target.value || '', clear: true, pressEnter: true },
                 url: window.location.href,
                 box: box,
                 description: 'Escribir y pulsar Enter en ' + (loc.primary.value || target.name || 'campo')
@@ -242,6 +284,86 @@ export class RecorderEngine {
             description: 'Seleccionar opción en ' + loc.primary.value
           });
         }, true);
+
+        // 4. Capturar desplazamiento de página o contenedores (Scroll)
+        if (CAPTURE_SCROLL) {
+          let scrollTimer = null;
+          let lastScrollX = window.scrollX || window.pageXOffset || 0;
+          let lastScrollY = window.scrollY || window.pageYOffset || 0;
+
+          window.addEventListener('scroll', function(e) {
+            clearTimeout(scrollTimer);
+            const target = e.target;
+            const isDoc =
+              !target ||
+              target === document ||
+              target === document.documentElement ||
+              target === document.body;
+
+            scrollTimer = setTimeout(function() {
+              if (isDoc) {
+                const currentX = window.scrollX || window.pageXOffset || 0;
+                const currentY = window.scrollY || window.pageYOffset || 0;
+                const deltaX = Math.round(currentX - lastScrollX);
+                const deltaY = Math.round(currentY - lastScrollY);
+
+                if (Math.abs(deltaY) < 30 && Math.abs(deltaX) < 30) return;
+
+                lastScrollX = currentX;
+                lastScrollY = currentY;
+
+                const docHeight = Math.max(
+                  document.body.scrollHeight,
+                  document.documentElement.scrollHeight
+                );
+                const winHeight = window.innerHeight;
+                const isBottom = currentY + winHeight >= docHeight - 50;
+                const isTop = currentY <= 30;
+
+                let mode = 'coordinates';
+                let desc =
+                  deltaY > 0
+                    ? 'Desplazar hacia abajo (' + deltaY + 'px)'
+                    : 'Desplazar hacia arriba (' + Math.abs(deltaY) + 'px)';
+
+                if (isBottom) {
+                  mode = 'bottom';
+                  desc = 'Desplazar al final de la página';
+                } else if (isTop) {
+                  mode = 'top';
+                  desc = 'Desplazar al inicio de la página';
+                }
+
+                window.rpaCaptureAction({
+                  type: 'scroll',
+                  params: {
+                    mode: mode,
+                    x: mode === 'coordinates' ? deltaX : undefined,
+                    y: mode === 'coordinates' ? deltaY : undefined,
+                    behavior: 'smooth',
+                  },
+                  url: window.location.href,
+                  description: desc,
+                });
+              } else if (target instanceof HTMLElement) {
+                const loc = getCandidates(target);
+                const box = getElementBox(target);
+                window.rpaCaptureAction({
+                  type: 'scroll',
+                  locator: loc,
+                  params: {
+                    mode: 'coordinates',
+                    y: target.scrollTop,
+                    behavior: 'smooth',
+                  },
+                  box: box,
+                  url: window.location.href,
+                  description: 'Desplazar en ' + (loc.primary.value || target.tagName),
+                });
+              }
+            }, 600);
+          }, true);
+        }
       })();
     `);
 

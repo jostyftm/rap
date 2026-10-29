@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { CircleDot, X, Globe, Monitor, Loader2 } from "lucide-react";
+import { CircleDot, X, Globe, Monitor, Loader2, Clock, MoveVertical } from "lucide-react";
 import { apiFetch } from "../../lib/api-client";
 
 export interface RecordModalProps {
@@ -22,6 +22,8 @@ export function RecordModal({
   const [recordMode, setRecordMode] = useState<"browser" | "desktop">("browser");
   const [recordUrl, setRecordUrl] = useState(defaultUrl);
   const [recordTargetWindow, setRecordTargetWindow] = useState("");
+  const [typeDebounceMs, setTypeDebounceMs] = useState<number>(1000);
+  const [captureScroll, setCaptureScroll] = useState<boolean>(true);
   const [isStarting, setIsStarting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -66,6 +68,8 @@ export function RecordModal({
             initial_url: recordMode === "browser" ? recordUrl.trim() : undefined,
             target_window:
               recordMode === "desktop" ? recordTargetWindow.trim() || undefined : undefined,
+            type_debounce_ms: typeDebounceMs,
+            capture_scroll: captureScroll,
           }),
         }
       );
@@ -185,6 +189,44 @@ export function RecordModal({
             />
           </>
         )}
+
+        {/* Opciones de Grabación: Debounce y Scroll */}
+        <div className="bg-neutral-950/70 border border-neutral-800/80 rounded-lg p-3 mb-4 space-y-3">
+          <div className="flex items-center justify-between text-xs">
+            <label className="flex items-center space-x-1.5 text-neutral-300 font-medium cursor-pointer">
+              <Clock className="w-3.5 h-3.5 text-amber-400" />
+              <span>Pausa de tipeo (Debounce)</span>
+            </label>
+            <select
+              value={typeDebounceMs}
+              onChange={(e) => setTypeDebounceMs(Number(e.target.value))}
+              className="bg-neutral-900 border border-neutral-700/80 rounded px-2 py-1 text-xs text-neutral-100 font-mono outline-none cursor-pointer focus:border-rose-500"
+            >
+              <option value={500}>500 ms (Rápido)</option>
+              <option value={800}>800 ms (Normal)</option>
+              <option value={1000}>1000 ms (Recomendado)</option>
+              <option value={1500}>1500 ms (Pausado)</option>
+              <option value={2000}>2000 ms (Lento)</option>
+            </select>
+          </div>
+          <p className="text-[10px] text-neutral-400 -mt-1 leading-normal">
+            Agrupa pulsaciones consecutivas en un solo nodo <span className="font-mono text-neutral-300">Type</span> al detectar una pausa de escritura.
+          </p>
+
+          <div className="flex items-center justify-between pt-1 border-t border-neutral-800/60 text-xs">
+            <label htmlFor="capture-scroll-toggle" className="flex items-center space-x-1.5 text-neutral-300 font-medium cursor-pointer">
+              <MoveVertical className="w-3.5 h-3.5 text-violet-400" />
+              <span>Detectar desplazamiento (Scroll)</span>
+            </label>
+            <input
+              id="capture-scroll-toggle"
+              type="checkbox"
+              checked={captureScroll}
+              onChange={(e) => setCaptureScroll(e.target.checked)}
+              className="w-4 h-4 rounded bg-neutral-900 border-neutral-700 text-rose-600 focus:ring-rose-500 cursor-pointer"
+            />
+          </div>
+        </div>
 
         <div className="flex justify-end space-x-2 pt-1 border-t border-neutral-800/80">
           <button

@@ -134,17 +134,24 @@ export class RedisStreamConsumer {
         break;
       case "recorder.start": {
         const mode = data.mode || "browser";
+        const typeDebounceMs = data.type_debounce_ms ? Number(data.type_debounce_ms) : 1000;
+        const captureScroll = data.capture_scroll !== "false" && data.capture_scroll !== false;
+
         if (mode === "desktop") {
           await desktopRecorder.start({
             sessionId: data.session_id,
             recipeId: data.recipe_id,
             targetWindow: data.target_window,
+            typeDebounceMs,
+            captureScroll,
           });
         } else if (data.initial_url) {
           await recorder.start({
             sessionId: data.session_id,
             recipeId: data.recipe_id,
             initialUrl: data.initial_url,
+            typeDebounceMs,
+            captureScroll,
           });
         }
         break;

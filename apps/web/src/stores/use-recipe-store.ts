@@ -1005,8 +1005,104 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   appendRecordedAction: (action) => {
     const { definition, history, historyIndex, selectedNodeId, recordedActionsCount } = get();
     const type = (action.type || "click") as RecipeNode["type"];
-    const newId = `rec_${type}_${Math.random().toString(36).substring(2, 7)}`;
+    const nodeKeys = Object.keys(definition.nodes);
+    const lastKey = nodeKeys.length > 0 ? nodeKeys[nodeKeys.length - 1] : undefined;
+    const lastNode = lastKey ? definition.nodes[lastKey] : undefined;
 
+    // 1. Fusión inteligente de tipeo consecutivo en el mismo campo
+    if (type === "type" && lastNode && lastNode.type === "type") {
+      const sameLocator =
+        Boolean(action.locator?.primary?.value) &&
+        action.locator?.primary?.value === lastNode.locator?.primary?.value;
+      const sameDesktopCoords =
+        (action.params as any)?.targetScope === "desktop" &&
+        (lastNode.params as any)?.coordinates?.x === (action.params as any)?.coordinates?.x &&
+        (lastNode.params as any)?.coordinates?.y === (action.params as any)?.coordinates?.y;
+
+      if (sameLocator || sameDesktopCoords) {
+        const updatedNode: RecipeNode = {
+          ...lastNode,
+          params: {
+            ...lastNode.params,
+            text: action.params?.text ?? (lastNode.params as any).text,
+            pressEnter: Boolean(action.params?.pressEnter || (lastNode.params as any).pressEnter),
+          },
+          description: action.description || lastNode.description,
+          preview: action.preview || lastNode.preview,
+        };
+
+        const updatedNodes = {
+          ...definition.nodes,
+          [lastKey]: updatedNode,
+        };
+
+        const updatedDsl: RecipeDsl = {
+          ...definition,
+          nodes: updatedNodes,
+        };
+
+        const { errors, nodeIssues } = validateDsl(updatedDsl);
+        const hist = pushHistory(history, historyIndex, updatedDsl);
+
+        set({
+          definition: updatedDsl,
+          validationErrors: errors,
+          nodeIssues,
+          isDirty: true,
+          ...hist,
+        });
+        return;
+      }
+    }
+
+    // 2. Fusión acumulativa de desplazamientos (scroll) consecutivos por coordenadas
+    if (
+      type === "scroll" &&
+      action.params?.mode === "coordinates" &&
+      lastNode &&
+      lastNode.type === "scroll" &&
+      lastNode.params?.mode === "coordinates"
+    ) {
+      const prevY = typeof lastNode.params?.y === "number" ? lastNode.params.y : 0;
+      const newDeltaY = typeof action.params?.y === "number" ? Number(action.params.y) : 0;
+      const totalY = prevY + newDeltaY;
+      const isDown = totalY >= 0;
+
+      const updatedNode: RecipeNode = {
+        ...lastNode,
+        params: {
+          ...lastNode.params,
+          y: totalY,
+          x: (lastNode.params.x || 0) + (Number(action.params?.x) || 0),
+        },
+        description: `Desplazar hacia ${isDown ? "abajo" : "arriba"} (${Math.abs(totalY)}px)`,
+        preview: action.preview || lastNode.preview,
+      };
+
+      const updatedNodes = {
+        ...definition.nodes,
+        [lastKey]: updatedNode,
+      };
+
+      const updatedDsl: RecipeDsl = {
+        ...definition,
+        nodes: updatedNodes,
+      };
+
+      const { errors, nodeIssues } = validateDsl(updatedDsl);
+      const hist = pushHistory(history, historyIndex, updatedDsl);
+
+      set({
+        definition: updatedDsl,
+        validationErrors: errors,
+        nodeIssues,
+        isDirty: true,
+        ...hist,
+      });
+      return;
+    }
+
+    const newId = `rec_${type}_${Math.random().toString(36).substring(2, 7)}`;
     const nextPos = calculateNextNodePosition(definition, selectedNodeId);
 
     const newNode: RecipeNode = {
@@ -1025,10 +1121,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
 
     if (!newEntry || Object.keys(definition.nodes).length === 0) {
       newEntry = newId;
-    } else {
-      const nodeKeys = Object.keys(definition.nodes);
-      const lastKey = nodeKeys[nodeKeys.length - 1];
-      const lastNode = definition.nodes[lastKey];
+    } else if (lastKey) {
       if (lastNode && !lastNode.next && lastNode.type !== "condition") {
         updatedNodes[lastKey] = { ...lastNode, next: newId };
         updatedEdges.push({ from: lastKey, to: newId });

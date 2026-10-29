@@ -40,6 +40,20 @@ class RecorderStartRequest extends FormRequest
              * @example Calculadora
              */
             'target_window' => ['nullable', 'string', 'max:255'],
+
+            /**
+             * Tiempo de debounce en ms para agrupar pulsaciones de teclas
+             *
+             * @example 1000
+             */
+            'type_debounce_ms' => ['nullable', 'integer', 'min:200', 'max:5000'],
+
+            /**
+             * Habilitar o deshabilitar captura de eventos de desplazamiento (scroll)
+             *
+             * @example true
+             */
+            'capture_scroll' => ['nullable', 'boolean'],
         ];
     }
 }

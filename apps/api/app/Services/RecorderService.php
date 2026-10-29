@@ -17,7 +17,14 @@ class RecorderService
         $this->commandStream = (string) config('rpa.runner.command_stream', 'rpa:cmd');
     }
 
-    public function start(Recipe $recipe, ?string $initialUrl = null, string $mode = 'browser', ?string $targetWindow = null): string
+    public function start(
+        Recipe $recipe,
+        ?string $initialUrl = null,
+        string $mode = 'browser',
+        ?string $targetWindow = null,
+        int $typeDebounceMs = 1000,
+        bool $captureScroll = true
+    ): string
     {
         $sessionId = (string) Str::ulid();
 
@@ -27,6 +34,8 @@ class RecorderService
             'session_id' => $sessionId,
             'recipe_id' => $recipe->uuid,
             'mode' => $mode,
+            'type_debounce_ms' => (string) $typeDebounceMs,
+            'capture_scroll' => $captureScroll ? 'true' : 'false',
             'timestamp' => (string) now()->timestamp,
         ];
 

@@ -4,14 +4,18 @@ export interface DesktopRecorderOptions {
   sessionId: string;
   recipeId: string;
   targetWindow?: string;
+  typeDebounceMs?: number;
+  captureScroll?: boolean;
 }
 
 export interface DesktopActionInput {
-  type: "click" | "type";
+  type: "click" | "type" | "scroll";
   coordinates?: { x: number; y: number };
   button?: "left" | "right" | "middle";
   text?: string;
   pressEnter?: boolean;
+  direction?: "up" | "down";
+  amount?: number;
   windowTitle?: string;
   description?: string;
 }
@@ -127,6 +131,40 @@ export class DesktopRecorderEngine {
           `Macro Escritorio: Escribir "${input.text || ""}"${
             input.pressEnter ? " y pulsar Enter" : ""
           } en [${effectiveWindow}]`,
+        url: "desktop://screen",
+      };
+    } else if (input.type === "scroll") {
+      const isDown = input.direction !== "up";
+      const deltaY = (input.amount || 300) * (isDown ? 1 : -1);
+      actionPayload = {
+        type: "scroll",
+        locator: {
+          primary: {
+            strategy: "vision",
+            value: `Ventana [${effectiveWindow}]`,
+            score: 85,
+          },
+          fallbacks: [],
+        },
+        params: {
+          mode: "coordinates",
+          y: deltaY,
+          behavior: "smooth",
+          targetScope: "desktop",
+          coordinates: coords,
+          windowTitle: effectiveWindow,
+        },
+        preview: {
+          image: thumbnail,
+          targetScope: "desktop",
+          capturedAt: Date.now(),
+          windowTitle: effectiveWindow,
+          coordinates: coords,
+          elementSnippet: `Scroll ${isDown ? "abajo" : "arriba"} (${Math.abs(deltaY)}px)`,
+        },
+        description:
+          input.description ||
+          `Macro Escritorio: Scroll ${isDown ? "abajo" : "arriba"} (${Math.abs(deltaY)}px) en [${effectiveWindow}]`,
         url: "desktop://screen",
       };
     } else {
