@@ -23,7 +23,7 @@
     "clsx": "^2.1.1",
     "laravel-echo": "^2.6.1",
     "lucide-react": "^1.54.0",
-    "next": "16.4.1",
+    "next": "16.4.6",
     "prism-react-renderer": "^2.4.1",
     "pusher-js": "^8.6.0",
     "react": "19.3.0",
