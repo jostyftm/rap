@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Models\Recipe;
 use App\Models\Run;
+use App\Support\WebhookPath;
 use Illuminate\Support\Facades\Redis;
 
 /**
@@ -52,15 +53,23 @@ final class WebhookRunDelivery
         }
 
         $trigger = (string) ($run->trigger ?? 'manual');
+        $isDraft = ($run->recipeVersion?->isDraft() ?? false) || $trigger === 'manual';
         $timeoutMs = $this->resolveTimeoutMs($node, $trigger);
         $ttl = $this->resolveTtl($timeoutMs);
+
+        $rawPath = (string) ($node['params']['path'] ?? $node['id'] ?? 'webhook');
+        $fallback = (string) ($node['id'] ?? 'webhook');
+        $indexedPath = $isDraft
+            ? WebhookPath::testPath($rawPath, $fallback)
+            : WebhookPath::productionPath($rawPath, $fallback);
 
         $meta = json_encode([
             'run_id' => $run->uuid,
             'recipe_id' => $recipeId,
             'node_id' => (string) ($node['id'] ?? ''),
             'method' => strtoupper((string) ($node['params']['httpMethod'] ?? 'POST')),
-            'path' => (string) ($node['params']['path'] ?? '/webhook'),
+            'path' => $indexedPath,
+            'is_draft' => $isDraft,
             'trigger' => $trigger,
             'created_at' => now()->toIso8601String(),
             'timeout_ms' => $timeoutMs,
@@ -75,16 +84,10 @@ final class WebhookRunDelivery
             Redis::hset($this->indexKey($recipeId), $run->uuid, $meta);
             Redis::expire($this->indexKey($recipeId), $ttl);
 
-            $norm = self::normalizePath((string) ($node['params']['path'] ?? '/webhook'));
+            $norm = self::normalizePath($indexedPath);
             if ($norm !== '') {
                 Redis::hset($this->pathIndexKey($norm), $run->uuid, $meta);
                 Redis::expire($this->pathIndexKey($norm), $ttl);
-
-                $alt = self::alternatePath($norm);
-                if ($alt !== '' && $alt !== $norm) {
-                    Redis::hset($this->pathIndexKey($alt), $run->uuid, $meta);
-                    Redis::expire($this->pathIndexKey($alt), $ttl);
-                }
             }
         } catch (\Throwable $e) {
             // Sin Redis la ejecución sigue su curso; el runner registrará la
@@ -163,65 +166,68 @@ final class WebhookRunDelivery
 
     /**
      * Entrega un payload a las ejecuciones que estén esperando por una ruta específica
-     * de webhook (usado por la captura de peticiones enviadas a /api/v1/webhooks/{path}).
+     * de webhook, aislando estricto modo prueba (/webhooks-test/) vs producción (/webhooks/).
      *
      * @return list<string> UUIDs de los runs a los que se entregó el payload
      */
-    public function deliverByPath(string $rawPath, \Illuminate\Http\Request $request): array
+    public function deliverByPath(string $rawPath, \Illuminate\Http\Request $request, ?bool $isDraft = null): array
     {
         $normalizedPath = self::normalizePath($rawPath);
+        if ($normalizedPath === '') {
+            return [];
+        }
+
         $payload = \App\Support\WebhookPayload::fromRequest($request, $normalizedPath);
         $method = strtoupper($request->method());
 
-        $candidates = array_unique(array_filter([
-            $normalizedPath,
-            self::alternatePath($normalizedPath),
-        ]));
+        try {
+            $waiting = Redis::hgetall($this->pathIndexKey($normalizedPath));
+        } catch (\Throwable $e) {
+            report($e);
+
+            return [];
+        }
+
+        if (! is_array($waiting) || $waiting === []) {
+            return [];
+        }
+
+        $encoded = json_encode($payload, JSON_UNESCAPED_SLASHES);
+        if ($encoded === false) {
+            return [];
+        }
 
         $delivered = [];
 
-        foreach ($candidates as $cand) {
+        foreach ($waiting as $runId => $rawMeta) {
+            if (! is_string($runId) || $runId === '' || in_array($runId, $delivered, true)) {
+                continue;
+            }
+
+            $meta = is_string($rawMeta) ? json_decode($rawMeta, true) : null;
+            if (! is_array($meta)) {
+                continue;
+            }
+
+            $filters = ['method' => $method];
+            if ($isDraft !== null) {
+                $filters['is_draft'] = $isDraft;
+            }
+
+            if (! $this->matches($meta, $filters)) {
+                continue;
+            }
+
             try {
-                $waiting = Redis::hgetall($this->pathIndexKey($cand));
+                Redis::rpush($this->payloadKey($runId), $encoded);
+                Redis::expire($this->payloadKey($runId), $this->resolveTtl(
+                    isset($meta['timeout_ms']) && is_numeric($meta['timeout_ms'])
+                        ? (int) $meta['timeout_ms']
+                        : null
+                ));
+                $delivered[] = $runId;
             } catch (\Throwable $e) {
                 report($e);
-                continue;
-            }
-
-            if (! is_array($waiting) || $waiting === []) {
-                continue;
-            }
-
-            $encoded = json_encode($payload, JSON_UNESCAPED_SLASHES);
-            if ($encoded === false) {
-                continue;
-            }
-
-            foreach ($waiting as $runId => $rawMeta) {
-                if (! is_string($runId) || $runId === '' || in_array($runId, $delivered, true)) {
-                    continue;
-                }
-
-                $meta = is_string($rawMeta) ? json_decode($rawMeta, true) : null;
-                if (! is_array($meta)) {
-                    continue;
-                }
-
-                if (! $this->matches($meta, ['method' => $method])) {
-                    continue;
-                }
-
-                try {
-                    Redis::rpush($this->payloadKey($runId), $encoded);
-                    Redis::expire($this->payloadKey($runId), $this->resolveTtl(
-                        isset($meta['timeout_ms']) && is_numeric($meta['timeout_ms'])
-                            ? (int) $meta['timeout_ms']
-                            : null
-                    ));
-                    $delivered[] = $runId;
-                } catch (\Throwable $e) {
-                    report($e);
-                }
             }
         }
 
@@ -246,10 +252,16 @@ final class WebhookRunDelivery
 
     /**
      * @param  array<string, mixed>  $meta
-     * @param  array{node_id?: string|null, path?: string|null, method?: string|null}  $filters
+     * @param  array{node_id?: string|null, path?: string|null, method?: string|null, is_draft?: bool|null}  $filters
      */
     private function matches(array $meta, array $filters): bool
     {
+        if (array_key_exists('is_draft', $filters) && $filters['is_draft'] !== null) {
+            if ((bool) ($meta['is_draft'] ?? false) !== (bool) $filters['is_draft']) {
+                return false;
+            }
+        }
+
         $nodeId = $filters['node_id'] ?? null;
         if (is_string($nodeId) && $nodeId !== '' && ($meta['node_id'] ?? null) !== $nodeId) {
             return false;
@@ -329,18 +341,5 @@ final class WebhookRunDelivery
     private function pathIndexKey(string $path): string
     {
         return "rpa:webhook:path:{$path}:waiting";
-    }
-
-    private static function alternatePath(string $path): string
-    {
-        if (str_starts_with($path, '/api/v1/webhooks/')) {
-            return '/' . substr($path, strlen('/api/v1/webhooks/'));
-        }
-
-        if (str_starts_with($path, '/api/v1/webhooks')) {
-            return '/';
-        }
-
-        return '/api/v1/webhooks' . $path;
     }
 }

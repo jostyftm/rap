@@ -4,7 +4,7 @@ import { create } from "zustand";
 import type { WebhookNode } from "@rpa/dsl";
 import { apiFetch } from "@/lib/api-client";
 import { getEcho } from "@/lib/echo";
-import { buildWebhookUrl } from "@/lib/webhook-url";
+import { buildTestWebhookUrl } from "@/lib/webhook-url";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 
 export type WebhookTestStatus = "idle" | "listening" | "success" | "error";
@@ -76,7 +76,7 @@ export const useWebhookTestStore = create<WebhookTestStore>((set, get) => ({
         ...state.byNode,
         [nodeId]: {
           status: "listening",
-          url: buildWebhookUrl(path),
+          url: buildTestWebhookUrl(path, nodeId),
           error: undefined,
         },
       },

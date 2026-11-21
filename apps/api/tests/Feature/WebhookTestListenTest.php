@@ -32,11 +32,13 @@ it('permite iniciar una escucha de prueba y capturar una petición con su respue
     $listenRes->assertCreated()
         ->assertJsonStructure(['listen_id', 'url', 'channel', 'expires_at']);
 
+    expect($listenRes->json('url'))->toEndWith('/api/v1/webhooks-test/webhook_1');
+
     $listenId = $listenRes->json('listen_id');
     expect($listenId)->not->toBeEmpty();
 
-    // Capturar petición entrante de prueba
-    $captureRes = $this->postJson('/api/v1/webhooks/webhook_1?foo=bar', [
+    // Capturar petición entrante de prueba en el namespace /webhooks-test/
+    $captureRes = $this->postJson('/api/v1/webhooks-test/webhook_1?foo=bar', [
         'email' => 'test@example.com',
         'age' => 30,
     ], ['X-Custom-Header' => 'Antigravity']);
@@ -54,13 +56,13 @@ it('permite iniciar una escucha de prueba y capturar una petición con su respue
             && isset($event->payload['headers']['x-custom-header']);
     });
 
-    // Sesión de un solo uso: la siguiente petición debe retornar 404
-    $secondRes = $this->postJson('/api/v1/webhooks/webhook_1', ['email' => 'again@example.com']);
+    // Sesión de un solo uso: la siguiente petición de prueba debe retornar 404
+    $secondRes = $this->postJson('/api/v1/webhooks-test/webhook_1', ['email' => 'again@example.com']);
     $secondRes->assertNotFound();
 });
 
 it('retorna 404 si no hay ninguna escucha activa para la ruta', function () {
-    $res = $this->postJson('/api/v1/webhooks/inexistente', ['data' => 123]);
+    $res = $this->postJson('/api/v1/webhooks-test/inexistente', ['data' => 123]);
     $res->assertNotFound();
 });
 
@@ -74,11 +76,11 @@ it('rechaza con 405 si el método HTTP no coincide y mantiene la sesión activa'
     ])->assertCreated();
 
     // Enviar GET cuando se esperaba POST
-    $getRes = $this->getJson('/api/v1/webhooks/webhook_strict');
+    $getRes = $this->getJson('/api/v1/webhooks-test/webhook_strict');
     $getRes->assertStatus(405);
 
     // Enviar POST correcto
-    $postRes = $this->postJson('/api/v1/webhooks/webhook_strict', ['ok' => true]);
+    $postRes = $this->postJson('/api/v1/webhooks-test/webhook_strict', ['ok' => true]);
     $postRes->assertOk();
 });
 
@@ -96,7 +98,7 @@ it('permite cancelar la escucha antes de recibir peticiones', function () {
     $stopRes->assertNoContent();
 
     // La ruta ya no debe responder
-    $captureRes = $this->postJson('/api/v1/webhooks/webhook_cancel', ['test' => true]);
+    $captureRes = $this->postJson('/api/v1/webhooks-test/webhook_cancel', ['test' => true]);
     $captureRes->assertNotFound();
 });
 

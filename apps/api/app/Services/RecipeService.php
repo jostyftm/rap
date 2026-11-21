@@ -10,6 +10,7 @@ use App\Models\Project;
 use App\Models\Recipe;
 use App\Models\RecipeVersion;
 use App\Models\User;
+use App\Support\WebhookPath;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -75,6 +76,8 @@ class RecipeService
                 'published_version_id' => $v1->id,
                 'published_at' => now(),
             ]);
+
+            $this->syncPublishedWebhook($recipe, (array) $data['definition']);
 
             Audit::log('recipe.created', $request->user(), $project->workspace, $recipe);
 
@@ -170,6 +173,8 @@ class RecipeService
                 'published_at' => now(),
             ]);
 
+            $this->syncPublishedWebhook($recipe, (array) $draft->definition);
+
             Audit::log('recipe.published', $user, $recipe->project->workspace, $recipe, [
                 'version' => $nextVersion,
             ]);
@@ -204,6 +209,8 @@ class RecipeService
                 'published_version_id' => $newVersion->id,
                 'published_at' => now(),
             ]);
+
+            $this->syncPublishedWebhook($recipe, (array) $targetVersion->definition);
 
             // Reemplazar también el borrador v0 con la definición restaurada
             $draft = $recipe->draft;
@@ -252,5 +259,61 @@ class RecipeService
         }
 
         return $version;
+    }
+
+    /**
+     * Sincroniza la ruta de webhook siempre-activa de una receta según su versión publicada.
+     * Los cambios en el borrador (v0) nunca deben sobrescribir este registro hasta publicar.
+     *
+     * @param  array<string, mixed>|null  $publishedDefinition
+     */
+    public function syncPublishedWebhook(Recipe $recipe, ?array $publishedDefinition): void
+    {
+        $node = is_array($publishedDefinition)
+            ? WebhookRunDelivery::entryWebhookNode($publishedDefinition)
+            : null;
+
+        if ($node === null || $recipe->status !== 'active') {
+            $recipe->update([
+                'published_webhook_path' => null,
+                'published_webhook_method' => null,
+            ]);
+
+            return;
+        }
+
+        $rawPath = (string) ($node['params']['path'] ?? $node['id'] ?? 'webhook');
+        $fallback = (string) ($node['id'] ?? 'webhook');
+        $slug = WebhookPath::slug($rawPath, $fallback);
+
+        if (WebhookPath::isReservedSlug($slug)) {
+            throw ValidationException::withMessages([
+                'definition' => "El prefijo 'recipes/' está reservado para triggers por token. Elige otra ruta para el nodo webhook.",
+            ]);
+        }
+
+        $prodPath = WebhookPath::productionPath($slug, $fallback);
+        $method = strtoupper((string) ($node['params']['httpMethod'] ?? 'POST'));
+
+        $conflicts = Recipe::query()
+            ->where('id', '!=', $recipe->id)
+            ->where('status', 'active')
+            ->whereNotNull('published_version_id')
+            ->where('published_webhook_path', $prodPath)
+            ->get();
+
+        foreach ($conflicts as $other) {
+            $otherMethod = strtoupper((string) ($other->published_webhook_method ?? 'POST'));
+            if ($otherMethod === 'ANY' || $method === 'ANY' || $otherMethod === $method) {
+                throw ValidationException::withMessages([
+                    'definition' => "La ruta de webhook '{$prodPath}' ({$method}) ya está publicada y activa en otra automatización ('{$other->name}'). Usa una ruta distinta antes de publicar.",
+                ]);
+            }
+        }
+
+        $recipe->update([
+            'published_webhook_path' => $prodPath,
+            'published_webhook_method' => $method,
+        ]);
     }
 }

@@ -10,6 +10,7 @@ use App\Models\Recipe;
 use App\Models\Run;
 use App\Services\RunService;
 use App\Services\WebhookRunDelivery;
+use App\Support\WebhookPath;
 use App\Support\WebhookPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -66,6 +67,108 @@ class WebhookTriggerController extends Controller
         return (new RunResource($run))
             ->response()
             ->setStatusCode(Response::HTTP_ACCEPTED);
+    }
+
+    /**
+     * Endpoint público siempre activo para recetas publicadas cuyo nodo inicial es un webhook (/api/v1/webhooks/{path}).
+     */
+    public function triggerByPath(Request $request, string $path): Response|JsonResponse
+    {
+        $prodPath = WebhookPath::productionPath($path);
+        $requestMethod = strtoupper($request->method());
+
+        $candidates = Recipe::query()
+            ->with('publishedVersion')
+            ->where('status', 'active')
+            ->whereNotNull('published_version_id')
+            ->where('published_webhook_path', $prodPath)
+            ->get();
+
+        if ($candidates->isEmpty()) {
+            $deliveredRunIds = $this->webhookRuns->deliverByPath($prodPath, $request, false);
+            if ($deliveredRunIds !== []) {
+                return response()->json([
+                    'ok' => true,
+                    'message' => 'Petición entregada a la ejecución en espera.',
+                    'delivered_to_runs' => $deliveredRunIds,
+                ]);
+            }
+
+            return response()->json([
+                'type' => 'about:blank',
+                'title' => 'Webhook no encontrado',
+                'status' => Response::HTTP_NOT_FOUND,
+                'detail' => 'No existe ninguna automatización publicada escuchando en esta ruta de webhook.',
+            ], Response::HTTP_NOT_FOUND);
+        }
+
+        /** @var Recipe|null $recipe */
+        $recipe = $candidates->first(function (Recipe $r) use ($requestMethod): bool {
+            $expected = strtoupper((string) ($r->published_webhook_method ?? 'POST'));
+
+            return $expected === 'ANY' || $expected === $requestMethod;
+        });
+
+        if (! $recipe) {
+            $allowed = $candidates
+                ->pluck('published_webhook_method')
+                ->filter()
+                ->map(fn ($m) => strtoupper((string) $m))
+                ->unique()
+                ->implode(', ');
+
+            return response()->json([
+                'error' => "Método no permitido. Se esperaba {$allowed}.",
+            ], Response::HTTP_METHOD_NOT_ALLOWED, ['Allow' => $allowed]);
+        }
+
+        $payload = WebhookPayload::fromRequest($request, $prodPath);
+        $body = is_array($payload['body']) ? $payload['body'] : [];
+        $node = WebhookRunDelivery::entryWebhookNode((array) $recipe->publishedVersion?->definition);
+
+        // Si ya hay un run de producción esperando este webhook, alimentarlo directamente
+        $waitingRunIds = $this->webhookRuns->deliverToRecipe($recipe, $payload, [
+            'method' => $requestMethod,
+            'is_draft' => false,
+        ]);
+
+        if ($waitingRunIds !== []) {
+            $runUuid = $waitingRunIds[0];
+        } else {
+            $outputVar = trim((string) ($node['params']['outputVariable'] ?? 'webhook')) ?: 'webhook';
+            $parameters = ['webhook' => $payload]
+                + ($outputVar !== 'webhook' ? [$outputVar => $payload] : [])
+                + $body;
+
+            $run = $this->runService->dispatchDirect(
+                recipe: $recipe,
+                parameters: $parameters,
+                trigger: 'webhook',
+                useDraft: false
+            );
+            $runUuid = $run->uuid;
+        }
+
+        $rawCode = (int) ($node['params']['responseCode'] ?? 200);
+        $statusCode = max(100, min(599, $rawCode));
+        $rawBody = isset($node['params']['responseBody']) ? trim((string) $node['params']['responseBody']) : '';
+        $responseBody = $rawBody !== ''
+            ? $rawBody
+            : (string) json_encode([
+                'ok' => true,
+                'run_id' => $runUuid,
+                'status' => 'queued',
+            ], JSON_UNESCAPED_SLASHES);
+
+        $headers = [
+            'X-RPA-Run-Id' => $runUuid,
+            'X-RPA-Recipe-Version' => (string) ($recipe->publishedVersion?->version ?? ''),
+        ];
+        if (json_validate($responseBody)) {
+            $headers['Content-Type'] = 'application/json';
+        }
+
+        return response($responseBody, $statusCode, $headers);
     }
 
     /**

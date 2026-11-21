@@ -23,6 +23,8 @@ class Recipe extends Model
         'allowed_domains',
         'webhook_token',
         'webhook_enabled',
+        'published_webhook_path',
+        'published_webhook_method',
         'published_version_id',
         'published_at',
     ];

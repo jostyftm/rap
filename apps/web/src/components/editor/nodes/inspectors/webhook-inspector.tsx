@@ -12,7 +12,11 @@ import {
   Sparkles,
   AlertCircle,
 } from "lucide-react";
-import { buildWebhookUrl } from "@/lib/webhook-url";
+import {
+  buildProductionWebhookPath,
+  buildProductionWebhookUrl,
+  buildTestWebhookUrl,
+} from "@/lib/webhook-url";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { useWebhookTestStore } from "@/stores/use-webhook-test-store";
 import {
@@ -42,8 +46,18 @@ export function WebhookInspectorForm({
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
 
   const recipeId = useRecipeStore((s) => s.recipeId);
+  const editorMode = useRecipeStore((s) => s.editorMode);
+  const publishedVersion = useRecipeStore((s) => s.publishedVersion);
+  const viewingVersion = useRecipeStore((s) => s.viewingVersion);
+  const [urlTabOverride, setUrlTabOverride] = useState<{
+    mode: string;
+    tab: "test" | "production";
+  } | null>(null);
+
   const webhookStore = useWebhookTestStore();
   const testEntry = webhookStore.getEntry(node.id);
+
+  const isReadOnly = editorMode === "published" || viewingVersion !== null;
 
   const path = node.params.path || `/api/v1/webhooks/${node.id}`;
   const method = node.params.httpMethod || "POST";
@@ -51,7 +65,30 @@ export function WebhookInspectorForm({
   const responseCode = node.params.responseCode ?? 200;
   const responseBody = node.params.responseBody || '{"ok":true}';
 
-  const fullUrl = buildWebhookUrl(path);
+  const pubDef = publishedVersion?.definition;
+  const pubEntryNode = pubDef?.entry ? pubDef.nodes[pubDef.entry] : undefined;
+  const pubWebhookNode = pubEntryNode?.type === "webhook" ? (pubEntryNode as WebhookNode) : undefined;
+  const isPublishedListening = Boolean(pubWebhookNode);
+
+  const testUrl = buildTestWebhookUrl(path, node.id);
+  const prodUrl = buildProductionWebhookUrl(
+    pubWebhookNode?.params?.path || path,
+    pubWebhookNode?.id || node.id
+  );
+  const hasPathDrift = Boolean(
+    pubWebhookNode &&
+      buildProductionWebhookPath(path, node.id) !==
+        buildProductionWebhookPath(pubWebhookNode.params?.path, pubWebhookNode.id)
+  );
+
+  const activeUrlTab =
+    urlTabOverride?.mode === editorMode
+      ? urlTabOverride.tab
+      : editorMode === "published"
+        ? "production"
+        : "test";
+
+  const displayedUrl = activeUrlTab === "production" ? prodUrl : testUrl;
 
   useEffect(() => {
     if (testEntry.status !== "listening" || !testEntry.expiresAt) {
@@ -69,7 +106,7 @@ export function WebhookInspectorForm({
   }, [testEntry.status, testEntry.expiresAt]);
 
   const handleCopyUrl = () => {
-    navigator.clipboard.writeText(fullUrl);
+    navigator.clipboard.writeText(displayedUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -107,7 +144,7 @@ export function WebhookInspectorForm({
         <Select
           id="webhook-method"
           value={method}
-          disabled={isListening}
+          disabled={isListening || isReadOnly}
           onChange={(e) => updateParam("httpMethod", e.target.value as WebhookHttpMethod)}
           className="font-mono"
         >
@@ -120,28 +157,9 @@ export function WebhookInspectorForm({
       </Field>
 
       <Field
-        label="Ruta del webhook"
+        label="Slug o ruta del webhook"
         htmlFor="webhook-path"
-        action={
-          <button
-            type="button"
-            onClick={handleCopyUrl}
-            title="Copiar URL completa del endpoint"
-            className="inline-flex items-center gap-1 text-[11px] font-medium text-accent-text transition-colors hover:text-accent"
-          >
-            {copied ? (
-              <Check className="h-3.5 w-3.5 text-success-text" />
-            ) : (
-              <Copy className="h-3.5 w-3.5" />
-            )}
-            <span>{copied ? "Copiada" : "Copiar URL"}</span>
-          </button>
-        }
-        hint={
-          <span className="block truncate font-mono" title={fullUrl}>
-            {fullUrl}
-          </span>
-        }
+        hint="Define un identificador único (ej. pedidos). Se usará en ambas URLs: prueba y producción."
       >
         <div className="relative">
           <Globe className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
@@ -149,7 +167,7 @@ export function WebhookInspectorForm({
             id="webhook-path"
             type="text"
             value={path}
-            disabled={isListening}
+            disabled={isListening || isReadOnly}
             onChange={(e) => updateParam("path", e.target.value)}
             placeholder={`/api/v1/webhooks/${node.id}`}
             className="pl-9 font-mono"
@@ -157,12 +175,111 @@ export function WebhookInspectorForm({
         </div>
       </Field>
 
+      {/* Selector de URL aislada: Prueba vs Producción */}
+      <div className="overflow-hidden rounded-card border border-line bg-card">
+        <div className="flex items-center justify-between gap-2 border-b border-line bg-panel px-2.5 py-1.5">
+          <div role="tablist" aria-label="Tipo de URL del webhook" className="flex items-center gap-1">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeUrlTab === "test"}
+              onClick={() => setUrlTabOverride({ mode: editorMode, tab: "test" })}
+              className={`rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+                activeUrlTab === "test"
+                  ? "bg-raised text-fg shadow-[var(--shadow-card)]"
+                  : "text-fg-muted hover:bg-hover hover:text-fg"
+              }`}
+            >
+              URL de Prueba
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeUrlTab === "production"}
+              onClick={() => setUrlTabOverride({ mode: editorMode, tab: "production" })}
+              className={`rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+                activeUrlTab === "production"
+                  ? "bg-raised text-fg shadow-[var(--shadow-card)]"
+                  : "text-fg-muted hover:bg-hover hover:text-fg"
+              }`}
+            >
+              URL de Producción
+            </button>
+          </div>
+
+          {activeUrlTab === "production" ? (
+            <Badge tone={isPublishedListening ? "success" : "neutral"} className="h-5 px-1.5 text-[9.5px]">
+              {isPublishedListening
+                ? `Siempre escuchando (v${publishedVersion?.version})`
+                : "Sin publicar"}
+            </Badge>
+          ) : (
+            <Badge tone="warning" className="h-5 px-1.5 text-[9.5px]">
+              Solo pruebas
+            </Badge>
+          )}
+        </div>
+
+        <div className="space-y-2 p-2.5">
+          <div className="flex items-center justify-between gap-2 rounded-control border border-line bg-input px-2.5 py-1.5">
+            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg" title={displayedUrl}>
+              {displayedUrl}
+            </span>
+            <button
+              type="button"
+              onClick={handleCopyUrl}
+              title="Copiar URL completa del endpoint"
+              className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-accent-text transition-colors hover:text-accent"
+            >
+              {copied ? (
+                <Check className="h-3.5 w-3.5 text-success-text" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
+              <span>{copied ? "Copiada" : "Copiar"}</span>
+            </button>
+          </div>
+
+          <p className="text-[11px] leading-relaxed text-fg-muted">
+            {activeUrlTab === "production" ? (
+              isPublishedListening ? (
+                <>
+                  Activa de forma permanente mientras la receta esté publicada. Cada petición ejecutará la{" "}
+                  <strong>versión publicada v{publishedVersion?.version}</strong> en segundo plano sin interferir con tu borrador.
+                </>
+              ) : (
+                "Publica la receta con este nodo como entrada para activar esta URL permanentemente en producción."
+              )
+            ) : (
+              "Solo escucha cuando pulsas «Escuchar evento de prueba» o ejecutas manualmente el borrador. Nunca dispara la versión publicada."
+            )}
+          </p>
+
+          {activeUrlTab === "production" && hasPathDrift && (
+            <div className="flex items-start gap-1.5 rounded-control border border-warning/25 bg-warning-soft px-2.5 py-2 text-[11px] text-warning-text">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                El borrador cambió la ruta a{" "}
+                <code className="font-mono">{buildProductionWebhookPath(path, node.id)}</code>. Publica para
+                actualizar la URL de producción.
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="space-y-2">
         <Button
           variant={isListening ? "danger" : "primary"}
           onClick={handleToggleListening}
-          disabled={!recipeId}
-          title={!recipeId ? "Guarda la receta primero para probar este webhook" : undefined}
+          disabled={!recipeId || (isReadOnly && !isListening)}
+          title={
+            !recipeId
+              ? "Guarda la receta primero para probar este webhook"
+              : isReadOnly
+                ? "Cambia a modo Edición para probar el webhook del borrador"
+                : undefined
+          }
           className={isListening ? "w-full border border-danger/30" : "w-full"}
         >
           {isListening ? (
@@ -191,8 +308,8 @@ export function WebhookInspectorForm({
           <div className="flex items-start gap-2 rounded-control border border-warning/25 bg-warning-soft px-3 py-2.5 text-[11px] leading-relaxed text-warning-text">
             <Radio className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-pulse" />
             <span>
-              Esperando una petición HTTP {method} en la URL. Puedes probar enviando datos
-              desde Postman, curl o tu backend.
+              Esperando una petición HTTP {method} en la URL de prueba (<code className="font-mono">/webhooks-test/</code>).
+              No afectará a la versión publicada.
             </span>
           </div>
         )}
@@ -208,10 +325,9 @@ export function WebhookInspectorForm({
       <div className="flex items-start gap-2.5 rounded-card border border-line bg-card px-4 py-3 text-[11.5px] leading-relaxed text-fg-muted">
         <Radio className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent-text" />
         <span>
-          Si este nodo es el inicio del flujo, la ejecución esperará la petición HTTP
-          antes de abrir el navegador o ejecutar el siguiente nodo. En ejecuciones de
-          prueba espera hasta 5 minutos; en producción espera indefinidamente. Puedes
-          alimentar la espera con esta escucha o con la URL del trigger público.
+          Cuando la automatización inicia con este nodo y se publica, su URL de producción queda
+          escuchando de forma permanente. Mientras editas cambios en el borrador, usa la URL de
+          prueba sin riesgo de disparar producción.
         </span>
       </div>
 
@@ -256,6 +372,7 @@ export function WebhookInspectorForm({
                 id="webhook-response-code"
                 type="number"
                 value={responseCode}
+                disabled={isReadOnly}
                 onChange={(e) => updateParam("responseCode", Number(e.target.value))}
                 min={100}
                 max={599}
@@ -272,10 +389,11 @@ export function WebhookInspectorForm({
                 id="webhook-response-body"
                 rows={3}
                 value={responseBody}
+                disabled={isReadOnly}
                 onChange={(e) => handleResponseBodyChange(e.target.value)}
                 placeholder='{"ok": true}'
                 aria-invalid={Boolean(jsonError)}
-                className="w-full resize-none rounded-field border border-line bg-input px-3.5 py-2.5 font-mono text-[12px] text-fg placeholder:text-fg-subtle transition-[border-color,box-shadow] hover:border-line-strong focus:border-accent focus:outline-none focus:ring-4 focus:ring-accent/15"
+                className="w-full resize-none rounded-field border border-line bg-input px-3.5 py-2.5 font-mono text-[12px] text-fg placeholder:text-fg-subtle transition-[border-color,box-shadow] hover:border-line-strong focus:border-accent focus:outline-none focus:ring-4 focus:ring-accent/15 disabled:cursor-not-allowed disabled:opacity-50"
               />
             </Field>
 
@@ -294,6 +412,7 @@ export function WebhookInspectorForm({
                 id="webhook-output-variable"
                 type="text"
                 value={outputVar}
+                disabled={isReadOnly}
                 onChange={(e) => updateParam("outputVariable", e.target.value)}
                 placeholder="webhook"
                 className="font-mono"

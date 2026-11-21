@@ -104,6 +104,23 @@ export function normalizeWebhookPath(p: string): string {
   return withSlash.replace(/\/+$/, "") || "/";
 }
 
+export function extractWebhookSlug(rawPath: string, fallback = "webhook"): string {
+  const trimmed = rawPath.trim().replace(/^\/+|\/+$/g, "");
+  const stripped = trimmed.replace(/^(?:api\/v1\/)?(?:webhooks-test|webhooks)(?:\/|$)/i, "");
+  const slug = stripped.replace(/^\/+|\/+$/g, "");
+  if (slug) return slug;
+  const fb = fallback.replace(/^\/+|\/+$/g, "");
+  return fb || "webhook";
+}
+
+export function buildProductionWebhookPath(rawPath: string, fallback = "webhook"): string {
+  return `/api/v1/webhooks/${extractWebhookSlug(rawPath, fallback)}`;
+}
+
+export function buildTestWebhookPath(rawPath: string, fallback = "webhook"): string {
+  return `/api/v1/webhooks-test/${extractWebhookSlug(rawPath, fallback)}`;
+}
+
 export function alternateWebhookPath(p: string): string {
   if (p.startsWith("/api/v1/webhooks/")) {
     return `/${p.slice("/api/v1/webhooks/".length)}`;
@@ -136,7 +153,11 @@ export async function waitForWebhookPayload(
   }
 
   const method = node.params.httpMethod ?? "POST";
-  const path = node.params.path ?? "/webhook";
+  const rawPath = node.params.path ?? "/webhook";
+  const isTest = !trigger || trigger === "manual";
+  const effectivePath = isTest
+    ? buildTestWebhookPath(rawPath, node.id)
+    : buildProductionWebhookPath(rawPath, node.id);
   const timeoutMs = resolveTimeoutMs(node, trigger);
   const waitingKey = `rpa:run:${runId}:waiting`;
   const payloadKey = `rpa:run:${runId}:webhook`;
@@ -155,7 +176,7 @@ export async function waitForWebhookPayload(
       "Petición webhook recibida antes de iniciar la ejecución. Continuando...",
       node.id,
       "runner",
-      { scope: "webhook", node_id: node.id, path, method, received_before_start: true }
+      { scope: "webhook", node_id: node.id, path: effectivePath, method, received_before_start: true }
     );
     return { kind: "payload", payload: parsePayload(early), receivedBeforeStart: true };
   }
@@ -164,17 +185,16 @@ export async function waitForWebhookPayload(
     run_id: runId,
     recipe_id: recipeId,
     node_id: node.id,
+    method: method.toUpperCase(),
+    path: effectivePath,
+    is_draft: isTest,
     trigger: trigger ?? "manual",
     created_at: new Date().toISOString(),
     timeout_ms: timeoutMs,
   });
 
-  const normPath = normalizeWebhookPath(path);
-  const altPath = alternateWebhookPath(normPath);
-  const pathKeys = [
-    `rpa:webhook:path:${normPath}:waiting`,
-    ...(altPath !== normPath && altPath !== "" ? [`rpa:webhook:path:${altPath}:waiting`] : []),
-  ];
+  const normPath = normalizeWebhookPath(effectivePath);
+  const pathKeys = [`rpa:webhook:path:${normPath}:waiting`];
 
   await redis.set(waitingKey, meta, "EX", ttlSeconds);
   await redis.hset(indexKey, runId, meta);
@@ -187,7 +207,7 @@ export async function waitForWebhookPayload(
 
   const waitInfo: RunWaitingInfo = {
     method,
-    path,
+    path: effectivePath,
     timeoutMs,
     triggerUrl,
     recipeId,
@@ -195,23 +215,23 @@ export async function waitForWebhookPayload(
 
   await emitter.emitRunWaiting(runId, node.id, waitInfo);
 
-  const destination = !webhookEnabled
-    ? "El webhook público está deshabilitado; habilítalo en Triggers o usa 'Escuchar evento de prueba' en el nodo."
+  const destination = isTest
+    ? `URL de prueba: ${effectivePath}.`
     : triggerUrl
       ? `Trigger público: ${triggerUrl}.`
-      : "Usa 'Escuchar evento de prueba' en el nodo para enviar la petición.";
+      : `URL de producción: ${effectivePath}.`;
 
   await emitter.emitRunLog(
     runId,
     "info",
-    `Esperando petición webhook [${method} ${path}] ${describeWait(timeoutMs)}. ${destination}`,
+    `Esperando petición webhook [${method} ${effectivePath}] ${describeWait(timeoutMs)}. ${destination}`,
     node.id,
     "runner",
     {
       scope: "webhook",
       node_id: node.id,
       method,
-      path,
+      path: effectivePath,
       timeout_ms: timeoutMs,
       trigger_url: triggerUrl ?? null,
       webhook_enabled: webhookEnabled ?? null,
@@ -240,7 +260,7 @@ export async function waitForWebhookPayload(
           "Petición webhook recibida. Continuando ejecución...",
           node.id,
           "runner",
-          { scope: "webhook", node_id: node.id, path, method }
+          { scope: "webhook", node_id: node.id, path: effectivePath, method }
         );
         return { kind: "payload", payload: parsePayload(raw), receivedBeforeStart: false };
       }

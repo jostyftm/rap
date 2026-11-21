@@ -52,14 +52,14 @@ class WebhookTestController extends Controller
      */
     public function capture(Request $request, string $path): Response|JsonResponse
     {
-        $result = $this->webhookTestService->capture($request, '/api/v1/webhooks/'.$path);
+        $result = $this->webhookTestService->capture($request, '/api/v1/webhooks-test/'.$path);
 
         if (! $result) {
             return response()->json([
                 'type' => 'about:blank',
                 'title' => 'Webhook no encontrado',
                 'status' => Response::HTTP_NOT_FOUND,
-                'detail' => 'No hay ninguna sesión de escucha activa para esta ruta de webhook.',
+                'detail' => 'No hay ninguna sesión de escucha de prueba activa para esta ruta. Haz clic en "Escuchar evento de prueba" o ejecuta el borrador para probarla.',
             ], Response::HTTP_NOT_FOUND);
         }
 

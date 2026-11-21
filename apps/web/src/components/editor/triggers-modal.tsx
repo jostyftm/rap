@@ -16,6 +16,7 @@ import {
   Power,
 } from "lucide-react";
 import { apiFetch } from "../../lib/api-client";
+import { getApiBaseUrl } from "../../lib/webhook-url";
 
 interface TriggersModalProps {
   recipeId: string;
@@ -45,6 +46,12 @@ export function TriggersModal({ recipeId, isOpen, onClose }: TriggersModalProps)
   // Webhook
   const [webhookToken, setWebhookToken] = useState<string>("");
   const [webhookEnabled, setWebhookEnabled] = useState<boolean>(false);
+  const [publishedWebhook, setPublishedWebhook] = useState<{
+    path: string;
+    method: string;
+    url: string;
+  } | null>(null);
+  const [copiedPublishedWebhook, setCopiedPublishedWebhook] = useState(false);
   const [isTogglingWebhook, setIsTogglingWebhook] = useState(false);
   const [copiedWebhook, setCopiedWebhook] = useState(false);
 
@@ -65,13 +72,18 @@ export function TriggersModal({ recipeId, isOpen, onClose }: TriggersModalProps)
       });
 
     // Cargar estado de Webhook desde la receta
-    apiFetch<{ data: { webhook_token?: string; webhook_enabled?: boolean } }>(
-      `/api/v1/recipes/${recipeId}`
-    )
+    apiFetch<{
+      data: {
+        webhook_token?: string;
+        webhook_enabled?: boolean;
+        published_webhook?: { path: string; method: string; url: string } | null;
+      };
+    }>(`/api/v1/recipes/${recipeId}`)
       .then((res) => {
         if (res.data) {
           setWebhookToken(res.data.webhook_token || "");
           setWebhookEnabled(Boolean(res.data.webhook_enabled));
+          setPublishedWebhook(res.data.published_webhook || null);
         }
       })
       .catch((err) => {
@@ -158,8 +170,9 @@ export function TriggersModal({ recipeId, isOpen, onClose }: TriggersModalProps)
     }
   };
 
+  const apiBase = getApiBaseUrl().replace(/\/+$/, "");
   const webhookUrl = webhookToken
-    ? `http://localhost:8000/api/v1/webhooks/recipes/${webhookToken}/trigger`
+    ? `${apiBase}/api/v1/webhooks/recipes/${webhookToken}/trigger`
     : "";
 
   return (
@@ -376,6 +389,48 @@ export function TriggersModal({ recipeId, isOpen, onClose }: TriggersModalProps)
           ) : (
             /* Tab Webhook */
             <div className="space-y-5">
+              {publishedWebhook && (
+                <div className="p-4 rounded-lg bg-emerald-950/20 border border-emerald-800/50 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-xs font-semibold text-emerald-300 flex items-center space-x-2">
+                        <span>URL del Nodo Webhook Publicado (siempre escuchando)</span>
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/30">
+                          {publishedWebhook.method}
+                        </span>
+                      </h3>
+                      <p className="text-[11px] text-neutral-400 mt-0.5">
+                        Cada petición a esta ruta ejecuta automáticamente la última versión publicada. Los cambios en el borrador no afectan esta URL hasta publicar.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={`${apiBase}${publishedWebhook.path}`}
+                      className="flex-1 bg-neutral-900 border border-neutral-800 rounded px-3 py-1.5 text-xs font-mono text-emerald-300 select-all outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(`${apiBase}${publishedWebhook.path}`);
+                        setCopiedPublishedWebhook(true);
+                        setTimeout(() => setCopiedPublishedWebhook(false), 2000);
+                      }}
+                      className="p-2 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition-colors"
+                      title="Copiar URL de producción"
+                    >
+                      {copiedPublishedWebhook ? (
+                        <Check className="w-4 h-4 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="p-4 rounded-lg bg-neutral-950 border border-neutral-800 space-y-4">
                 <div className="flex items-center justify-between">
                   <div>

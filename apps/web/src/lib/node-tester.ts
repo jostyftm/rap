@@ -3,6 +3,7 @@ import { resolveExpression } from "@rpa/dsl";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { useLiveStore } from "@/stores/use-live-store";
 import { useLayoutStore } from "@/stores/use-layout-store";
+import { buildTestWebhookPath } from "./webhook-url";
 
 export interface NodeTestResult {
   ok: boolean;
@@ -65,7 +66,7 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
       case "webhook": {
         const payload = {
           method: node.params.httpMethod || "POST",
-          path: node.params.path || `/api/v1/webhooks/${node.id}`,
+          path: buildTestWebhookPath(node.params.path, node.id),
           query: { testRun: "true", source: "studio_tester" },
           body: {
             evento: "test_trigger",
@@ -253,6 +254,8 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
         try {
           if (live.kind === "external") {
             await live.startExternal(recipeId, resolvedUrl);
+          } else if (live.kind === "screencast") {
+            await live.startScreencast(recipeId, resolvedUrl);
           } else {
             await live.startEmbedded(recipeId, resolvedUrl);
           }
@@ -291,7 +294,7 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
         const recipeId = store.recipeId || "current";
 
         // Si el sitio no está abierto o listo aún, intentar iniciarlo con la URL del nodo navegador de la receta
-        if (!live.isOpen || live.status === "idle" || !live.proxyUrl) {
+        if (!live.isOpen || live.status === "idle" || (!live.proxyUrl && !live.wsUrl && live.kind !== "external")) {
           const navNode = Object.values(store.definition.nodes).find((n) => n.type === "navigate");
           const entryNode = store.definition.entry ? store.definition.nodes[store.definition.entry] : null;
           const targetUrl = (navNode as any)?.params?.url || (entryNode as any)?.params?.url;
@@ -508,7 +511,10 @@ export async function testSequentialNodes(
 
   // Si el primer paso no es un navegador y el simulador está cerrado/idle, intentar inicializarlo con la URL de la receta
   const firstNode = orderedNodes[0];
-  if (firstNode.type !== "navigate" && (live.status === "idle" || !live.proxyUrl)) {
+  if (
+    firstNode.type !== "navigate" &&
+    (live.status === "idle" || (!live.proxyUrl && !live.wsUrl && live.kind !== "external"))
+  ) {
     const navNode = Object.values(store.definition.nodes).find((n) => n.type === "navigate");
     const entryNode = store.definition.entry ? store.definition.nodes[store.definition.entry] : null;
     const targetUrl = (navNode as any)?.params?.url || (entryNode as any)?.params?.url;

@@ -90,7 +90,8 @@ function waitingMeta(Run $run, Recipe $recipe, string $nodeId = 'webhook_1'): st
         'recipe_id' => $recipe->uuid,
         'node_id' => $nodeId,
         'method' => 'POST',
-        'path' => '/api/v1/webhooks/lead',
+        'path' => '/api/v1/webhooks-test/lead',
+        'is_draft' => true,
         'trigger' => 'manual',
         'created_at' => now()->toIso8601String(),
         'timeout_ms' => 300000,
@@ -140,19 +141,34 @@ it('entrega el trigger público al run en espera sin crear otro run', function (
     $this->withoutMiddleware(\Illuminate\Routing\Middleware\ThrottleRequests::class);
 
     $recipe = createWaitingWebhookRecipe();
-    $run = waitingRun($recipe);
-    $meta = waitingMeta($run, $recipe);
+    $prodRun = Run::create([
+        'recipe_version_id' => $recipe->latestVersion->id,
+        'status' => 'waiting',
+        'trigger' => 'webhook',
+        'parameters' => [],
+    ]);
+    $meta = (string) json_encode([
+        'run_id' => $prodRun->uuid,
+        'recipe_id' => $recipe->uuid,
+        'node_id' => 'webhook_1',
+        'method' => 'POST',
+        'path' => '/api/v1/webhooks/lead',
+        'is_draft' => false,
+        'trigger' => 'webhook',
+        'created_at' => now()->toIso8601String(),
+        'timeout_ms' => null,
+    ]);
 
     Redis::shouldReceive('hgetall')
         ->once()
         ->with("rpa:recipe:{$recipe->uuid}:waiting")
-        ->andReturn([$run->uuid => $meta]);
+        ->andReturn([$prodRun->uuid => $meta]);
     Redis::shouldReceive('rpush')
         ->once()
-        ->withArgs(function (string $key, string $value) use ($run): bool {
+        ->withArgs(function (string $key, string $value) use ($prodRun): bool {
             $payload = json_decode($value, true);
 
-            return $key === "rpa:run:{$run->uuid}:webhook"
+            return $key === "rpa:run:{$prodRun->uuid}:webhook"
                 && $payload['body']['email'] === 'lead@example.com'
                 && $payload['method'] === 'POST';
         })
@@ -163,7 +179,7 @@ it('entrega el trigger público al run en espera sin crear otro run', function (
         'email' => 'lead@example.com',
     ]);
 
-    $response->assertAccepted()->assertJsonPath('data.id', $run->uuid);
+    $response->assertAccepted()->assertJsonPath('data.id', $prodRun->uuid);
     expect(Run::query()->count())->toBe(1);
 });
 
@@ -192,16 +208,16 @@ it('entrega la escucha de prueba al run en espera del mismo nodo', function () {
 
             return $key === "rpa:run:{$run->uuid}:webhook"
                 && $payload['body']['email'] === 'test@example.com'
-                && $payload['path'] === '/api/v1/webhooks/lead';
+                && $payload['path'] === '/api/v1/webhooks-test/lead';
         })
         ->andReturn(1);
     Redis::shouldReceive('expire')->once()->andReturn(1);
 
-    $this->postJson('/api/v1/webhooks/lead', ['email' => 'test@example.com'])
+    $this->postJson('/api/v1/webhooks-test/lead', ['email' => 'test@example.com'])
         ->assertStatus(202);
 });
 
-it('entrega petición directa por ruta a un run en espera sin sesión efímera previa', function () {
+it('entrega petición directa por ruta de prueba a un run de borrador en espera sin sesión efímera previa', function () {
     $this->withoutMiddleware(\Illuminate\Routing\Middleware\ThrottleRequests::class);
 
     $recipe = createWaitingWebhookRecipe();
@@ -212,7 +228,7 @@ it('entrega petición directa por ruta a un run en espera sin sesión efímera p
     Redis::shouldReceive('get')->andReturnNull();
     Redis::shouldReceive('hgetall')
         ->once()
-        ->with('rpa:webhook:path:/api/v1/webhooks/lead:waiting')
+        ->with('rpa:webhook:path:/api/v1/webhooks-test/lead:waiting')
         ->andReturn([$run->uuid => $meta]);
     Redis::shouldReceive('rpush')
         ->once()
@@ -221,12 +237,12 @@ it('entrega petición directa por ruta a un run en espera sin sesión efímera p
 
             return $key === "rpa:run:{$run->uuid}:webhook"
                 && $payload['body']['pedido_id'] === 1234
-                && $payload['path'] === '/api/v1/webhooks/lead';
+                && $payload['path'] === '/api/v1/webhooks-test/lead';
         })
         ->andReturn(1);
     Redis::shouldReceive('expire')->once()->andReturn(1);
 
-    $this->postJson('/api/v1/webhooks/lead', ['pedido_id' => 1234])
+    $this->postJson('/api/v1/webhooks-test/lead', ['pedido_id' => 1234])
         ->assertOk()
         ->assertJsonPath('ok', true)
         ->assertJsonPath('delivered_to_runs.0', $run->uuid);

@@ -23,6 +23,13 @@ final class RecipeResource extends JsonResource
             'description' => $this->description,
             'status' => $this->status,
             'allowed_domains' => $this->allowed_domains,
+            'webhook_enabled' => (bool) $this->webhook_enabled,
+            'webhook_token' => $this->webhook_token,
+            'published_webhook' => $this->published_webhook_path ? [
+                'path' => $this->published_webhook_path,
+                'method' => $this->published_webhook_method ?? 'POST',
+                'url' => url($this->published_webhook_path),
+            ] : null,
             'has_unpublished_changes' => $this->hasUnpublishedChanges(),
             'published_at' => $this->published_at?->toIso8601String(),
             'draft' => $draft ? [

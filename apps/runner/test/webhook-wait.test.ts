@@ -4,6 +4,9 @@ import type { WebhookNode } from "@rpa/dsl";
 import type { RunWaitingInfo, RunnerEventEmitter } from "../src/protocol/event-emitter.js";
 import {
   DEFAULT_TEST_WEBHOOK_WAIT_MS,
+  buildProductionWebhookPath,
+  buildTestWebhookPath,
+  extractWebhookSlug,
   hasWebhookPayload,
   mergeWebhookPayload,
   waitForWebhookPayload,
@@ -278,5 +281,45 @@ describe("webhook wait helpers", () => {
 
   it("usa el timeout por defecto de 5 minutos en modo prueba", async () => {
     expect(DEFAULT_TEST_WEBHOOK_WAIT_MS).toBe(300_000);
+  });
+
+  it("aísla las claves Redis entre modo prueba (/webhooks-test) y producción (/webhooks)", async () => {
+    expect(extractWebhookSlug("/api/v1/webhooks/pedidos")).toBe("pedidos");
+    expect(buildTestWebhookPath("/api/v1/webhooks/pedidos")).toBe("/api/v1/webhooks-test/pedidos");
+    expect(buildProductionWebhookPath("/api/v1/webhooks-test/pedidos")).toBe("/api/v1/webhooks/pedidos");
+
+    const redisManual = new FakeRedis();
+    const emitterManual = new MockEmitter();
+    const manualPromise = waitForWebhookPayload({
+      ...baseOptions,
+      node: webhookNode({ path: "/api/v1/webhooks/pedidos" }),
+      trigger: "manual",
+      redis: redisManual as unknown as Redis,
+      emitter: emitterManual,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(redisManual.hashes.has("rpa:webhook:path:/api/v1/webhooks-test/pedidos:waiting")).toBe(true);
+    expect(redisManual.hashes.has("rpa:webhook:path:/api/v1/webhooks/pedidos:waiting")).toBe(false);
+
+    await redisManual.rpush("rpa:run:run-1:webhook", JSON.stringify({ body: { ok: true } }));
+    await manualPromise;
+
+    const redisProd = new FakeRedis();
+    const emitterProd = new MockEmitter();
+    const prodPromise = waitForWebhookPayload({
+      ...baseOptions,
+      node: webhookNode({ path: "/api/v1/webhooks/pedidos" }),
+      trigger: "webhook",
+      redis: redisProd as unknown as Redis,
+      emitter: emitterProd,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(redisProd.hashes.has("rpa:webhook:path:/api/v1/webhooks/pedidos:waiting")).toBe(true);
+    expect(redisProd.hashes.has("rpa:webhook:path:/api/v1/webhooks-test/pedidos:waiting")).toBe(false);
+
+    await redisProd.rpush("rpa:run:run-1:webhook", JSON.stringify({ body: { ok: true } }));
+    await prodPromise;
   });
 });

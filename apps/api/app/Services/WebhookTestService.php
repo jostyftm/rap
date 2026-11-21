@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Events\WebhookTestReceived;
 use App\Models\Recipe;
+use App\Support\WebhookPath;
 use App\Support\WebhookPayload;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -33,7 +34,7 @@ class WebhookTestService
         int $responseCode,
         ?string $responseBody
     ): array {
-        $normalizedPath = $this->normalizePath($path);
+        $normalizedPath = WebhookPath::testPath($path, $nodeId);
 
         $pathKey = "webhook_test:path:{$normalizedPath}";
         $existing = Cache::get($pathKey);
@@ -96,18 +97,18 @@ class WebhookTestService
      */
     public function capture(Request $request, string $rawPath): ?array
     {
-        $normalizedPath = $this->normalizePath($rawPath);
+        $normalizedPath = WebhookPath::testPath($rawPath);
         $pathKey = "webhook_test:path:{$normalizedPath}";
 
         $session = Cache::get($pathKey);
         if (! $session) {
-            $deliveredRunIds = $this->webhookRuns->deliverByPath($normalizedPath, $request);
+            $deliveredRunIds = $this->webhookRuns->deliverByPath($normalizedPath, $request, true);
             if ($deliveredRunIds !== []) {
                 return [
                     'response_code' => 200,
                     'response_body' => json_encode([
                         'ok' => true,
-                        'message' => 'Petición entregada a la ejecución en espera.',
+                        'message' => 'Petición de prueba entregada a la ejecución de borrador en espera.',
                         'delivered_to_runs' => $deliveredRunIds,
                     ], JSON_UNESCAPED_SLASHES),
                     'method_match' => true,
@@ -136,14 +137,14 @@ class WebhookTestService
 
         $payload = WebhookPayload::fromRequest($request, $normalizedPath);
 
-        // Si hay una ejecución esperando este nodo, entregamos la petición para
-        // que el flujo continúe sin lanzar un run adicional.
+        // Si hay una ejecución de prueba/borrador esperando este nodo, entregamos la petición
+        // sin afectar ni disparar ejecuciones de producción.
         $recipe = Recipe::query()->where('uuid', $session['recipe_uuid'] ?? '')->first();
         if ($recipe !== null) {
             $this->webhookRuns->deliverToRecipe($recipe, $payload, [
                 'node_id' => (string) ($session['node_id'] ?? ''),
-                'path' => $normalizedPath,
                 'method' => $requestMethod,
+                'is_draft' => true,
             ]);
         }
 
@@ -159,15 +160,5 @@ class WebhookTestService
             'response_body' => (string) ($session['response_body'] ?? '{"ok":true}'),
             'method_match' => true,
         ];
-    }
-
-    private function normalizePath(string $path): string
-    {
-        $clean = trim($path);
-        if (! str_starts_with($clean, '/')) {
-            $clean = '/'.$clean;
-        }
-
-        return rtrim($clean, '/');
     }
 }
