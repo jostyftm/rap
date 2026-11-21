@@ -32,6 +32,10 @@ import {
   MoreHorizontal,
   SlidersHorizontal,
   X,
+  UploadCloud,
+  History,
+  FileDown,
+  FileUp,
 } from "lucide-react";
 import { useRecipeStore } from "../../stores/use-recipe-store";
 import { useLayoutStore } from "../../stores/use-layout-store";
@@ -39,6 +43,10 @@ import { apiFetch } from "../../lib/api-client";
 import { getEcho } from "../../lib/echo";
 import { useAuth } from "../../context/auth-context";
 import { ExportModal } from "./export-modal";
+import { PublishDialog } from "./publish-dialog";
+import { VersionHistoryDrawer } from "./version-history-drawer";
+import { recipeEditorService } from "../../app/recipes/[id]/edit/services/recipe-editor.service";
+import { downloadRecipeJson, readRecipeFile } from "../../lib/recipe-file";
 import { TriggersModal } from "./triggers-modal";
 import { SecretsModal } from "./secrets-modal";
 import { VariablesModal } from "./variables-modal";
@@ -119,6 +127,14 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
   const runStatus = useRecipeStore((s) => s.runStatus);
   const runControlState = useRecipeStore((s) => s.runControlState);
 
+  // Modo de edición y versionado
+  const editorMode = useRecipeStore((s) => s.editorMode);
+  const setEditorMode = useRecipeStore((s) => s.setEditorMode);
+  const publishedVersion = useRecipeStore((s) => s.publishedVersion);
+  const hasUnpublishedChanges = useRecipeStore((s) => s.hasUnpublishedChanges);
+  const viewingVersion = useRecipeStore((s) => s.viewingVersion);
+  const setViewingVersion = useRecipeStore((s) => s.setViewingVersion);
+
   // Layout Store
   const layoutMode = useLayoutStore((s) => s.mode);
   const setLayoutMode = useLayoutStore((s) => s.setMode);
@@ -155,9 +171,15 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
 
   // Modales
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [isPublishOpen, setIsPublishOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isTriggersOpen, setIsTriggersOpen] = useState(false);
   const [isSecretsOpen, setIsSecretsOpen] = useState(false);
   const [isVariablesOpen, setIsVariablesOpen] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importNotification, setImportNotification] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Parámetros de ejecución
   const [displayMode, setDisplayMode] = useState<"headed" | "live" | "headless">("headed");
@@ -250,6 +272,7 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
           method: "POST",
           body: JSON.stringify({
             parameters,
+            use_draft: true,
             options: {
               display: displayMode,
               slow_mo_ms: slowMoMs,
@@ -339,6 +362,65 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
     }
   };
 
+  const handleExportJson = async (targetVersion?: number) => {
+    if (!recipeId) return;
+    try {
+      const res = await recipeEditorService.exportRecipeJson(recipeId, targetVersion);
+      const safeName = (recipeName || "recipe").toLowerCase().replace(/[^a-z0-9_-]+/g, "-");
+      const vTag = targetVersion !== undefined ? `v${targetVersion}` : "draft";
+      downloadRecipeJson(res, `${safeName}-${vTag}.json`);
+      setIsExportMenuOpen(false);
+    } catch (err: any) {
+      console.error("Error al exportar receta:", err);
+    }
+  };
+
+  const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !recipeId) return;
+    e.target.value = "";
+
+    const { data, error } = await readRecipeFile(file);
+    if (error || !data) {
+      alert(error || "El archivo seleccionado no es válido.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "¿Deseas reemplazar el borrador actual con el contenido de este archivo? Los cambios no guardados en el borrador se sobreescribirán."
+    );
+    if (!confirmed) return;
+
+    setIsImporting(true);
+    try {
+      const res = await recipeEditorService.importIntoDraft(recipeId, data);
+      if (res?.data) {
+        const safeDef = reconcileRecipeRoot(res.data.draft?.definition || data.definition);
+        useRecipeStore.getState().setRecipe({
+          id: recipeId,
+          name: res.data.name || recipeName,
+          description: res.data.description || "",
+          version: res.data.published_version?.version || recipeVersion,
+          definition: safeDef,
+          publishedVersion: res.data.published_version,
+          hasUnpublishedChanges: true,
+        });
+      }
+      if (res?.missing_secrets && res.missing_secrets.length > 0) {
+        alert(
+          `Borrador importado con éxito.\n\nAtención: Los siguientes secretos referenciados no están definidos en tu workspace:\n- ${res.missing_secrets.join("\n- ")}`
+        );
+      } else {
+        setImportNotification("Borrador importado correctamente desde el archivo.");
+        setTimeout(() => setImportNotification(null), 3500);
+      }
+    } catch (err: any) {
+      alert(`Error al importar: ${err?.message || String(err)}`);
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   return (
     <>
       <header
@@ -370,7 +452,7 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
             />
 
             {/* Estado sutil de guardado / cambios */}
-            <div className="flex items-center text-xs shrink-0 pl-1">
+            <div className="flex items-center text-xs shrink-0 pl-1 gap-1.5">
               {isSaving ? (
                 <span className="flex items-center space-x-1.5 text-zinc-400">
                   <Loader2 className="w-3 h-3 animate-spin" />
@@ -403,7 +485,90 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
                   Guardado
                 </span>
               )}
+
+              {/* Botón Publicar */}
+              <button
+                type="button"
+                onClick={() => setIsPublishOpen(true)}
+                disabled={editorMode === "published" || !!viewingVersion}
+                title={
+                  hasUnpublishedChanges
+                    ? "Publicar cambios del borrador como una nueva versión inmutable"
+                    : "Publicar una nueva versión"
+                }
+                className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono font-medium transition-colors shadow-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                  hasUnpublishedChanges
+                    ? "bg-emerald-600 hover:bg-emerald-500 text-white animate-pulse"
+                    : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+                }`}
+              >
+                <UploadCloud className="w-3 h-3" />
+                <span className="hidden md:inline">Publicar</span>
+              </button>
+
+              {/* Botón Historial */}
+              <button
+                type="button"
+                onClick={() => setIsHistoryOpen(true)}
+                title="Historial de versiones y rollback"
+                className="flex items-center space-x-1 px-2 py-1 rounded-md bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 text-[11px] font-mono transition-colors cursor-pointer"
+              >
+                <History className="w-3 h-3 text-zinc-400" />
+                <span className="hidden lg:inline">Historial</span>
+              </button>
             </div>
+
+            {/* Toggle de Modo Edición vs Publicado */}
+            <div className="hidden xl:flex items-center rounded-md bg-zinc-950 border border-zinc-800 p-0.5 text-[11px] font-mono ml-1">
+              <button
+                type="button"
+                onClick={() => {
+                  if (viewingVersion) setViewingVersion(null);
+                  setEditorMode("edit");
+                }}
+                className={`px-2 py-0.5 rounded transition-colors ${
+                  editorMode === "edit" && !viewingVersion
+                    ? "bg-zinc-800 text-zinc-100 font-semibold shadow-sm"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                Edición
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditorMode("published")}
+                className={`px-2 py-0.5 rounded transition-colors ${
+                  editorMode === "published" || viewingVersion
+                    ? "bg-zinc-800 text-emerald-400 font-semibold shadow-sm"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                Publicado
+              </button>
+            </div>
+
+            {/* Badges de estado de publicación */}
+            {hasUnpublishedChanges ? (
+              <span
+                title="Hay cambios en el borrador que no han sido publicados"
+                className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-amber-500/10 text-amber-400 border border-amber-500/25 shrink-0"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping inline-block" />
+                <span>Borrador modificado</span>
+              </span>
+            ) : publishedVersion ? (
+              <span
+                title={`Versión activa en producción: v${publishedVersion.version}`}
+                className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 shrink-0"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                <span>v{publishedVersion.version} al día</span>
+              </span>
+            ) : (
+              <span className="hidden sm:inline-block px-2 py-0.5 rounded-full text-[10px] font-mono bg-zinc-800 text-zinc-400 border border-zinc-700/60 shrink-0">
+                Borrador
+              </span>
+            )}
 
             {/* Alerta si hay errores de validación */}
             {validationErrors.length > 0 && (
@@ -873,6 +1038,62 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
                   </div>
                 </button>
 
+                <div className="h-px bg-neutral-800 my-1" />
+                <div className="px-2.5 py-1 text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">
+                  Portabilidad
+                </div>
+
+                {/* Exportar JSON Borrador */}
+                <button
+                  onClick={() => {
+                    handleExportJson();
+                    setIsToolsMenuOpen(false);
+                  }}
+                  className="w-full flex items-start space-x-2.5 px-2.5 py-2 rounded-lg text-left text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
+                >
+                  <FileDown className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
+                  <div>
+                    <div className="font-medium text-neutral-100">Exportar JSON (Borrador)</div>
+                    <div className="text-[10px] text-neutral-400">Descargar definición actual editable</div>
+                  </div>
+                </button>
+
+                {/* Exportar JSON Publicado */}
+                {publishedVersion && (
+                  <button
+                    onClick={() => {
+                      handleExportJson(publishedVersion.version);
+                      setIsToolsMenuOpen(false);
+                    }}
+                    className="w-full flex items-start space-x-2.5 px-2.5 py-2 rounded-lg text-left text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
+                  >
+                    <FileDown className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
+                    <div>
+                      <div className="font-medium text-neutral-100">
+                        Exportar JSON (v{publishedVersion.version} Publicada)
+                      </div>
+                      <div className="text-[10px] text-neutral-400">Descargar versión oficial activa</div>
+                    </div>
+                  </button>
+                )}
+
+                {/* Importar JSON a Borrador */}
+                <button
+                  onClick={() => {
+                    fileInputRef.current?.click();
+                    setIsToolsMenuOpen(false);
+                  }}
+                  disabled={isImporting || editorMode === "published" || !!viewingVersion}
+                  className="w-full flex items-start space-x-2.5 px-2.5 py-2 rounded-lg text-left text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors disabled:opacity-40"
+                >
+                  <FileUp className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+                  <div>
+                    <div className="font-medium text-neutral-100">Importar JSON (Borrador)</div>
+                    <div className="text-[10px] text-neutral-400">Reemplazar borrador con archivo externo</div>
+                  </div>
+                </button>
+
+                {/* Exportar código Playwright */}
                 <button
                   onClick={() => {
                     setIsExportOpen(true);
@@ -883,7 +1104,7 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
                   <Code2 className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
                   <div>
                     <div className="font-medium text-neutral-100">Exportar Playwright TS</div>
-                    <div className="text-[10px] text-neutral-400">Descargar código autónomo</div>
+                    <div className="text-[10px] text-neutral-400">Descargar código autónomo .spec.ts</div>
                   </div>
                 </button>
 
@@ -960,6 +1181,65 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
         </div>
       </header>
 
+      {/* Input oculto para importación de JSON en borrador */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json,application/json"
+        onChange={handleFileImport}
+        className="hidden"
+      />
+
+      {/* Banner de Modo Inspección de Versión Histórica */}
+      {viewingVersion && (
+        <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 flex items-center justify-between text-xs text-amber-300 z-30 relative animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            <span>
+              Inspeccionando versión histórica <strong>v{viewingVersion.version}</strong> en modo solo lectura.
+              {viewingVersion.changelog && (
+                <span className="text-amber-200/80 ml-2 italic">({viewingVersion.changelog})</span>
+              )}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setViewingVersion(null)}
+            className="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 font-medium transition-colors cursor-pointer"
+          >
+            Volver al borrador editable
+          </button>
+        </div>
+      )}
+
+      {/* Banner de Modo Publicado */}
+      {editorMode === "published" && !viewingVersion && (
+        <div className="bg-emerald-500/15 border-b border-emerald-500/30 px-4 py-2 flex items-center justify-between text-xs text-emerald-300 z-30 relative animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>
+              Modo Publicado: visualizando versión activa en producción{" "}
+              <strong>v{publishedVersion?.version || 1}</strong> (solo lectura).
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setEditorMode("edit")}
+            className="px-2.5 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 font-medium transition-colors cursor-pointer"
+          >
+            Pasar a modo edición
+          </button>
+        </div>
+      )}
+
+      {/* Notificación de importación */}
+      {importNotification && (
+        <div className="bg-emerald-500/20 border-b border-emerald-500/30 px-4 py-1.5 text-xs text-emerald-300 flex items-center gap-2 z-30 relative">
+          <CheckCircle2 className="w-4 h-4" />
+          <span>{importNotification}</span>
+        </div>
+      )}
+
       {/* Modal Desacoplado para Iniciar Grabador de Acciones y Macros */}
       <RecordModal
         isOpen={isRecordPopoverOpen && !isRecording}
@@ -976,6 +1256,21 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
         recipeName={recipeName}
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}
+      />
+
+      {/* Modal de Publicación */}
+      <PublishDialog
+        recipeId={recipeId || ""}
+        isOpen={isPublishOpen}
+        onClose={() => setIsPublishOpen(false)}
+      />
+
+      {/* Drawer de Historial de Versiones */}
+      <VersionHistoryDrawer
+        recipeId={recipeId || ""}
+        recipeName={recipeName}
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
       />
 
       <TriggersModal

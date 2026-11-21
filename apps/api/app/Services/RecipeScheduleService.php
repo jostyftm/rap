@@ -88,7 +88,7 @@ class RecipeScheduleService
                 $query->whereNull('next_run_at')
                     ->orWhere('next_run_at', '<=', $now);
             })
-            ->with(['recipe.latestVersion', 'recipe.project.workspace'])
+            ->with(['recipe.publishedVersion', 'recipe.project.workspace'])
             ->get();
 
         $count = 0;

@@ -76,4 +76,21 @@ export const recipesService = {
 
     return newRec.data;
   },
+
+  async importRecipe(data: any): Promise<{ data: RecipeSummary; missing_secrets: string[] }> {
+    const { projectId } = await resolveDefaultProject();
+    const res = await apiFetch<{ data: RecipeSummary; missing_secrets: string[] }>(
+      `/api/v1/projects/${projectId}/recipes/import`,
+      {
+        method: "POST",
+        body: JSON.stringify({ data }),
+      }
+    );
+
+    if (!res?.data?.id) {
+      throw new Error("El backend no devolvió la receta importada.");
+    }
+
+    return res;
+  },
 };

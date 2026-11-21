@@ -7,6 +7,8 @@ use App\Http\Controllers\Api\v1\Live\LiveSessionController;
 use App\Http\Controllers\Api\v1\Project\ProjectController;
 use App\Http\Controllers\Api\v1\Recipe\RecipeController;
 use App\Http\Controllers\Api\v1\Recipe\RecipeExportController;
+use App\Http\Controllers\Api\v1\Recipe\RecipePortabilityController;
+use App\Http\Controllers\Api\v1\Recipe\RecipeVersionController;
 use App\Http\Controllers\Api\v1\Recorder\RecorderController;
 use App\Http\Controllers\Api\v1\Run\RunControlController;
 use App\Http\Controllers\Api\v1\Run\RunController;
@@ -57,8 +59,15 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function (): void {
     // Recetas
     Route::get('projects/{project}/recipes', [RecipeController::class, 'index']);
     Route::post('projects/{project}/recipes', [RecipeController::class, 'store']);
+    Route::post('projects/{project}/recipes/import', [RecipePortabilityController::class, 'importNew']);
     Route::get('recipes/{recipe}', [RecipeController::class, 'show']);
     Route::put('recipes/{recipe}', [RecipeController::class, 'update']);
+    Route::post('recipes/{recipe}/publish', [RecipeVersionController::class, 'publish']);
+    Route::get('recipes/{recipe}/versions', [RecipeVersionController::class, 'index']);
+    Route::get('recipes/{recipe}/versions/{version}', [RecipeVersionController::class, 'show']);
+    Route::post('recipes/{recipe}/versions/{version}/restore', [RecipeVersionController::class, 'restore']);
+    Route::get('recipes/{recipe}/export', [RecipePortabilityController::class, 'export']);
+    Route::post('recipes/{recipe}/import', [RecipePortabilityController::class, 'importIntoDraft']);
     Route::get('recipes/{recipe}/export/playwright', [RecipeExportController::class, 'export']);
 
     // Programación de Recetas (Cron Schedules)

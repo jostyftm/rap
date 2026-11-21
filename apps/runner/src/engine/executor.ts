@@ -163,19 +163,46 @@ export class RecipeExecutor {
 
     let dedicatedBrowser: Browser | null = null;
     let browser: Browser;
+    let isHeadedActual = isHeaded;
 
     if (isHeaded) {
-      dedicatedBrowser = await chromium.launch({
-        headless: false,
-        slowMo: slowMo > 0 ? slowMo : 150,
-        args: [
-          "--no-sandbox",
-          "--disable-setuid-sandbox",
-          "--disable-dev-shm-usage",
-          "--start-maximized",
-        ],
-      });
-      browser = dedicatedBrowser;
+      try {
+        dedicatedBrowser = await chromium.launch({
+          headless: false,
+          slowMo: slowMo > 0 ? slowMo : 150,
+          args: [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--start-maximized",
+          ],
+        });
+        browser = dedicatedBrowser;
+      } catch (headedErr: any) {
+        const errMsg = headedErr?.message || String(headedErr);
+        const isDisplayIssue =
+          errMsg.includes("Missing X server") ||
+          errMsg.includes("Target page, context or browser has been closed") ||
+          errMsg.includes("$DISPLAY");
+
+        if (isDisplayIssue) {
+          await this.eventEmitter.emitRunLog(
+            runId,
+            "warn",
+            `No se pudo abrir ventana gráfica visible. Continuando en segundo plano (headless)...`,
+            undefined,
+            "runner"
+          );
+          isHeadedActual = false;
+          await this.initializeShared();
+          if (!this.sharedBrowser) {
+            throw new Error("No se pudo inicializar el navegador Chromium en segundo plano");
+          }
+          browser = this.sharedBrowser;
+        } else {
+          throw headedErr;
+        }
+      }
     } else {
       await this.initializeShared();
       if (!this.sharedBrowser) {
@@ -189,13 +216,13 @@ export class RecipeExecutor {
     await this.eventEmitter.emitRunLog(
       runId,
       "info",
-      `Ejecución iniciada en modo [${isHeaded ? "VENTANA VISIBLE (Headed)" : "SEGUNDO PLANO (Headless)"}]`,
+      `Ejecución iniciada en modo [${isHeadedActual ? "VENTANA VISIBLE (Headed)" : "SEGUNDO PLANO (Headless)"}]`,
       undefined,
       "runner"
     );
 
     const context: BrowserContext = await browser.newContext({
-      viewport: isHeaded ? null : { width: 1280, height: 800 },
+      viewport: isHeadedActual ? null : { width: 1280, height: 800 },
       userAgent:
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 RPAStudio/1.0",
     });

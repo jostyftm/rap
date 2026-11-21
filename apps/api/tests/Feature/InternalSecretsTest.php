@@ -24,7 +24,7 @@ function internalSecretFixture(array $declaredSecrets = ['PORTAL_PASSWORD'], arr
 
     /** @var Recipe $recipe */
     $recipe = $project->recipes()->create(['name' => 'R', 'status' => 'active']);
-    $recipe->versions()->create([
+    $v1 = $recipe->versions()->create([
         'version' => 1,
         'definition' => [
             'schema' => 'rpa/v1',
@@ -39,10 +39,11 @@ function internalSecretFixture(array $declaredSecrets = ['PORTAL_PASSWORD'], arr
             ],
         ],
     ]);
+    $recipe->update(['published_version_id' => $v1->id]);
 
     /** @var Run $run */
     $run = Run::create([
-        'recipe_version_id' => $recipe->latestVersion->id,
+        'recipe_version_id' => $v1->id,
         'status' => $status,
         'trigger' => 'manual',
     ]);

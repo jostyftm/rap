@@ -18,6 +18,7 @@ class RecipeVersion extends Model
         'version',
         'definition',
         'changelog',
+        'restored_from_version_id',
         'created_by_user_id',
     ];
 
@@ -44,6 +45,17 @@ class RecipeVersion extends Model
     public function recipe(): BelongsTo
     {
         return $this->belongsTo(Recipe::class);
+    }
+
+    /** @return BelongsTo<RecipeVersion, $this> */
+    public function restoredFrom(): BelongsTo
+    {
+        return $this->belongsTo(RecipeVersion::class, 'restored_from_version_id');
+    }
+
+    public function isDraft(): bool
+    {
+        return $this->version === 0;
     }
 
     /** @return BelongsTo<User, $this> */

@@ -90,6 +90,38 @@ export interface RecipeStoreState {
   history: RecipeDsl[];
   historyIndex: number;
 
+  // Modo de edición y publicación
+  editorMode: "edit" | "published";
+  publishedVersion: {
+    id?: string;
+    version: number;
+    definition?: RecipeDsl;
+    changelog?: string;
+    published_at?: string;
+  } | null;
+  hasUnpublishedChanges: boolean;
+  draftDefinition: RecipeDsl | null;
+  viewingVersion: {
+    version: number;
+    definition: RecipeDsl;
+    changelog?: string;
+  } | null;
+
+  setEditorMode: (mode: "edit" | "published") => void;
+  setPublishedVersion: (pub: {
+    id?: string;
+    version: number;
+    definition?: RecipeDsl;
+    changelog?: string;
+    published_at?: string;
+  } | null) => void;
+  setHasUnpublishedChanges: (hasChanges: boolean) => void;
+  setViewingVersion: (versionData: {
+    version: number;
+    definition: RecipeDsl;
+    changelog?: string;
+  } | null) => void;
+
   // Acciones
   setRecipe: (data: {
     id: string;
@@ -97,6 +129,14 @@ export interface RecipeStoreState {
     description?: string;
     version: number;
     definition: RecipeDsl;
+    publishedVersion?: {
+      id?: string;
+      version: number;
+      definition?: RecipeDsl;
+      changelog?: string;
+      published_at?: string;
+    } | null;
+    hasUnpublishedChanges?: boolean;
   }) => void;
   resetRecipe: () => void;
   setName: (name: string) => void;
@@ -131,7 +171,7 @@ export interface RecipeStoreState {
   setRunControlState: (state: "idle" | "running" | "paused" | "stopping" | "waiting") => void;
   addLog: (log: Omit<ExecutionLog, "id" | "timestamp">) => void;
   addScreenshot: (screenshot: Omit<ExecutionScreenshot, "id" | "timestamp">) => void;
-  finishRun: (status: "success" | "failed") => void;
+  finishRun: (status: "success" | "failed", errorMessage?: string) => void;
   clearRunState: () => void;
 
   // Salidas y contexto de nodos probados/ejecutados
@@ -284,7 +324,87 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   history: [JSON.parse(JSON.stringify(createInitialDefinition()))],
   historyIndex: 0,
 
-  setRecipe: ({ id, name, description, version, definition }) => {
+  editorMode: "edit",
+  publishedVersion: null,
+  hasUnpublishedChanges: false,
+  draftDefinition: null,
+  viewingVersion: null,
+
+  setEditorMode: (mode) => {
+    const state = get();
+    if (state.editorMode === mode) return;
+
+    if (mode === "published") {
+      const draftDef = state.draftDefinition || state.definition;
+      const pubDef = state.publishedVersion?.definition;
+      if (pubDef) {
+        const safeDef = reconcileRecipeRoot(pubDef);
+        const { errors, nodeIssues } = validateDsl(safeDef);
+        set({
+          editorMode: "published",
+          draftDefinition: draftDef,
+          definition: safeDef,
+          validationErrors: errors || [],
+          nodeIssues: nodeIssues || {},
+          viewingVersion: null,
+          selectedNodeId: safeDef.entry || Object.keys(safeDef.nodes || {})[0] || null,
+        });
+      } else {
+        set({ editorMode: "published", draftDefinition: draftDef, viewingVersion: null });
+      }
+    } else {
+      // Volver a modo edición
+      const restoredDraft = state.draftDefinition || state.definition;
+      const safeDef = reconcileRecipeRoot(restoredDraft);
+      const { errors, nodeIssues } = validateDsl(safeDef);
+      set({
+        editorMode: "edit",
+        definition: safeDef,
+        validationErrors: errors || [],
+        nodeIssues: nodeIssues || {},
+        viewingVersion: null,
+        selectedNodeId: safeDef.entry || Object.keys(safeDef.nodes || {})[0] || null,
+      });
+    }
+  },
+
+  setPublishedVersion: (pub) => {
+    set({ publishedVersion: pub });
+  },
+
+  setHasUnpublishedChanges: (hasChanges) => {
+    set({ hasUnpublishedChanges: hasChanges });
+  },
+
+  setViewingVersion: (versionData) => {
+    const state = get();
+    if (versionData) {
+      const draftDef = state.draftDefinition || state.definition;
+      const safeDef = reconcileRecipeRoot(versionData.definition);
+      const { errors, nodeIssues } = validateDsl(safeDef);
+      set({
+        viewingVersion: versionData,
+        draftDefinition: draftDef,
+        definition: safeDef,
+        validationErrors: errors || [],
+        nodeIssues: nodeIssues || {},
+        selectedNodeId: safeDef.entry || Object.keys(safeDef.nodes || {})[0] || null,
+      });
+    } else {
+      const restoredDraft = state.draftDefinition || state.definition;
+      const safeDef = reconcileRecipeRoot(restoredDraft);
+      const { errors, nodeIssues } = validateDsl(safeDef);
+      set({
+        viewingVersion: null,
+        definition: safeDef,
+        validationErrors: errors || [],
+        nodeIssues: nodeIssues || {},
+        selectedNodeId: safeDef.entry || Object.keys(safeDef.nodes || {})[0] || null,
+      });
+    }
+  },
+
+  setRecipe: ({ id, name, description, version, definition, publishedVersion, hasUnpublishedChanges }) => {
     const rawDef = definition || createInitialDefinition();
     // Reconciliar automáticamente el nodo inicializador raíz como principal (entry)
     const safeDef = reconcileRecipeRoot(rawDef);
@@ -306,6 +426,11 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       history: [JSON.parse(JSON.stringify(safeDef))],
       historyIndex: 0,
       isDirty: false,
+      editorMode: "edit",
+      publishedVersion: publishedVersion !== undefined ? publishedVersion : get().publishedVersion,
+      hasUnpublishedChanges: hasUnpublishedChanges !== undefined ? hasUnpublishedChanges : false,
+      draftDefinition: safeDef,
+      viewingVersion: null,
     });
   },
 
@@ -326,6 +451,11 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       history: [JSON.parse(JSON.stringify(definition))],
       historyIndex: 0,
       isDirty: false,
+      editorMode: "edit",
+      publishedVersion: null,
+      hasUnpublishedChanges: false,
+      draftDefinition: null,
+      viewingVersion: null,
       runId: null,
       runStatus: "idle",
       runControlState: "idle",
@@ -396,6 +526,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     set({ isTestingSteps, testingStepsProgress }),
 
   addNode: (type) => {
+    if (get().editorMode === "published" || get().viewingVersion !== null) return "";
     const { definition, history, historyIndex, selectedNodeId } = get();
     const newId = `${type}_${Math.random().toString(36).substring(2, 7)}`;
     const newNode = nodeRegistry.createNode(type, newId);
@@ -447,6 +578,8 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       selectedNodeId: newId,
       selectedNodeIds: [newId],
       isDirty: true,
+      hasUnpublishedChanges: true,
+      draftDefinition: updatedDsl,
       ...hist,
     });
 
@@ -454,6 +587,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   },
 
   updateNode: (id, updates) => {
+    if (get().editorMode === "published" || get().viewingVersion !== null) return;
     const { definition, history, historyIndex } = get();
     const existing = definition.nodes[id];
     if (!existing) return;
@@ -491,6 +625,8 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       validationErrors: errors,
       nodeIssues,
       isDirty: true,
+      hasUnpublishedChanges: true,
+      draftDefinition: updatedDsl,
       ...hist,
     });
   },
@@ -528,6 +664,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   },
 
   deleteNode: (id) => {
+    if (get().editorMode === "published" || get().viewingVersion !== null) return;
     const { definition, history, historyIndex, selectedNodeId } = get();
     const nextNodes = { ...definition.nodes };
     delete nextNodes[id];
@@ -598,6 +735,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   },
 
   duplicateNode: (id) => {
+    if (get().editorMode === "published" || get().viewingVersion !== null) return "";
     const { definition, history, historyIndex } = get();
     const sourceNode = definition.nodes[id];
     if (!sourceNode) return id;
@@ -685,6 +823,8 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       validationErrors: errors,
       nodeIssues,
       isDirty: true,
+      hasUnpublishedChanges: true,
+      draftDefinition: updatedDsl,
       ...hist,
     });
   },
@@ -709,6 +849,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   },
 
   addEdge: (edge) => {
+    if (get().editorMode === "published" || get().viewingVersion !== null) return;
     const { definition, history, historyIndex } = get();
     const updatedDsl = applyEdgeToDefinition(definition, edge);
     if (!updatedDsl) return;
@@ -721,11 +862,14 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       validationErrors: errors,
       nodeIssues,
       isDirty: true,
+      hasUnpublishedChanges: true,
+      draftDefinition: updatedDsl,
       ...hist,
     });
   },
 
   removeEdge: (from, to, handle) => {
+    if (get().editorMode === "published" || get().viewingVersion !== null) return;
     const { definition, history, historyIndex } = get();
     const sourceNode = definition.nodes[from];
     const updatedNodes = { ...definition.nodes };
@@ -793,6 +937,8 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       validationErrors: errors,
       nodeIssues,
       isDirty: true,
+      hasUnpublishedChanges: true,
+      draftDefinition: updatedDsl,
       ...hist,
     });
   },
@@ -841,6 +987,8 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       validationErrors: errors,
       nodeIssues,
       isDirty: true,
+      hasUnpublishedChanges: true,
+      draftDefinition: updatedDsl,
       ...hist,
     });
   },
@@ -953,7 +1101,7 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     }));
   },
 
-  finishRun: (status) => {
+  finishRun: (status, errorMessage) => {
     set((state) => ({
       runStatus: status,
       runControlState: "idle",
@@ -967,6 +1115,8 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
           message:
             status === "success"
               ? "✓ Receta completada con éxito."
+              : errorMessage
+              ? `✗ La ejecución falló: ${errorMessage}`
               : "✗ La ejecución falló con errores.",
         },
       ],

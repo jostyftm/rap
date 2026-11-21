@@ -155,7 +155,14 @@ it('actualiza una receta y genera una nueva versión incrementada', function () 
 
     $response->assertOk()
         ->assertJsonPath('data.name', 'Receta Modificada')
-        ->assertJsonPath('data.latest_version.version', 2);
+        ->assertJsonPath('data.has_unpublished_changes', true);
+
+    $pubResponse = $this->postJson("/api/v1/recipes/{$recipe->uuid}/publish", [
+        'changelog' => 'Ajuste de nodo inicial',
+    ]);
+
+    $pubResponse->assertOk()
+        ->assertJsonPath('data.published_version.version', 2);
 
     $this->assertDatabaseHas('recipes', ['name' => 'Receta Modificada']);
     $this->assertDatabaseHas('recipe_versions', ['version' => 2]);

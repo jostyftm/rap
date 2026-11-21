@@ -23,6 +23,8 @@ class Recipe extends Model
         'allowed_domains',
         'webhook_token',
         'webhook_enabled',
+        'published_version_id',
+        'published_at',
     ];
 
     protected function casts(): array
@@ -30,6 +32,7 @@ class Recipe extends Model
         return [
             'allowed_domains' => 'array',
             'webhook_enabled' => 'boolean',
+            'published_at' => 'datetime',
         ];
     }
 
@@ -50,21 +53,52 @@ class Recipe extends Model
         return $this->belongsTo(Project::class);
     }
 
+    /** @return BelongsTo<RecipeVersion, $this> */
+    public function publishedVersion(): BelongsTo
+    {
+        return $this->belongsTo(RecipeVersion::class, 'published_version_id');
+    }
+
+    /** @return HasOne<RecipeVersion, $this> */
+    public function draft(): HasOne
+    {
+        return $this->hasOne(RecipeVersion::class)->where('version', 0);
+    }
+
+    /** @return HasMany<RecipeVersion, $this> */
+    public function allVersions(): HasMany
+    {
+        return $this->hasMany(RecipeVersion::class)->orderByDesc('version');
+    }
+
     /** @return HasMany<RecipeVersion, $this> */
     public function versions(): HasMany
     {
-        return $this->hasMany(RecipeVersion::class)->orderByDesc('version');
+        return $this->hasMany(RecipeVersion::class)->where('version', '>', 0)->orderByDesc('version');
     }
 
     /** @return HasOne<RecipeVersion, $this> */
     public function latestVersion(): HasOne
     {
-        return $this->hasOne(RecipeVersion::class)->latestOfMany('version');
+        return $this->hasOne(RecipeVersion::class)->where('version', '>', 0)->latestOfMany('version');
     }
 
     /** @return HasMany<RecipeSchedule, $this> */
     public function schedules(): HasMany
     {
         return $this->hasMany(RecipeSchedule::class);
+    }
+
+    public function hasUnpublishedChanges(): bool
+    {
+        if (! $this->draft) {
+            return false;
+        }
+
+        if (! $this->publishedVersion) {
+            return true;
+        }
+
+        return $this->draft->definition !== $this->publishedVersion->definition;
     }
 }

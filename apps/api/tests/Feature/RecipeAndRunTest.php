@@ -88,10 +88,11 @@ it('encola un run para una receta y procesa eventos del runner', function () {
     Sanctum::actingAs($user);
 
     $recipe = $project->recipes()->create(['name' => 'R1', 'status' => 'active']);
-    $recipe->versions()->create([
+    $v1 = $recipe->versions()->create([
         'version' => 1,
         'definition' => createTestRecipePayload()['definition'],
     ]);
+    $recipe->update(['published_version_id' => $v1->id]);
 
     $response = $this->postJson("/api/v1/recipes/{$recipe->uuid}/runs");
     $response->assertCreated()
@@ -147,10 +148,11 @@ it('permite pausar, reanudar y consultar logs persistidos de un run', function (
     Sanctum::actingAs($user);
 
     $recipe = $project->recipes()->create(['name' => 'R_LOGS', 'status' => 'active']);
-    $recipe->versions()->create([
+    $v1 = $recipe->versions()->create([
         'version' => 1,
         'definition' => createTestRecipePayload()['definition'],
     ]);
+    $recipe->update(['published_version_id' => $v1->id]);
 
     $response = $this->postJson("/api/v1/recipes/{$recipe->uuid}/runs", [
         'options' => [

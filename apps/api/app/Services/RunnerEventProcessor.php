@@ -190,10 +190,12 @@ final class RunnerEventProcessor
                 $nodeId = $payload['node_id'] ?? '';
                 $step = RunStep::where('run_id', $run->id)->where('node_id', $nodeId)->first();
                 if ($step) {
+                    $rawError = isset($payload['error']) ? (string) $payload['error'] : null;
+                    $redactedError = ($rawError !== null && $redactor !== null) ? $redactor->redact($rawError) : $rawError;
                     $step->update([
                         'status' => 'failed',
                         'duration_ms' => isset($payload['duration_ms']) ? (int) $payload['duration_ms'] : null,
-                        'error_message' => $redactor?->redact(isset($payload['error']) ? (string) $payload['error'] : null),
+                        'error_message' => $redactedError,
                         'screenshot_path' => $payload['screenshot_path'] ?? null,
                     ]);
                     event(new RunStepUpdated($step));
@@ -206,11 +208,13 @@ final class RunnerEventProcessor
                 }
                 $redactor = $this->redactorFor($run);
                 $status = ($payload['status'] ?? '') === 'success' ? 'completed' : 'failed';
+                $rawError = isset($payload['error']) ? (string) $payload['error'] : null;
+                $redactedError = ($rawError !== null && $redactor !== null) ? $redactor->redact($rawError) : $rawError;
                 $run->update([
                     'status' => $status,
                     'finished_at' => now(),
                     'duration_ms' => isset($payload['duration_ms']) ? (int) $payload['duration_ms'] : null,
-                    'error_message' => $redactor?->redact(isset($payload['error']) ? (string) $payload['error'] : null),
+                    'error_message' => $redactedError,
                 ]);
                 event(new RunUpdated($run));
                 break;

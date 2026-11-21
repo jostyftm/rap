@@ -31,7 +31,8 @@ class RunService
             parameters: $validated['parameters'] ?? [],
             options: $validated['options'] ?? [],
             trigger: 'manual',
-            user: $request->user()
+            user: $request->user(),
+            useDraft: $request->boolean('use_draft')
         );
     }
 
@@ -46,15 +47,23 @@ class RunService
         array $parameters = [],
         array $options = [],
         string $trigger = 'manual',
-        ?User $user = null
+        ?User $user = null,
+        bool $useDraft = false
     ): Run {
-        $recipe->loadMissing(['latestVersion', 'project.workspace']);
-        if (! $recipe->latestVersion) {
-            abort(Response::HTTP_UNPROCESSABLE_ENTITY, 'La receta no posee versiones ejecutables.');
+        $recipe->loadMissing(['draft', 'publishedVersion', 'project.workspace']);
+        
+        $version = $useDraft ? $recipe->draft : $recipe->publishedVersion;
+        if (! $version) {
+            abort(
+                Response::HTTP_UNPROCESSABLE_ENTITY,
+                $useDraft
+                    ? 'La receta no posee borrador ejecutable.'
+                    : 'La receta no posee una versión publicada.'
+            );
         }
 
         $run = Run::create([
-            'recipe_version_id' => $recipe->latestVersion->id,
+            'recipe_version_id' => $version->id,
             'user_id' => $user?->id,
             'status' => 'queued',
             'trigger' => $trigger,
@@ -63,7 +72,7 @@ class RunService
 
         // Pre-registramos la espera antes de despachar para que una petición
         // webhook que llegue antes de que arranque el runner no se pierda.
-        $this->webhookRuns->registerWaitingRun($run, (array) $recipe->latestVersion->definition);
+        $this->webhookRuns->registerWaitingRun($run, (array) $version->definition);
 
         $this->dispatcher->dispatchRun($run, $options);
 

@@ -6,6 +6,7 @@ import { recipesService } from "../services/recipes.service";
 import { useAuth } from "../../../context/auth-context";
 import { ApiError } from "../../../lib/api-client";
 import { createInitialDefinition } from "../../../lib/default-recipe";
+import { readRecipeFile } from "../../../lib/recipe-file";
 import type { RecipeSummary } from "../types/recipes.types";
 
 export function formatApiError(err: unknown, fallback: string): string {
@@ -32,6 +33,7 @@ export function useRecipesList() {
   const [recipes, setRecipes] = useState<RecipeSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -81,6 +83,38 @@ export function useRecipesList() {
     }
   };
 
+  const handleImportRecipe = async (file: File) => {
+    setIsImporting(true);
+    setCreateError(null);
+    try {
+      const { data, error } = await readRecipeFile(file);
+      if (error || !data) {
+        throw new Error(error || "El archivo de receta no es válido.");
+      }
+
+      const res = await recipesService.importRecipe(data);
+      const targetId = res.data.id || res.data.uuid;
+      if (!targetId) {
+        throw new Error("El backend no devolvió un identificador de receta para la importación.");
+      }
+
+      if (res.missing_secrets && res.missing_secrets.length > 0) {
+        alert(
+          `Receta importada con éxito.\n\nAtención: Los siguientes secretos referenciados no están definidos en este workspace:\n- ${res.missing_secrets.join("\n- ")}`
+        );
+      }
+
+      router.push(`/recipes/${targetId}/edit`);
+    } catch (err) {
+      console.error("No se pudo importar la receta:", err);
+      setCreateError(
+        formatApiError(err, "No se pudo importar la receta. Verifica el archivo.")
+      );
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   const handleLogout = async () => {
     await logout();
     router.replace("/login");
@@ -93,11 +127,13 @@ export function useRecipesList() {
     recipes,
     isLoading,
     isCreating,
+    isImporting,
     loadError,
     createError,
     reloadRecipes: loadRecipes,
     clearCreateError,
     handleCreateRecipe,
+    handleImportRecipe,
     handleLogout,
   };
 }

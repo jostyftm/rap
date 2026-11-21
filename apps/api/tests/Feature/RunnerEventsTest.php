@@ -19,7 +19,7 @@ function eventFixture(array $secrets = []): Run
     $workspace->members()->attach($user->id, ['role' => 'owner']);
     $project = $workspace->projects()->create(['name' => 'P']);
     $recipe = $project->recipes()->create(['name' => 'R', 'status' => 'active']);
-    $recipe->versions()->create([
+    $v1 = $recipe->versions()->create([
         'version' => 1,
         'definition' => [
             'schema' => 'rpa/v1',
@@ -34,6 +34,7 @@ function eventFixture(array $secrets = []): Run
             ],
         ],
     ]);
+    $recipe->update(['published_version_id' => $v1->id]);
 
     foreach ($secrets as $key => $value) {
         WorkspaceSecret::create([
@@ -45,7 +46,7 @@ function eventFixture(array $secrets = []): Run
 
     /** @var Run $run */
     $run = Run::create([
-        'recipe_version_id' => $recipe->latestVersion->id,
+        'recipe_version_id' => $v1->id,
         'status' => 'running',
         'trigger' => 'manual',
     ]);
@@ -113,4 +114,25 @@ it('no vuelve a finalizar una ejecución ya cerrada', function () {
 
     expect($run->status)->toBe('completed')
         ->and($run->error_message)->toBeNull();
+});
+
+it('persiste el mensaje de error cuando la ejecución falla aunque el workspace no tenga secretos', function () {
+    $run = eventFixture(); // sin secretos
+    $ingestor = app(RunnerEventIngestor::class);
+
+    $errorMessage = "browserType.launch: Executable doesn't exist at /path/to/chrome";
+
+    $ingestor->ingest([
+        'id' => (string) Illuminate\Support\Str::ulid(),
+        'event' => 'run.finished',
+        'run_id' => $run->uuid,
+        'status' => 'failed',
+        'error' => $errorMessage,
+        'duration_ms' => 50,
+    ]);
+
+    $run->refresh();
+
+    expect($run->status)->toBe('failed')
+        ->and($run->error_message)->toBe($errorMessage);
 });

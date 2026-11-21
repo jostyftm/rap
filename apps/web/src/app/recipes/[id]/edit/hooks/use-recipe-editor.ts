@@ -60,6 +60,8 @@ export function useRecipeEditor(recipeId: string) {
           description: data.description || "",
           version: data.version,
           definition: data.definition || useRecipeStore.getState().definition,
+          publishedVersion: data.published_version || null,
+          hasUnpublishedChanges: !!data.has_unpublished_changes,
         });
       } catch (err) {
         if (cancelled) return;
@@ -108,7 +110,11 @@ export function useRecipeEditor(recipeId: string) {
 
     setIsSaving(true);
     try {
-      await recipeEditorService.saveRecipe(recipeId, currentStore.recipeName, safeDef);
+      const res = await recipeEditorService.saveRecipe(recipeId, currentStore.recipeName, safeDef);
+      useRecipeStore.setState({
+        isDirty: false,
+        hasUnpublishedChanges: res?.has_unpublished_changes !== undefined ? res.has_unpublished_changes : true,
+      });
       return true;
     } catch (err) {
       console.error("Error al guardar la receta:", err);

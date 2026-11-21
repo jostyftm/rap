@@ -28,6 +28,11 @@ class RunCreateRequest extends FormRequest
             'parameters' => ['nullable', 'array'],
 
             /**
+             * Indica si la ejecución debe realizarse contra el borrador (modo edición)
+             */
+            'use_draft' => ['nullable', 'boolean'],
+
+            /**
              * Opciones de visualización y ejecución en el navegador
              */
             'options' => ['nullable', 'array'],

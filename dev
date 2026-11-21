@@ -150,7 +150,15 @@ cmd_start() {
     pnpm --filter @rpa/dsl build
     pnpm --filter @rpa/locator build
 
-    echo -e "\n${C_BOLD}4. Iniciando servicios de desarrollo local (Host)...${C_RESET}"
+    echo -e "\n${C_BOLD}4. Verificando navegadores de Playwright...${C_RESET}"
+    if [ ! -d "$HOME/.cache/ms-playwright" ] || [ -z "$(ls -A "$HOME/.cache/ms-playwright" 2>/dev/null)" ]; then
+        echo -e "  ${C_YELLOW}→ Descargando navegadores necesarios de Playwright...${C_RESET}"
+        pnpm --filter @rpa/runner exec playwright install chromium || true
+    else
+        echo -e "  ${C_GREEN}✓ Navegadores de Playwright listos.${C_RESET}"
+    fi
+
+    echo -e "\n${C_BOLD}5. Iniciando servicios de desarrollo local (Host)...${C_RESET}"
     export_runner_env
     start_background_service "testsite" "env PORT=8099 node testsite/server.js"
     start_background_service "runner" "pnpm --filter @rpa/runner dev"

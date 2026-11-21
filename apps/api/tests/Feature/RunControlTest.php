@@ -19,7 +19,7 @@ function controlFixture(string $status = 'paused'): Run
     $workspace->members()->attach($user->id, ['role' => 'owner']);
     $project = $workspace->projects()->create(['name' => 'P']);
     $recipe = $project->recipes()->create(['name' => 'R', 'status' => 'active']);
-    $recipe->versions()->create([
+    $v1 = $recipe->versions()->create([
         'version' => 1,
         'definition' => [
             'schema' => 'rpa/v1',
@@ -33,12 +33,13 @@ function controlFixture(string $status = 'paused'): Run
             ],
         ],
     ]);
+    $recipe->update(['published_version_id' => $v1->id]);
 
     Sanctum::actingAs($user);
 
     /** @var Run $run */
     $run = Run::create([
-        'recipe_version_id' => $recipe->latestVersion->id,
+        'recipe_version_id' => $v1->id,
         'status' => $status,
         'trigger' => 'manual',
     ]);

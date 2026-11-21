@@ -13,11 +13,13 @@ export function RecipeListPageContent() {
     recipes,
     isLoading,
     isCreating,
+    isImporting,
     loadError,
     createError,
     reloadRecipes,
     clearCreateError,
     handleCreateRecipe,
+    handleImportRecipe,
     handleLogout,
   } = useRecipesList();
 
@@ -38,7 +40,9 @@ export function RecipeListPageContent() {
       <RecipesHeader
         user={user}
         isCreating={isCreating}
+        isImporting={isImporting}
         onCreateRecipe={handleCreateRecipe}
+        onImportRecipe={handleImportRecipe}
         onLogout={handleLogout}
       />
 

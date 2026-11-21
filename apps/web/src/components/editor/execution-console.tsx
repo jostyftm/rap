@@ -202,7 +202,7 @@ export function ExecutionConsole() {
             finishRun("success");
           } else if (e.status === "failed") {
             setRunningNodeId(null);
-            finishRun("failed");
+            finishRun("failed", e.error_message);
           }
         }
       );
@@ -241,7 +241,7 @@ export function ExecutionConsole() {
           if (pollingInterval) clearInterval(pollingInterval);
         } else if (runData.status === "failed") {
           setRunningNodeId(null);
-          finishRun("failed");
+          finishRun("failed", runData.error_message);
           if (pollingInterval) clearInterval(pollingInterval);
         } else if (runData.status === "paused") {
           setRunControlState("paused");

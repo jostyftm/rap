@@ -33,7 +33,7 @@ function createWaitingWebhookRecipe(): Recipe
         'webhook_enabled' => true,
     ]);
 
-    $recipe->versions()->create([
+    $v1 = $recipe->versions()->create([
         'version' => 1,
         'definition' => [
             'schema' => 'rpa/v1',
@@ -66,10 +66,11 @@ function createWaitingWebhookRecipe(): Recipe
             ],
         ],
     ]);
+    $recipe->update(['published_version_id' => $v1->id]);
 
     Sanctum::actingAs($user);
 
-    return $recipe->fresh(['latestVersion']);
+    return $recipe->fresh(['latestVersion', 'publishedVersion']);
 }
 
 function waitingRun(Recipe $recipe, string $status = 'waiting'): Run

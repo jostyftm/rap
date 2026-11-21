@@ -1,6 +1,6 @@
-import React from "react";
+import React, { useRef } from "react";
 import Link from "next/link";
-import { Plus, Loader2, LogOut } from "lucide-react";
+import { Plus, Loader2, LogOut, FileUp } from "lucide-react";
 import type { AuthUser } from "../../../types/auth.types";
 import { StudioLogo } from "../../../components/studio-logo";
 import { ThemeToggle } from "../../../components/theme-toggle";
@@ -8,14 +8,20 @@ import { ThemeToggle } from "../../../components/theme-toggle";
 export function RecipesHeader({
   user,
   isCreating,
+  isImporting,
   onCreateRecipe,
+  onImportRecipe,
   onLogout,
 }: {
   user: AuthUser | null;
   isCreating: boolean;
+  isImporting?: boolean;
   onCreateRecipe: () => void;
+  onImportRecipe?: (file: File) => void;
   onLogout: () => void;
 }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   return (
     <header className="border-b border-zinc-800/80 bg-[#09090b]/80 backdrop-blur-md sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
@@ -41,9 +47,36 @@ export function RecipesHeader({
             </div>
           )}
 
+          {/* Input oculto para importación de JSON */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file && onImportRecipe) onImportRecipe(file);
+              e.target.value = "";
+            }}
+            className="hidden"
+          />
+
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isCreating || isImporting}
+            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700/80 shadow-sm transition-colors disabled:opacity-50 cursor-pointer"
+            title="Importar automatización desde archivo JSON"
+          >
+            {isImporting ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <FileUp className="w-3.5 h-3.5 text-zinc-400" />
+            )}
+            <span>Importar</span>
+          </button>
+
           <button
             onClick={onCreateRecipe}
-            disabled={isCreating}
+            disabled={isCreating || isImporting}
             className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md bg-zinc-100 hover:bg-white text-zinc-950 shadow-sm transition-colors disabled:opacity-50 cursor-pointer"
           >
             {isCreating ? (

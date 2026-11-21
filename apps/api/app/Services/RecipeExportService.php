@@ -18,8 +18,8 @@ class RecipeExportService
     public function export(Recipe $recipe, ?int $versionNumber = null): string
     {
         $version = $versionNumber !== null
-            ? $recipe->versions()->where('version', $versionNumber)->first()
-            : $recipe->latestVersion;
+            ? $recipe->allVersions()->where('version', $versionNumber)->first()
+            : ($recipe->draft ?? $recipe->publishedVersion ?? $recipe->latestVersion);
 
         if (! $version instanceof RecipeVersion) {
             throw new InvalidArgumentException("No se encontró la versión solicitada para la receta {$recipe->id}");
