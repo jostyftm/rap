@@ -31,6 +31,7 @@ export function LiveNodeTools({ node }: { node: RecipeNode }) {
   const exec = useLiveStore((s) => s.exec);
   const locate = useLiveStore((s) => s.locate);
   const startEmbedded = useLiveStore((s) => s.startEmbedded);
+  const startScreencast = useLiveStore((s) => s.startScreencast);
   const startExternal = useLiveStore((s) => s.startExternal);
   const applyCandidates = useLiveStore((s) => s.applyCandidates);
   const recipeId = useRecipeStore((s) => s.recipeId);
@@ -68,16 +69,20 @@ export function LiveNodeTools({ node }: { node: RecipeNode }) {
 
     const recId = recipeId || "current";
     if (isNavigate && (node as any).params?.url) {
-      if (kind === "external") startExternal(recId, (node as any).params.url);
-      else startEmbedded(recId, (node as any).params.url);
+      const targetUrl = (node as any).params.url;
+      if (kind === "external") startExternal(recId, targetUrl);
+      else if (kind === "screencast") startScreencast(recId, targetUrl);
+      else startEmbedded(recId, targetUrl);
     } else {
       const definition = useRecipeStore.getState().definition;
       const navNode = Object.values(definition.nodes).find(
         (n) => n.type === "navigate" && (n as any).params?.url
       );
       if (navNode && (navNode as any).params?.url) {
-        if (kind === "external") startExternal(recId, (navNode as any).params.url);
-        else startEmbedded(recId, (navNode as any).params.url);
+        const targetUrl = (navNode as any).params.url;
+        if (kind === "external") startExternal(recId, targetUrl);
+        else if (kind === "screencast") startScreencast(recId, targetUrl);
+        else startEmbedded(recId, targetUrl);
       }
     }
   };

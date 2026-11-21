@@ -4,6 +4,7 @@ import { RedisStreamConsumer } from "./protocol/stream-consumer.js";
 import { ensureBucket } from "./storage/s3.js";
 import { LiveServer } from "./live/live-server.js";
 import { ExternalBrowserManager } from "./live/external-browser.js";
+import { ScreencastManager } from "./live/screencast-manager.js";
 
 const REDIS_HOST = process.env.REDIS_HOST || "localhost";
 const REDIS_PORT = Number(process.env.REDIS_PORT || 6379);
@@ -31,10 +32,12 @@ const streamConsumer = new RedisStreamConsumer(
 );
 
 const externalBrowser = new ExternalBrowserManager(eventEmitter);
+const screencastManager = new ScreencastManager();
 const liveServer = new LiveServer(
   Number(process.env.RUNNER_LIVE_PORT || 8085),
   process.env.RUNNER_LIVE_TOKEN || "local-live-token",
-  externalBrowser
+  externalBrowser,
+  screencastManager
 );
 liveServer.start();
 
@@ -69,6 +72,7 @@ function registerHeartbeat(): void {
 process.on("SIGTERM", async () => {
   console.log("[RPA-Runner] Señal SIGTERM recibida, cerrando limpiamente...");
   streamConsumer.stop();
+  await screencastManager.closeAll();
   await externalBrowser.closeAll();
   await liveServer.close();
   await redis.quit();

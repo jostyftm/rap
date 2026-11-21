@@ -1,8 +1,11 @@
 import http from "node:http";
+import { Readable } from "node:stream";
 import { randomBytes } from "node:crypto";
 import { PICKER_JS } from "./picker-script.js";
 import { PROXY_CLIENT_JS } from "./proxy-client-script.js";
 import type { ExternalBrowserManager } from "./external-browser.js";
+import type { ScreencastManager } from "./screencast-manager.js";
+import { WsServer } from "./ws-server.js";
 
 interface LiveSession {
   id: string;
@@ -39,20 +42,44 @@ export class LiveServer {
   private sessions = new Map<string, LiveSession>();
   private originToSession = new Map<string, string>();
   private server: http.Server | null = null;
+  private wss = new WsServer();
 
   constructor(
     private port: number,
     private token: string,
-    private external: ExternalBrowserManager
+    private external: ExternalBrowserManager,
+    private screencast?: ScreencastManager
   ) {}
 
   start(): void {
-    this.server = http.createServer((req, res) => {
+    this.server = http.createServer({ maxHeaderSize: 262144 }, (req, res) => {
       this.route(req, res).catch((err) => {
         console.error("[LiveServer] Error:", err);
-        if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain" });
-        res.end(`RPA Live proxy error: ${err?.message ?? err}`);
+        if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
+        const cause = err?.cause?.message || err?.cause?.code;
+        const msg = cause ? `${err?.message ?? err} (${cause})` : `${err?.message ?? err}`;
+        res.end(`RPA Live proxy error: ${msg}`);
       });
+    });
+    this.server.on("upgrade", (req, socket, head) => {
+      try {
+        const parsed = new URL(req.url || "/", "http://localhost");
+        const match = parsed.pathname.match(/^\/live\/ws\/([a-z0-9_-]+)$/i);
+        const token = parsed.searchParams.get("token") || "";
+        if (!this.screencast || !match || !this.screencast.verifyWsToken(match[1], token)) {
+          socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        this.wss.handleUpgrade(req, socket, head, (ws) => {
+          this.screencast!.attachClient(match[1], ws).catch(() => {
+            ws.close(1011, "Internal error");
+          });
+        });
+      } catch {
+        socket.write("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+        socket.destroy();
+      }
     });
     this.server.listen(this.port, "0.0.0.0", () => {
       console.log(`[LiveServer] Sitio en vivo (proxy + control) escuchando en :${this.port}`);
@@ -61,6 +88,7 @@ export class LiveServer {
   }
 
   async close(): Promise<void> {
+    this.wss.close();
     this.server?.close();
   }
 
@@ -173,9 +201,13 @@ export class LiveServer {
 
     if (req.method === "POST" && path === "/live/sessions") {
       const body = JSON.parse((await this.readBody(req)).toString() || "{}");
+      let rawUrl = String(body.url || "").trim();
+      if (rawUrl && !/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(rawUrl)) {
+        rawUrl = `https://${rawUrl}`;
+      }
       let target: URL;
       try {
-        target = new URL(body.url);
+        target = new URL(rawUrl);
         if (!/^https?:$/.test(target.protocol)) throw new Error("protocolo no soportado");
       } catch {
         return this.json(res, 422, { error: "URL inválida" });
@@ -193,19 +225,59 @@ export class LiveServer {
     const cmd = path.match(/^\/live\/sessions\/([a-z0-9_-]+)\/command$/i);
     if (req.method === "POST" && cmd) {
       const body = JSON.parse((await this.readBody(req)).toString() || "{}");
-      const ok = await this.external.command(cmd[1], body.message);
+      let ok = await this.external.command(cmd[1], body.message);
+      if (!ok && this.screencast) {
+        ok = await this.screencast.command(cmd[1], body.message);
+      }
       return this.json(res, ok ? 200 : 404, { ok });
     }
 
     const del = path.match(/^\/live\/sessions\/([a-z0-9_-]+)$/i);
     if (req.method === "DELETE" && del) {
       await this.external.stop(del[1]);
+      await this.screencast?.stop(del[1]);
       const s = this.sessions.get(del[1]);
       if (s) {
         this.sessions.delete(s.id);
         this.originToSession.delete(s.origin);
       }
       return this.json(res, 200, { ok: true });
+    }
+
+    if (req.method === "POST" && path === "/live/screencast") {
+      if (!this.screencast) {
+        return this.json(res, 501, { error: "screencast not enabled" });
+      }
+      const body = JSON.parse((await this.readBody(req)).toString() || "{}");
+      let rawUrl = String(body.url || "").trim();
+      if (rawUrl && !/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(rawUrl)) {
+        rawUrl = `https://${rawUrl}`;
+      }
+      let target: URL;
+      try {
+        target = new URL(rawUrl);
+        if (!/^https?:$/.test(target.protocol)) throw new Error("protocolo no soportado");
+      } catch {
+        return this.json(res, 422, { error: "URL inválida" });
+      }
+      const sessionId = `sc_${randomBytes(6).toString("hex")}`;
+      const started = await this.screencast.start({
+        sessionId,
+        recipeId: body.recipe_id,
+        url: target.href,
+        width: body.width,
+        height: body.height,
+      });
+      const wsPath = `/live/ws/${started.sessionId}?token=${started.wsToken}`;
+      return this.json(res, 201, {
+        session_id: started.sessionId,
+        ws_token: started.wsToken,
+        ws_path: wsPath,
+        ws_port: this.port,
+        ws_url: `ws://localhost:${this.port}${wsPath}`,
+        origin: started.origin,
+        viewport: started.viewport,
+      });
     }
 
     if (req.method === "POST" && path === "/live/external") {
@@ -314,6 +386,97 @@ export class LiveServer {
   }
 
   /**
+   * Envía la respuesta al cliente optimizada:
+   * - Si es contenido binario / media / streaming (video, audio, etc.), realiza streaming
+   *   directo con Readable.fromWeb() sin almacenarlo todo en memoria Buffer, preservando
+   *   content-length y cabeceras de Range/206.
+   * - Si es texto reescribible (HTML, CSS, JS), lo lee en memoria para inyectar scripts y reescribir URLs.
+   */
+  private async sendUpstreamResponse(
+    upstream: Response,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    session: LiveSession | null,
+    proxyOrigin: string,
+    accumulatedCookies?: string[]
+  ): Promise<void> {
+    const outHeaders: Record<string, string | string[]> = {};
+    upstream.headers.forEach((value, key) => {
+      if (STRIP_RESPONSE_HEADERS.has(key.toLowerCase())) return;
+      outHeaders[key] = value;
+    });
+
+    this.applyCorsHeaders(outHeaders, req);
+
+    if (accumulatedCookies && accumulatedCookies.length) {
+      outHeaders["set-cookie"] = accumulatedCookies.map((c) =>
+        c
+          .replace(/;\s*Domain=[^;]*/gi, "")
+          .replace(/;\s*Secure/gi, "")
+          .replace(/;\s*SameSite=[^;]*/gi, "")
+      );
+    }
+
+    const contentType = upstream.headers.get("content-type") || "";
+    const isText = TEXT_TYPES.test(contentType);
+
+    if (!isText) {
+      const cl = upstream.headers.get("content-length");
+      if (cl) outHeaders["content-length"] = cl;
+
+      res.writeHead(upstream.status, outHeaders);
+      if (upstream.body) {
+        const stream = Readable.fromWeb(upstream.body as any);
+        stream.on("error", () => {
+          if (!res.headersSent) res.writeHead(502);
+          res.end();
+        });
+        stream.pipe(res);
+      } else {
+        res.end();
+      }
+      return;
+    }
+
+    // Contenido de texto: leer en memoria para reescritura
+    const buf = Buffer.from(await upstream.arrayBuffer());
+
+    if (session && /text\/html/i.test(contentType)) {
+      let text = buf.toString("utf8");
+      text = this.rewriteText(text, session.origin, proxyOrigin);
+      const mocks = { mac: session.mockMac, version: session.mockVersion };
+      const initialCookies = Object.fromEntries(session.cookies);
+      const inject =
+        `<script>` +
+        `window.__RPA_ORIGIN__=${JSON.stringify(session.origin)};\n` +
+        `window.__RPA_MOCKS__=${JSON.stringify(mocks)};\n` +
+        `window.__RPA_INITIAL_COOKIES__=${JSON.stringify(initialCookies)};\n` +
+        `${PROXY_CLIENT_JS}</script>` +
+        `<script src="/__rpa/picker.js"></script>`;
+      text = /<head[^>]*>/i.test(text)
+        ? text.replace(/<head[^>]*>/i, (m) => m + inject)
+        : inject + text;
+      const out = Buffer.from(text, "utf8");
+      outHeaders["content-length"] = String(out.length);
+      res.writeHead(upstream.status, outHeaders);
+      res.end(out);
+      return;
+    } else if (session) {
+      let text = buf.toString("utf8");
+      text = this.rewriteText(text, session.origin, proxyOrigin);
+      const out = Buffer.from(text, "utf8");
+      outHeaders["content-length"] = String(out.length);
+      res.writeHead(upstream.status, outHeaders);
+      res.end(out);
+      return;
+    }
+
+    outHeaders["content-length"] = String(buf.length);
+    res.writeHead(upstream.status, outHeaders);
+    res.end(buf);
+  }
+
+  /**
    * Endpoint /__rpa_proxy?url=...
    * Descarga cualquier recurso de terceros (ej. gstatic.com) libre de restricciones CORS de navegador
    */
@@ -378,35 +541,57 @@ export class LiveServer {
     const hasBody = !["GET", "HEAD"].includes(req.method || "GET");
     const body = hasBody ? await this.readBody(req) : undefined;
 
+    const ac = new AbortController();
+    req.on("close", () => {
+      if (!res.writableEnded) ac.abort();
+    });
+
+    let currentTarget = targetUrl.href;
+    let upstream: Response | null = null;
+    let redirectCount = 0;
+    const MAX_REDIRECTS = 5;
+
     try {
-      const upstream = await fetch(targetUrl.href, {
-        method: req.method,
-        headers,
-        body: body && body.length ? new Uint8Array(body) : undefined,
-        redirect: "follow",
-      });
+      while (redirectCount < MAX_REDIRECTS) {
+        upstream = await fetch(currentTarget, {
+          method: req.method,
+          headers,
+          body: body && body.length ? new Uint8Array(body) : undefined,
+          redirect: "manual",
+          signal: ac.signal,
+        });
 
-      const outHeaders: Record<string, string | string[]> = {};
-      upstream.headers.forEach((value, key) => {
-        if (STRIP_RESPONSE_HEADERS.has(key.toLowerCase())) return;
-        outHeaders[key] = value;
-      });
+        const location = upstream.headers.get("location");
+        if (upstream.status >= 300 && upstream.status < 400 && location) {
+          try {
+            currentTarget = new URL(location, currentTarget).href;
+            redirectCount++;
+            continue;
+          } catch {
+            break;
+          }
+        }
+        break;
+      }
 
-      this.applyCorsHeaders(outHeaders, req);
+      if (!upstream) {
+        res.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
+        res.end(`Error al conectar con ${targetUrl.href}`);
+        return;
+      }
 
-      const buf = Buffer.from(await upstream.arrayBuffer());
-      outHeaders["content-length"] = String(buf.length);
-
-      res.writeHead(upstream.status, outHeaders);
-      res.end(buf);
+      await this.sendUpstreamResponse(upstream, req, res, null, proxyOrigin);
     } catch (err: any) {
+      if (ac.signal.aborted || req.destroyed) return;
       console.warn(`[LiveServer] Error en __rpa_proxy para ${targetUrl.href}:`, err?.message || err);
       const errHeaders: Record<string, string | string[]> = {
-        "content-type": "text/plain",
+        "content-type": "text/plain; charset=utf-8",
       };
       this.applyCorsHeaders(errHeaders, req);
-      res.writeHead(502, errHeaders);
-      res.end(`Error al conectar con ${targetUrl.href}: ${err?.message || err}`);
+      const cause = err?.cause?.message || err?.cause?.code;
+      const msg = cause ? `${err?.message || err} (${cause})` : `${err?.message || err}`;
+      if (!res.headersSent) res.writeHead(502, errHeaders);
+      res.end(`Error al conectar con ${targetUrl.href}: ${msg}`);
     }
   }
 
@@ -473,6 +658,11 @@ export class LiveServer {
     const hasBody = !["GET", "HEAD"].includes(req.method || "GET");
     const body = hasBody ? await this.readBody(req) : undefined;
 
+    const ac = new AbortController();
+    req.on("close", () => {
+      if (!res.writableEnded) ac.abort();
+    });
+
     let currentTarget = targetUrl;
     let upstream: Response | null = null;
     let redirectCount = 0;
@@ -480,12 +670,25 @@ export class LiveServer {
     const accumulatedCookies: string[] = [];
 
     while (redirectCount < MAX_REDIRECTS) {
-      upstream = await fetch(currentTarget, {
-        method: req.method,
-        headers,
-        body: body && body.length ? new Uint8Array(body) : undefined,
-        redirect: "manual",
-      });
+      try {
+        upstream = await fetch(currentTarget, {
+          method: req.method,
+          headers,
+          body: body && body.length ? new Uint8Array(body) : undefined,
+          redirect: "manual",
+          signal: ac.signal,
+        });
+      } catch (fetchErr: any) {
+        if (ac.signal.aborted || req.destroyed) return;
+        console.error(`[LiveServer] Error fetching ${currentTarget}:`, fetchErr);
+        if (!res.headersSent) {
+          res.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
+        }
+        const cause = fetchErr?.cause?.message || fetchErr?.cause?.code;
+        const msg = cause ? `${fetchErr?.message ?? fetchErr} (${cause})` : `${fetchErr?.message ?? fetchErr}`;
+        res.end(`RPA Live proxy error al conectar con ${currentTarget}: ${msg}`);
+        return;
+      }
 
       const sc = (upstream.headers as any).getSetCookie?.() as string[] | undefined;
       if (sc && sc.length) {
@@ -590,47 +793,27 @@ export class LiveServer {
       } catch {
         // dejar location tal cual
       }
-    }
 
-    if (accumulatedCookies.length) {
-      outHeaders["set-cookie"] = accumulatedCookies.map((c) =>
-        c
-          .replace(/;\s*Domain=[^;]*/gi, "")
-          .replace(/;\s*Secure/gi, "")
-          .replace(/;\s*SameSite=[^;]*/gi, "")
-      );
-    }
-
-    const contentType = upstream.headers.get("content-type") || "";
-    const buf = Buffer.from(await upstream.arrayBuffer());
-
-    if (TEXT_TYPES.test(contentType) && buf.length > 0) {
-      let text = buf.toString("utf8");
-      text = this.rewriteText(text, session.origin, proxyOrigin);
-      if (/text\/html/i.test(contentType)) {
-        // Inyectar interceptor síncrono al inicio de <head> antes de que corran scripts de la página
-        const mocks = { mac: session.mockMac, version: session.mockVersion };
-        const initialCookies = Object.fromEntries(session.cookies);
-        const inject =
-          `<script>` +
-          `window.__RPA_ORIGIN__=${JSON.stringify(session.origin)};\n` +
-          `window.__RPA_MOCKS__=${JSON.stringify(mocks)};\n` +
-          `window.__RPA_INITIAL_COOKIES__=${JSON.stringify(initialCookies)};\n` +
-          `${PROXY_CLIENT_JS}</script>` +
-          `<script src="/__rpa/picker.js"></script>`;
-        text = /<head[^>]*>/i.test(text)
-          ? text.replace(/<head[^>]*>/i, (m) => m + inject)
-          : inject + text;
+      if (accumulatedCookies.length) {
+        outHeaders["set-cookie"] = accumulatedCookies.map((c) =>
+          c
+            .replace(/;\s*Domain=[^;]*/gi, "")
+            .replace(/;\s*Secure/gi, "")
+            .replace(/;\s*SameSite=[^;]*/gi, "")
+        );
       }
-      const out = Buffer.from(text, "utf8");
-      outHeaders["content-length"] = String(out.length);
       res.writeHead(upstream.status, outHeaders);
-      res.end(out);
+      res.end();
       return;
     }
 
-    outHeaders["content-length"] = String(buf.length);
-    res.writeHead(upstream.status, outHeaders);
-    res.end(buf);
+    await this.sendUpstreamResponse(
+      upstream,
+      req,
+      res,
+      session,
+      proxyOrigin,
+      accumulatedCookies
+    );
   }
 }

@@ -102,8 +102,14 @@ export async function runRecipeInLivePanel(
         const targetUrl = (node as any).params?.url;
         if (targetUrl) {
           const recId = recipeStore.recipeId || "current";
-          await liveStore.startEmbedded(recId, targetUrl);
-          // Esperar un momento a que el frame cargue y la SPA inicialice parámetros
+          if (liveStore.kind === "external") {
+            await liveStore.startExternal(recId, targetUrl);
+          } else if (liveStore.kind === "screencast") {
+            await liveStore.startScreencast(recId, targetUrl);
+          } else {
+            await liveStore.startEmbedded(recId, targetUrl);
+          }
+          // Esperar un momento a que el frame/navegador cargue y la SPA inicialice parámetros
           await new Promise((r) => setTimeout(r, 2000));
         }
       } else {

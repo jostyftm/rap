@@ -4,6 +4,10 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import {
   Globe,
   ExternalLink,
+  MonitorPlay,
+  ArrowLeft,
+  ArrowRight,
+  RotateCw,
   X,
   Loader2,
   MousePointerClick,
@@ -21,7 +25,7 @@ import {
   Lock,
 } from "lucide-react";
 import type { RecipeNode } from "@rpa/dsl";
-import { useLiveStore } from "../../stores/use-live-store";
+import { useLiveStore, type LiveKind } from "../../stores/use-live-store";
 import { useRecipeStore } from "../../stores/use-recipe-store";
 import {
   useLayoutStore,
@@ -30,6 +34,8 @@ import {
 } from "../../stores/use-layout-store";
 import { apiFetch } from "../../lib/api-client";
 import { getEcho } from "../../lib/echo";
+import { isProxyHostileHost } from "../../lib/live-compat";
+import { ScreencastCanvas, type ScreencastStats } from "./screencast-canvas";
 import { Badge, Button, IconButton } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
 
@@ -67,12 +73,16 @@ export function LiveSitePanel({ showLayoutToggle = true }: LiveSitePanelProps) {
   const status = useLiveStore((s) => s.status);
   const kind = useLiveStore((s) => s.kind);
   const proxyUrl = useLiveStore((s) => s.proxyUrl);
+  const wsUrl = useLiveStore((s) => s.wsUrl);
+  const remoteViewport = useLiveStore((s) => s.viewport);
   const sessionId = useLiveStore((s) => s.sessionId);
   const currentUrl = useLiveStore((s) => s.currentUrl);
   const pageTitle = useLiveStore((s) => s.pageTitle);
   const armedNodeId = useLiveStore((s) => s.armedNodeId);
   const error = useLiveStore((s) => s.error);
+  const sender = useLiveStore((s) => s.sender);
   const startEmbedded = useLiveStore((s) => s.startEmbedded);
+  const startScreencast = useLiveStore((s) => s.startScreencast);
   const startExternal = useLiveStore((s) => s.startExternal);
   const handleMessage = useLiveStore((s) => s.handleMessage);
   const setSender = useLiveStore((s) => s.setSender);
@@ -91,9 +101,31 @@ export function LiveSitePanel({ showLayoutToggle = true }: LiveSitePanelProps) {
   const [initialUrlValue] = useState(initialUrl);
   const [urlDraft, setUrlDraft] = useState<string | null>(null);
   const [containerSize, setContainerSize] = useState({ width: 800, height: 600 });
+  const [dismissedNoticeHost, setDismissedNoticeHost] = useState<string | null>(null);
+  const [screencastStats, setScreencastStats] = useState<ScreencastStats>({
+    fps: 0,
+    latencyMs: null,
+    connected: false,
+  });
 
   // Mientras el usuario no edite, la barra sigue la URL real del navegador.
   const urlInput = urlDraft ?? currentUrl ?? initialUrlValue;
+
+  const activeHost = useMemo(() => {
+    try {
+      const u = urlInput || currentUrl;
+      if (!u) return "";
+      return new URL(u.includes("://") ? u : `https://${u}`).hostname.toLowerCase();
+    } catch {
+      return "";
+    }
+  }, [urlInput, currentUrl]);
+
+  const showHostileNotice =
+    kind === "embedded" &&
+    status === "ready" &&
+    isProxyHostileHost(activeHost) &&
+    dismissedNoticeHost !== activeHost;
 
   useEffect(() => {
     // El iframe confirma la navegación: descartamos el borrador local.
@@ -137,17 +169,28 @@ export function LiveSitePanel({ showLayoutToggle = true }: LiveSitePanelProps) {
   }, [viewportMode, viewportScaleMode, containerSize]);
 
   useEffect(() => {
+    if (kind === "screencast") {
+      // ScreencastCanvas registra y limpia su propio sender por WebSocket
+      return;
+    }
+    let activeFn: ((msg: Record<string, unknown>) => void) | null = null;
     if (kind === "embedded") {
-      setSender((msg) => iframeRef.current?.contentWindow?.postMessage(msg, "*"));
+      activeFn = (msg) => iframeRef.current?.contentWindow?.postMessage(msg, "*");
+      setSender(activeFn);
     } else if (kind === "external" && recipeId && sessionId) {
-      setSender((msg) => {
+      activeFn = (msg) => {
         apiFetch(`/api/v1/recipes/${recipeId}/live/command`, {
           method: "POST",
           body: JSON.stringify({ session_id: sessionId, message: msg }),
         }).catch(() => undefined);
-      });
+      };
+      setSender(activeFn);
     }
-    return () => setSender(null);
+    return () => {
+      if (activeFn && useLiveStore.getState().sender === activeFn) {
+        setSender(null);
+      }
+    };
   }, [kind, recipeId, sessionId, proxyUrl, setSender]);
 
   useEffect(() => {
@@ -173,21 +216,58 @@ export function LiveSitePanel({ showLayoutToggle = true }: LiveSitePanelProps) {
     };
   }, [kind, recipeId, sessionId, handleMessage]);
 
-  const go = useCallback(() => {
-    if (!recipeId || !urlInput.trim()) return;
-    let url = urlInput.trim();
-    if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
-    if (kind === "external") startExternal(recipeId, url);
-    else startEmbedded(recipeId, url);
-  }, [recipeId, urlInput, kind, startEmbedded, startExternal]);
-
-  const openExternal = () => {
-    if (!recipeId) return;
-    startExternal(recipeId, urlInput.trim() || initialUrlValue);
-  };
-
   const currentPreset = VIEWPORT_PRESETS[viewportMode];
   const isPlaywrightParity = viewportMode === "desktop";
+  const desiredViewport = useMemo(
+    () =>
+      currentPreset
+        ? { width: currentPreset.width, height: currentPreset.height }
+        : { width: 1280, height: 800 },
+    [currentPreset]
+  );
+
+  const launchInMode = useCallback(
+    (targetKind: LiveKind, targetUrl?: string) => {
+      if (!recipeId) return;
+      let url = (targetUrl ?? urlInput).trim() || initialUrlValue;
+      if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+      if (targetKind === "external") {
+        void startExternal(recipeId, url);
+      } else if (targetKind === "screencast") {
+        void startScreencast(recipeId, url, desiredViewport);
+      } else {
+        void startEmbedded(recipeId, url);
+      }
+    },
+    [recipeId, urlInput, initialUrlValue, desiredViewport, startEmbedded, startScreencast, startExternal]
+  );
+
+  const go = useCallback(() => {
+    if (!urlInput.trim()) return;
+    launchInMode(kind, urlInput);
+  }, [kind, urlInput, launchInMode]);
+
+  const openExternal = () => launchInMode("external");
+  const openScreencast = () => launchInMode("screencast");
+
+  const handleScreencastSender = useCallback(
+    (fn: ((msg: Record<string, unknown>) => void) | null) => {
+      setSender(fn);
+    },
+    [setSender]
+  );
+
+  const handleScreencastReconnect = useCallback(() => {
+    if (!recipeId) return;
+    const url = (urlInput || currentUrl || initialUrlValue).trim();
+    if (!url) return;
+    // Forzar nueva sesión screencast reiniciando kind/sessionId
+    useLiveStore.setState({ status: "idle", sessionId: null, wsUrl: null, sender: null });
+    void startScreencast(recipeId, url, desiredViewport);
+  }, [recipeId, urlInput, currentUrl, initialUrlValue, desiredViewport, startScreencast]);
+
+  const hasVisualStage =
+    (kind === "embedded" && Boolean(proxyUrl)) || (kind === "screencast" && Boolean(wsUrl));
 
   return (
     <section className="@container flex h-full min-w-[320px] flex-1 flex-col overflow-hidden bg-panel text-fg transition-colors">
@@ -209,13 +289,60 @@ export function LiveSitePanel({ showLayoutToggle = true }: LiveSitePanelProps) {
           <IconButton label="Cargar URL" onClick={go}>
             <RefreshCw className="h-3.5 w-3.5" />
           </IconButton>
-          <IconButton
-            label="Abrir en Chromium externo"
-            onClick={openExternal}
-            className={cn(kind === "external" && "text-success-text")}
+
+          {/* Selector de modo: Embebido / Remoto (CDP) / Externo */}
+          <div
+            role="group"
+            aria-label="Modo de visualización en vivo"
+            className="flex shrink-0 items-center gap-0.5 rounded-control border border-line bg-card p-0.5"
           >
-            <ExternalLink className="h-3.5 w-3.5" />
-          </IconButton>
+            <button
+              type="button"
+              onClick={() => launchInMode("embedded")}
+              aria-pressed={kind === "embedded"}
+              title="Visor Embebido (Proxy HTTP)"
+              className={cn(
+                "inline-flex h-7 items-center gap-1 rounded-[6px] px-2 text-[10.5px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+                kind === "embedded"
+                  ? "bg-raised text-fg shadow-[var(--shadow-card)]"
+                  : "text-fg-muted hover:bg-hover hover:text-fg"
+              )}
+            >
+              <Globe className="h-3 w-3" />
+              <span className="hidden @[480px]:inline">Embebido</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => launchInMode("screencast")}
+              aria-pressed={kind === "screencast"}
+              title="Navegador Remoto por Screencast (Chromium real en panel)"
+              className={cn(
+                "inline-flex h-7 items-center gap-1 rounded-[6px] px-2 text-[10.5px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+                kind === "screencast"
+                  ? "bg-raised text-accent-text shadow-[var(--shadow-card)]"
+                  : "text-fg-muted hover:bg-hover hover:text-fg"
+              )}
+            >
+              <MonitorPlay className="h-3 w-3" />
+              <span className="hidden @[480px]:inline">Remoto</span>
+            </button>
+            <button
+              type="button"
+              onClick={openExternal}
+              aria-pressed={kind === "external"}
+              title="Abrir en ventana Chromium externa"
+              className={cn(
+                "inline-flex h-7 items-center gap-1 rounded-[6px] px-2 text-[10.5px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+                kind === "external"
+                  ? "bg-raised text-success-text shadow-[var(--shadow-card)]"
+                  : "text-fg-muted hover:bg-hover hover:text-fg"
+              )}
+            >
+              <ExternalLink className="h-3 w-3" />
+              <span className="hidden @[620px]:inline">Externo</span>
+            </button>
+          </div>
+
           <IconButton label="Cerrar sitio en vivo" onClick={() => close(recipeId)}>
             <X className="h-3.5 w-3.5" />
           </IconButton>
@@ -333,8 +460,19 @@ export function LiveSitePanel({ showLayoutToggle = true }: LiveSitePanelProps) {
                       : "bg-fg-subtle/50"
               )}
             />
-            {kind === "external" ? "Chromium externo" : "Embebido"}
+            {kind === "external"
+              ? "Chromium externo"
+              : kind === "screencast"
+                ? "Remoto (CDP)"
+                : "Embebido"}
           </span>
+
+          {kind === "screencast" && screencastStats.connected && (
+            <span className="shrink-0 font-mono text-[10px] text-success-text">
+              {screencastStats.fps} fps
+              {screencastStats.latencyMs !== null ? ` · ${screencastStats.latencyMs}ms` : ""}
+            </span>
+          )}
 
           {isPlaywrightParity && (
             <Badge
@@ -400,7 +538,11 @@ export function LiveSitePanel({ showLayoutToggle = true }: LiveSitePanelProps) {
             </div>
             <div className="max-w-sm space-y-1">
               <h4 className="text-[12.5px] font-semibold text-fg">
-                Error al cargar en el visor embebido
+                {kind === "screencast"
+                  ? "Error en el navegador remoto"
+                  : kind === "external"
+                    ? "Error al abrir Chromium externo"
+                    : "Error al cargar en el visor embebido"}
               </h4>
               <p className="text-[11px] leading-relaxed text-fg-muted">{error}</p>
             </div>
@@ -408,9 +550,15 @@ export function LiveSitePanel({ showLayoutToggle = true }: LiveSitePanelProps) {
               <Button size="sm" variant="secondary" onClick={go}>
                 Reintentar
               </Button>
-              <Button size="sm" variant="primary" onClick={openExternal}>
+              {kind === "embedded" && (
+                <Button size="sm" variant="primary" onClick={openScreencast}>
+                  <MonitorPlay className="h-3.5 w-3.5" />
+                  Usar navegador remoto
+                </Button>
+              )}
+              <Button size="sm" variant={kind === "embedded" ? "secondary" : "primary"} onClick={openExternal}>
                 <ExternalLink className="h-3.5 w-3.5" />
-                Abrir en Chromium externo
+                Chromium externo
               </Button>
             </div>
           </div>
@@ -431,7 +579,7 @@ export function LiveSitePanel({ showLayoutToggle = true }: LiveSitePanelProps) {
           </div>
         )}
 
-        {kind === "embedded" && proxyUrl && (
+        {hasVisualStage && (
           <div
             className="shrink-0 overflow-hidden rounded-[10px] border border-line-strong bg-raised shadow-[var(--shadow-modal)]"
             style={{
@@ -460,6 +608,37 @@ export function LiveSitePanel({ showLayoutToggle = true }: LiveSitePanelProps) {
                   <span className="h-2 w-2 rounded-full bg-warning/70" />
                   <span className="h-2 w-2 rounded-full bg-success/70" />
                 </span>
+                {kind === "screencast" && (
+                  <div className="flex shrink-0 items-center gap-0.5 text-fg-muted">
+                    <button
+                      type="button"
+                      onClick={() => sender?.({ type: "browser:back" })}
+                      className="rounded p-0.5 hover:bg-hover hover:text-fg"
+                      title="Atrás"
+                      aria-label="Atrás"
+                    >
+                      <ArrowLeft className="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => sender?.({ type: "browser:forward" })}
+                      className="rounded p-0.5 hover:bg-hover hover:text-fg"
+                      title="Adelante"
+                      aria-label="Adelante"
+                    >
+                      <ArrowRight className="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => sender?.({ type: "browser:reload" })}
+                      className="rounded p-0.5 hover:bg-hover hover:text-fg"
+                      title="Recargar página remota"
+                      aria-label="Recargar página remota"
+                    >
+                      <RotateCw className="h-3 w-3" />
+                    </button>
+                  </div>
+                )}
                 <div className="mx-1 flex min-w-0 flex-1 items-center gap-1 rounded-[5px] border border-line bg-input px-1.5 py-0.5">
                   <Lock className="h-2.5 w-2.5 shrink-0 text-success-text" aria-hidden="true" />
                   <span className="truncate font-mono text-[9.5px] text-fg-muted">
@@ -468,14 +647,67 @@ export function LiveSitePanel({ showLayoutToggle = true }: LiveSitePanelProps) {
                 </div>
               </div>
 
-              <iframe
-                ref={iframeRef}
-                name="rpa-live-frame"
-                key={proxyUrl}
-                src={proxyUrl}
-                className="h-[calc(100%-1.75rem)] w-full flex-1 border-0 bg-white"
-                title="Sitio en vivo"
-              />
+              {showHostileNotice && (
+                <div className="flex shrink-0 items-center justify-between gap-2 border-b border-warning/30 bg-warning-soft px-3 py-1.5 text-[11px] text-warning-text">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0 text-warning-text" />
+                    <span className="truncate">
+                      Este sitio limita la reproducción multimedia en visores embebidos.
+                    </span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={openScreencast}
+                      className="inline-flex items-center gap-1 rounded bg-accent px-2 py-0.5 font-medium text-accent-ink hover:bg-accent-hover transition-colors"
+                    >
+                      <MonitorPlay className="h-3 w-3" />
+                      Cambiar a Remoto
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openExternal}
+                      className="inline-flex items-center gap-1 rounded bg-warning/20 px-2 py-0.5 font-medium hover:bg-warning/30 transition-colors"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      Chromium externo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDismissedNoticeHost(activeHost)}
+                      className="rounded p-0.5 hover:bg-warning/20 transition-colors"
+                      aria-label="Cerrar aviso"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {kind === "screencast" && wsUrl ? (
+                <ScreencastCanvas
+                  key={wsUrl}
+                  wsUrl={wsUrl}
+                  viewportWidth={desiredViewport.width || remoteViewport.width}
+                  viewportHeight={desiredViewport.height || remoteViewport.height}
+                  armedNodeId={armedNodeId}
+                  onMessage={handleMessage}
+                  onSenderReady={handleScreencastSender}
+                  onStatsChange={setScreencastStats}
+                  onReconnect={handleScreencastReconnect}
+                />
+              ) : (
+                <iframe
+                  ref={iframeRef}
+                  name="rpa-live-frame"
+                  key={proxyUrl}
+                  src={proxyUrl!}
+                  className="h-[calc(100%-1.75rem)] w-full flex-1 border-0 bg-white"
+                  title="Sitio en vivo"
+                  allow="autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write; web-share"
+                  allowFullScreen
+                />
+              )}
             </div>
           </div>
         )}

@@ -61,6 +61,33 @@ class LiveSessionController extends Controller
         return response()->json($res->json(), $res->status());
     }
 
+    public function screencast(Request $request, Recipe $recipe): JsonResponse
+    {
+        $data = $request->validate([
+            'url' => ['required', 'url', 'max:500'],
+            'width' => ['nullable', 'integer', 'min:320', 'max:1920'],
+            'height' => ['nullable', 'integer', 'min:320', 'max:1200'],
+        ]);
+
+        try {
+            $payload = [
+                'url' => $data['url'],
+                'recipe_id' => $recipe->uuid,
+            ];
+            if (isset($data['width'])) {
+                $payload['width'] = (int) $data['width'];
+            }
+            if (isset($data['height'])) {
+                $payload['height'] = (int) $data['height'];
+            }
+            $res = $this->runner()->post('/live/screencast', $payload);
+        } catch (\Throwable $e) {
+            return $this->unavailable($e);
+        }
+
+        return response()->json($res->json(), $res->status());
+    }
+
     public function external(Request $request, Recipe $recipe): JsonResponse
     {
         $data = $request->validate(['url' => ['required', 'url', 'max:500']]);

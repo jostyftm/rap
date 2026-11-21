@@ -74,6 +74,54 @@ describe("LiveServer Proxy & CORS Handling", () => {
         return;
       }
 
+      if (url.pathname === "/large-headers") {
+        const largeHeaders: Record<string, string> = {
+          "content-type": "text/html; charset=utf-8",
+        };
+        // Simular ~40KB de cabeceras (como YouTube con múltiples Set-Cookie y metadatos)
+        for (let i = 0; i < 40; i++) {
+          largeHeaders[`x-youtube-experiment-token-${i}`] = "x".repeat(1000);
+        }
+        res.writeHead(200, largeHeaders);
+        res.end("<!DOCTYPE html><html><head><title>Large Headers Site</title></head><body>YouTube Style Success</body></html>");
+        return;
+      }
+
+      if (url.pathname === "/video-stream.mp4") {
+        const totalSize = 1000;
+        const range = req.headers["range"];
+        if (range && typeof range === "string" && range.startsWith("bytes=")) {
+          const parts = range.replace("bytes=", "").split("-");
+          const start = parseInt(parts[0], 10) || 0;
+          const end = parts[1] ? parseInt(parts[1], 10) : start + 99;
+          const chunkLen = end - start + 1;
+          res.writeHead(206, {
+            "content-type": "video/mp4",
+            "content-range": `bytes ${start}-${end}/${totalSize}`,
+            "content-length": String(chunkLen),
+            "accept-ranges": "bytes",
+          });
+          res.end(Buffer.alloc(chunkLen, 1));
+          return;
+        }
+
+        res.writeHead(200, {
+          "content-type": "video/mp4",
+          "content-length": String(totalSize),
+          "accept-ranges": "bytes",
+        });
+        res.end(Buffer.alloc(totalSize, 1));
+        return;
+      }
+
+      if (url.pathname === "/media-redirect") {
+        res.writeHead(302, {
+          location: `http://localhost:${upstreamPort}/video-stream.mp4`,
+        });
+        res.end();
+        return;
+      }
+
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
         "x-frame-options": "DENY",
@@ -270,5 +318,97 @@ describe("LiveServer Proxy & CORS Handling", () => {
       }
     );
     expect(badUrlRes.status).toBe(400);
+  });
+
+  it("maneja respuestas upstream con cabeceras gigantes (>30KB como YouTube) sin desbordamiento", async () => {
+    const sessRes = await fetch(`http://127.0.0.1:${livePort}/live/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-rpa-live-token": token },
+      body: JSON.stringify({ url: `http://localhost:${upstreamPort}/large-headers` }),
+    });
+    const { session_id } = await sessRes.json();
+
+    const proxyRes = await fetch(`http://127.0.0.1:${livePort}/large-headers`, {
+      headers: { "x-forwarded-host": `${session_id}.localhost:${livePort}` },
+    });
+
+    expect(proxyRes.status).toBe(200);
+    const text = await proxyRes.text();
+    expect(text).toContain("YouTube Style Success");
+  });
+
+  it("normaliza URLs sin protocolo en /live/sessions anteponiendo https://", async () => {
+    const sessRes = await fetch(`http://127.0.0.1:${livePort}/live/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-rpa-live-token": token },
+      body: JSON.stringify({ url: "youtube.com/watch?v=123" }),
+    });
+    expect(sessRes.status).toBe(201);
+    const data = await sessRes.json();
+    expect(data.origin).toBe("https://youtube.com");
+  });
+
+  it("transmite recursos binarios (streaming) y preserva content-length sin cargarlo todo como texto", async () => {
+    const sessRes = await fetch(`http://127.0.0.1:${livePort}/live/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-rpa-live-token": token },
+      body: JSON.stringify({ url: `http://localhost:${upstreamPort}/video-stream.mp4` }),
+    });
+    const { session_id } = await sessRes.json();
+
+    const proxyRes = await fetch(`http://127.0.0.1:${livePort}/video-stream.mp4`, {
+      headers: { "x-forwarded-host": `${session_id}.localhost:${livePort}` },
+    });
+
+    expect(proxyRes.status).toBe(200);
+    expect(proxyRes.headers.get("content-type")).toBe("video/mp4");
+    expect(proxyRes.headers.get("content-length")).toBe("1000");
+    const buf = await proxyRes.arrayBuffer();
+    expect(buf.byteLength).toBe(1000);
+  });
+
+  it("reenvía peticiones de Range para video y preserva respuesta 206 con content-range", async () => {
+    const sessRes = await fetch(`http://127.0.0.1:${livePort}/live/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-rpa-live-token": token },
+      body: JSON.stringify({ url: `http://localhost:${upstreamPort}/video-stream.mp4` }),
+    });
+    const { session_id } = await sessRes.json();
+
+    const rangeRes = await fetch(`http://127.0.0.1:${livePort}/video-stream.mp4`, {
+      headers: {
+        "x-forwarded-host": `${session_id}.localhost:${livePort}`,
+        range: "bytes=0-99",
+      },
+    });
+
+    expect(rangeRes.status).toBe(206);
+    expect(rangeRes.headers.get("content-range")).toBe("bytes 0-99/1000");
+    expect(rangeRes.headers.get("content-length")).toBe("100");
+    const buf = await rangeRes.arrayBuffer();
+    expect(buf.byteLength).toBe(100);
+  });
+
+  it("/__rpa_proxy sigue redirecciones y transmite media por partes", async () => {
+    const sessRes = await fetch(`http://127.0.0.1:${livePort}/live/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-rpa-live-token": token },
+      body: JSON.stringify({ url: `http://localhost:${upstreamPort}/` }),
+    });
+    const { session_id } = await sessRes.json();
+
+    const redirectMediaRes = await fetch(
+      `http://127.0.0.1:${livePort}/__rpa_proxy?url=${encodeURIComponent(`http://localhost:${upstreamPort}/media-redirect`)}`,
+      {
+        headers: {
+          "x-forwarded-host": `${session_id}.localhost:${livePort}`,
+          range: "bytes=0-49",
+        },
+      }
+    );
+
+    expect(redirectMediaRes.status).toBe(206);
+    expect(redirectMediaRes.headers.get("content-range")).toBe("bytes 0-49/1000");
+    expect(redirectMediaRes.headers.get("content-length")).toBe("50");
   });
 });
