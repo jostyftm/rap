@@ -15,6 +15,18 @@ export const navigateHandler: NodeActionHandler<NavigateNode> = {
       waitUntil: node.params.waitUntil ?? "domcontentloaded",
       timeout: node.timeout ?? 30000,
     });
-    return { success: true, nextNodeId: node.next };
+
+    const resolvedUrl = typeof page.url === "function" ? page.url() || targetUrl : targetUrl;
+    const title =
+      typeof page.title === "function" ? await page.title().catch(() => undefined) : undefined;
+
+    return {
+      success: true,
+      output: {
+        url: resolvedUrl,
+        ...(title ? { title } : {}),
+      },
+      nextNodeId: node.next,
+    };
   },
 };

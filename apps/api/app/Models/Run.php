@@ -19,6 +19,7 @@ class Run extends Model
         'status',
         'trigger',
         'parameters',
+        'result',
         'started_at',
         'finished_at',
         'duration_ms',
@@ -29,6 +30,7 @@ class Run extends Model
     {
         return [
             'parameters' => 'array',
+            'result' => 'array',
             'started_at' => 'datetime',
             'finished_at' => 'datetime',
             'duration_ms' => 'integer',

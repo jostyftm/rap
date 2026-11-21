@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Events\RunUpdated;
 use App\Http\Requests\Run\RunCreateRequest;
 use App\Models\Recipe;
 use App\Models\Run;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Collection;
 use Symfony\Component\HttpFoundation\Response;
 
 class RunService
@@ -19,7 +21,42 @@ class RunService
 
     public function get(Run $run): Run
     {
-        return $run->load(['steps', 'artifacts']);
+        $run->load(['recipeVersion.recipe:id,uuid', 'steps', 'artifacts']);
+        $run->loadCount(['steps', 'logs']);
+
+        return $run;
+    }
+
+    /**
+     * Lista las ejecuciones recientes de una receta (de todas sus versiones y borrador).
+     *
+     * @return Collection<int, Run>
+     */
+    public function listForRecipe(
+        Recipe $recipe,
+        ?string $trigger = null,
+        ?string $status = null,
+        int $limit = 25
+    ): Collection {
+        $query = Run::query()
+            ->whereHas('recipeVersion', fn ($q) => $q->where('recipe_id', $recipe->id))
+            ->with([
+                'recipeVersion:id,uuid,recipe_id,version',
+                'recipeVersion.recipe:id,uuid',
+                'artifacts',
+            ])
+            ->withCount(['steps', 'logs'])
+            ->orderByDesc('id');
+
+        if ($trigger !== null && $trigger !== '' && $trigger !== 'all') {
+            $query->where('trigger', $trigger);
+        }
+
+        if ($status !== null && $status !== '' && $status !== 'all') {
+            $query->where('status', $status);
+        }
+
+        return $query->limit(max(1, min(100, $limit)))->get();
     }
 
     public function dispatch(RunCreateRequest $request, Recipe $recipe): Run
@@ -51,7 +88,7 @@ class RunService
         bool $useDraft = false
     ): Run {
         $recipe->loadMissing(['draft', 'publishedVersion', 'project.workspace']);
-        
+
         $version = $useDraft ? $recipe->draft : $recipe->publishedVersion;
         if (! $version) {
             abort(
@@ -76,8 +113,16 @@ class RunService
 
         $this->dispatcher->dispatchRun($run, $options);
 
+        $run->loadMissing('recipeVersion.recipe');
+
+        try {
+            event(new RunUpdated($run));
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
         Audit::log('run.dispatched', $user, $recipe->project->workspace, $run);
 
-        return $run->load('steps');
+        return $run->load(['steps', 'recipeVersion.recipe']);
     }
 }

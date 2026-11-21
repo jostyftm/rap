@@ -14,6 +14,7 @@ use App\Models\Run;
 use App\Models\RunLog;
 use App\Models\RunStep;
 use App\Models\Workspace;
+use App\Support\ArtifactUrl;
 
 final class RunnerEventProcessor
 {
@@ -152,7 +153,7 @@ final class RunnerEventProcessor
                 break;
 
             case 'step.started':
-                $nodeId = $payload['node_id'] ?? '';
+                $nodeId = (string) ($payload['node_id'] ?? '');
                 $step = RunStep::firstOrCreate(
                     ['run_id' => $run->id, 'node_id' => $nodeId],
                     ['status' => 'running']
@@ -162,44 +163,68 @@ final class RunnerEventProcessor
                 break;
 
             case 'step.finished':
-                $nodeId = $payload['node_id'] ?? '';
-                $step = RunStep::where('run_id', $run->id)->where('node_id', $nodeId)->first();
-                if ($step) {
-                    $step->update([
-                        'status' => 'success',
-                        'duration_ms' => isset($payload['duration_ms']) ? (int) $payload['duration_ms'] : null,
-                        'locator_strategy_used' => $payload['locator_strategy'] ?? null,
-                        'locator_value_used' => $payload['locator_value'] ?? null,
-                        'screenshot_path' => $payload['screenshot_path'] ?? null,
-                    ]);
-                    event(new RunStepUpdated($step));
+                $redactor = $this->redactorFor($run);
+                $nodeId = (string) ($payload['node_id'] ?? '');
+                $step = RunStep::firstOrCreate(
+                    ['run_id' => $run->id, 'node_id' => $nodeId],
+                    ['status' => 'running']
+                );
+                $locatorValue = $payload['locator_value'] ?? null;
+                if ($redactor !== null && is_string($locatorValue)) {
+                    $locatorValue = $redactor->redact($locatorValue);
                 }
 
-                if (! empty($payload['screenshot_path'])) {
-                    Artifact::create([
-                        'run_id' => $run->id,
-                        'type' => 'screenshot',
-                        's3_key' => $payload['screenshot_path'],
-                        'mime_type' => 'image/png',
-                    ]);
+                $output = $this->decodeAndRedact($payload['output'] ?? null, $redactor);
+                $screenshotPath = ! empty($payload['screenshot_path'])
+                    ? (string) $payload['screenshot_path']
+                    : null;
+
+                $step->update([
+                    'status' => 'success',
+                    'duration_ms' => isset($payload['duration_ms']) ? (int) $payload['duration_ms'] : null,
+                    'locator_strategy_used' => $payload['locator_strategy'] ?? null,
+                    'locator_value_used' => $locatorValue,
+                    'screenshot_path' => $screenshotPath,
+                    'output' => $output,
+                ]);
+
+                $screenshotUrl = null;
+                if ($screenshotPath !== null) {
+                    $artifact = $this->recordScreenshotArtifact($run, $screenshotPath, $nodeId, 'success');
+                    $screenshotUrl = ArtifactUrl::forArtifact($artifact);
                 }
+
+                event(new RunStepUpdated($step, $screenshotUrl));
                 break;
 
             case 'step.failed':
                 $redactor = $this->redactorFor($run);
-                $nodeId = $payload['node_id'] ?? '';
-                $step = RunStep::where('run_id', $run->id)->where('node_id', $nodeId)->first();
-                if ($step) {
-                    $rawError = isset($payload['error']) ? (string) $payload['error'] : null;
-                    $redactedError = ($rawError !== null && $redactor !== null) ? $redactor->redact($rawError) : $rawError;
-                    $step->update([
-                        'status' => 'failed',
-                        'duration_ms' => isset($payload['duration_ms']) ? (int) $payload['duration_ms'] : null,
-                        'error_message' => $redactedError,
-                        'screenshot_path' => $payload['screenshot_path'] ?? null,
-                    ]);
-                    event(new RunStepUpdated($step));
+                $nodeId = (string) ($payload['node_id'] ?? '');
+                $step = RunStep::firstOrCreate(
+                    ['run_id' => $run->id, 'node_id' => $nodeId],
+                    ['status' => 'running']
+                );
+
+                $rawError = isset($payload['error']) ? (string) $payload['error'] : null;
+                $redactedError = ($rawError !== null && $redactor !== null) ? $redactor->redact($rawError) : $rawError;
+                $screenshotPath = ! empty($payload['screenshot_path'])
+                    ? (string) $payload['screenshot_path']
+                    : null;
+
+                $step->update([
+                    'status' => 'failed',
+                    'duration_ms' => isset($payload['duration_ms']) ? (int) $payload['duration_ms'] : null,
+                    'error_message' => $redactedError,
+                    'screenshot_path' => $screenshotPath,
+                ]);
+
+                $screenshotUrl = null;
+                if ($screenshotPath !== null) {
+                    $artifact = $this->recordScreenshotArtifact($run, $screenshotPath, $nodeId, 'failed');
+                    $screenshotUrl = ArtifactUrl::forArtifact($artifact);
                 }
+
+                event(new RunStepUpdated($step, $screenshotUrl));
                 break;
 
             case 'run.finished':
@@ -210,15 +235,80 @@ final class RunnerEventProcessor
                 $status = ($payload['status'] ?? '') === 'success' ? 'completed' : 'failed';
                 $rawError = isset($payload['error']) ? (string) $payload['error'] : null;
                 $redactedError = ($rawError !== null && $redactor !== null) ? $redactor->redact($rawError) : $rawError;
+                $decodedResult = $this->decodeAndRedact($payload['result'] ?? null, $redactor);
+                $result = is_array($decodedResult) ? $decodedResult : null;
+
                 $run->update([
                     'status' => $status,
                     'finished_at' => now(),
                     'duration_ms' => isset($payload['duration_ms']) ? (int) $payload['duration_ms'] : null,
                     'error_message' => $redactedError,
+                    'result' => $result,
                 ]);
+
+                if (is_array($result) && ! empty($result['last_screenshot_path']) && is_string($result['last_screenshot_path'])) {
+                    $this->recordScreenshotArtifact($run, $result['last_screenshot_path'], null, $status);
+                }
+
                 event(new RunUpdated($run));
                 break;
         }
+    }
+
+    private function decodeAndRedact(mixed $raw, ?SecretRedactor $redactor): mixed
+    {
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+
+        $decoded = $raw;
+        if (is_string($raw)) {
+            $json = json_decode($raw, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                $decoded = $json;
+            }
+        }
+
+        if ($redactor === null) {
+            return $decoded;
+        }
+
+        if (is_array($decoded)) {
+            return $redactor->redactArray($decoded);
+        }
+
+        if (is_string($decoded)) {
+            return $redactor->redact($decoded);
+        }
+
+        return $decoded;
+    }
+
+    private function recordScreenshotArtifact(
+        Run $run,
+        string $s3Key,
+        ?string $nodeId = null,
+        ?string $status = null
+    ): Artifact {
+        $metadata = array_filter([
+            'node_id' => $nodeId,
+            'status' => $status,
+        ], fn ($v) => $v !== null && $v !== '');
+
+        /** @var Artifact $artifact */
+        $artifact = Artifact::firstOrCreate(
+            [
+                'run_id' => $run->id,
+                's3_key' => $s3Key,
+            ],
+            [
+                'type' => 'screenshot',
+                'mime_type' => ArtifactUrl::mimeFromPath($s3Key),
+                'metadata' => $metadata !== [] ? $metadata : null,
+            ]
+        );
+
+        return $artifact;
     }
 
     /**

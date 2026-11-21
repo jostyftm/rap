@@ -35,6 +35,11 @@ class Artifact extends Model
         return ['uuid'];
     }
 
+    public function getRouteKeyName(): string
+    {
+        return 'uuid';
+    }
+
     /** @return BelongsTo<Run, $this> */
     public function run(): BelongsTo
     {

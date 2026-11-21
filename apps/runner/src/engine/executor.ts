@@ -6,7 +6,7 @@ import { createMissingTokenReporter } from "./handlers/token-warnings.js";
 import { hasWebhookPayload, mergeWebhookPayload, waitForWebhookPayload } from "./webhook-wait.js";
 import { evaluateExpression, interpolateString } from "../evaluator/jsonata-evaluator.js";
 import { resolveLocator } from "./locator-resolver.js";
-import { uploadArtifact } from "../storage/s3.js";
+import { uploadArtifact, uploadArtifactWithStatus } from "../storage/s3.js";
 import type { Redis } from "ioredis";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -65,7 +65,18 @@ export interface ExecutionDisplayOptions {
   slowMoMs?: number;
   highlight?: boolean;
   keepOpenMs?: number;
+  captureScreenshots?: "auto" | "always" | "on_error" | "never";
 }
+
+const VISUAL_SCREENSHOT_TYPES = new Set([
+  "navigate",
+  "click",
+  "type",
+  "select",
+  "scroll",
+  "waitFor",
+  "extract",
+]);
 
 export interface ExecutionOptions {
   runId: string;
@@ -342,7 +353,7 @@ export class RecipeExecutor {
     const visitedNodes = new Set<string>();
     const activeLoopIds = new Set<string>();
     const loopScopeStack: Array<{ nodeId: string; iteration: number }> = [];
-    const runCounters = {
+    const stepCountsInit = {
       steps: 0,
       loops: 0,
       iterations: 0,
@@ -350,9 +361,51 @@ export class RecipeExecutor {
       errors: 0,
       handledErrors: 0,
     };
+    const runCounters = stepCountsInit;
     let stepCount = 0;
     let stepMode = false;
     const maxGlobalSteps = 2000;
+    let autoScreenshotCount = 0;
+    let lastScreenshotPath: string | undefined;
+    const maxAutoScreenshots = Math.max(
+      0,
+      Number(process.env.RUNNER_MAX_AUTO_SCREENSHOTS ?? 30)
+    );
+
+    const captureAutoScreenshot = async (label: string): Promise<string | undefined> => {
+      if (
+        displayOpts.captureScreenshots === "never" ||
+        displayOpts.captureScreenshots === "on_error" ||
+        process.env.RUNNER_AUTO_SCREENSHOTS === "false" ||
+        autoScreenshotCount >= maxAutoScreenshots
+      ) {
+        return undefined;
+      }
+
+      if (typeof page.isClosed === "function" && page.isClosed()) {
+        return undefined;
+      }
+
+      const currentUrl = typeof page.url === "function" ? page.url() : undefined;
+      if (!currentUrl || currentUrl === "about:blank") {
+        return undefined;
+      }
+
+      try {
+        const buf = await page.screenshot({ fullPage: false, type: "jpeg", quality: 75 });
+        const s3Key = `runs/${runId}/screenshots/${label}-${Date.now()}.jpg`;
+        const { key, uploaded } = await uploadArtifactWithStatus(s3Key, buf, "image/jpeg");
+        if (uploaded) {
+          autoScreenshotCount++;
+          lastScreenshotPath = key;
+          return key;
+        }
+      } catch {
+        // Ignorar fallos transitorios al capturar pantalla automática
+      }
+
+      return undefined;
+    };
 
     // Espera bloqueante hasta resume / step / stop. Devuelve "stop" o "continue".
     const waitForResume = async (): Promise<"continue" | "stop"> => {
@@ -552,6 +605,16 @@ export class RecipeExecutor {
           const s3Key = `runs/${runId}/screenshots/${node.id}-${Date.now()}.png`;
           await uploadArtifact(s3Key, buf);
           finalScreenshotPath = s3Key;
+        } else if (
+          !finalScreenshotPath &&
+          node.screenshot !== "never" &&
+          VISUAL_SCREENSHOT_TYPES.has(node.type)
+        ) {
+          finalScreenshotPath = await captureAutoScreenshot(node.id);
+        }
+
+        if (finalScreenshotPath) {
+          lastScreenshotPath = finalScreenshotPath;
         }
 
         await this.eventEmitter.emitStepFinished(
@@ -560,7 +623,8 @@ export class RecipeExecutor {
           stepDurationMs,
           result.resolvedLocator?.strategy,
           result.resolvedLocator?.value,
-          finalScreenshotPath
+          finalScreenshotPath,
+          result.output
         );
 
         await this.eventEmitter.emitRunLog(
@@ -599,6 +663,7 @@ export class RecipeExecutor {
             const s3Key = `runs/${runId}/screenshots/error-${node.id}-${Date.now()}.png`;
             await uploadArtifact(s3Key, errBuf);
             errorScreenshotPath = s3Key;
+            lastScreenshotPath = s3Key;
           } catch {
             // Ignorar fallo de captura de error
           }
@@ -721,11 +786,20 @@ export class RecipeExecutor {
         }
       }
 
-      execContext.stepResults[node.id] = { caught, error: caughtError };
-      execContext.variables[`steps.${node.id}.output`] = { caught, error: caughtError };
+      const tryCatchOutput = { caught, error: caughtError };
+      execContext.stepResults[node.id] = tryCatchOutput;
+      execContext.variables[`steps.${node.id}.output`] = tryCatchOutput;
 
       const stepDurationMs = Date.now() - stepStartTime;
-      await this.eventEmitter.emitStepFinished(runId, node.id, stepDurationMs);
+      await this.eventEmitter.emitStepFinished(
+        runId,
+        node.id,
+        stepDurationMs,
+        undefined,
+        undefined,
+        undefined,
+        tryCatchOutput
+      );
       await logPhase(
         "try",
         "success",
@@ -1027,7 +1101,15 @@ export class RecipeExecutor {
       (execContext.variables.steps as Record<string, unknown>)[node.id] = { output };
 
       const stepDurationMs = Date.now() - stepStartTime;
-      await this.eventEmitter.emitStepFinished(runId, node.id, stepDurationMs);
+      await this.eventEmitter.emitStepFinished(
+        runId,
+        node.id,
+        stepDurationMs,
+        undefined,
+        undefined,
+        undefined,
+        output
+      );
       await this.eventEmitter.emitRunLog(
         runId,
         handledError ? "warn" : "success",
@@ -1110,6 +1192,27 @@ export class RecipeExecutor {
       return { kind: "next", nodeId: currentNodeId };
     };
 
+    const buildRunResult = async (): Promise<Record<string, unknown>> => {
+      if (!lastScreenshotPath) {
+        await captureAutoScreenshot("final");
+      }
+
+      const isClosed = typeof page.isClosed === "function" && page.isClosed();
+      const finalUrl = !isClosed && typeof page.url === "function" ? page.url() : undefined;
+      const finalTitle =
+        !isClosed && typeof page.title === "function"
+          ? await page.title().catch(() => undefined)
+          : undefined;
+
+      return {
+        final_url: finalUrl && finalUrl !== "about:blank" ? finalUrl : undefined,
+        final_title: finalTitle || undefined,
+        outputs: execContext.stepResults,
+        counters: { ...runCounters },
+        last_screenshot_path: lastScreenshotPath,
+      };
+    };
+
     try {
       const outcome = await runChain(recipe.entry);
 
@@ -1122,6 +1225,7 @@ export class RecipeExecutor {
       }
 
       const totalDuration = Date.now() - startTime;
+      const runResult = await buildRunResult();
       await this.eventEmitter.emitRunLog(
         runId,
         "success",
@@ -1130,7 +1234,7 @@ export class RecipeExecutor {
         "runner",
         { scope: "run", status: "success", duration_ms: totalDuration, ...runCounters }
       );
-      await this.eventEmitter.emitRunFinished(runId, "success", totalDuration);
+      await this.eventEmitter.emitRunFinished(runId, "success", totalDuration, undefined, runResult);
       await this.eventEmitter.emitRunLog(
         runId,
         "success",
@@ -1148,6 +1252,7 @@ export class RecipeExecutor {
     } catch (fatalError: unknown) {
       const totalDuration = Date.now() - startTime;
       const fatalMsg = fatalError instanceof Error ? fatalError.message : String(fatalError);
+      const runResult = await buildRunResult();
 
       await this.eventEmitter.emitRunLog(
         runId,
@@ -1157,7 +1262,7 @@ export class RecipeExecutor {
         "runner",
         { scope: "run", status: "failed", duration_ms: totalDuration, ...runCounters }
       );
-      await this.eventEmitter.emitRunFinished(runId, "failed", totalDuration, fatalMsg);
+      await this.eventEmitter.emitRunFinished(runId, "failed", totalDuration, fatalMsg, runResult);
       await this.eventEmitter.emitRunLog(
         runId,
         "error",

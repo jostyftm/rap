@@ -21,6 +21,7 @@ class RunStep extends Model
         'retries',
         'duration_ms',
         'screenshot_path',
+        'output',
         'error_message',
     ];
 
@@ -29,6 +30,7 @@ class RunStep extends Model
         return [
             'retries' => 'integer',
             'duration_ms' => 'integer',
+            'output' => 'array',
         ];
     }
 

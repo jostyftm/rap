@@ -34,6 +34,7 @@ import {
   X,
   UploadCloud,
   History,
+  Activity,
   FileDown,
   FileUp,
 } from "lucide-react";
@@ -123,6 +124,8 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
   const recipeId = useRecipeStore((s) => s.recipeId);
   const definition = useRecipeStore((s) => s.definition);
   const startRun = useRecipeStore((s) => s.startRun);
+  const setConsoleOpen = useRecipeStore((s) => s.setConsoleOpen);
+  const setConsoleTab = useRecipeStore((s) => s.setConsoleTab);
   const runId = useRecipeStore((s) => s.runId);
   const runStatus = useRecipeStore((s) => s.runStatus);
   const runControlState = useRecipeStore((s) => s.runControlState);
@@ -272,7 +275,7 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
           method: "POST",
           body: JSON.stringify({
             parameters,
-            use_draft: true,
+            use_draft: editorMode !== "published",
             options: {
               display: displayMode,
               slow_mo_ms: slowMoMs,
@@ -515,6 +518,24 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
               >
                 <History className="w-3 h-3 text-zinc-400" />
                 <span className="hidden lg:inline">Historial</span>
+              </button>
+
+              {/* Botón Ejecuciones */}
+              <button
+                type="button"
+                onClick={() => {
+                  setConsoleTab("executions");
+                  setConsoleOpen(true);
+                }}
+                title="Ver historial de ejecuciones, logs paso a paso y resultados"
+                className="flex items-center space-x-1 px-2 py-1 rounded-md bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 text-[11px] font-mono transition-colors cursor-pointer"
+              >
+                <Activity
+                  className={`w-3 h-3 ${
+                    runStatus === "running" ? "text-emerald-400 animate-pulse" : "text-zinc-400"
+                  }`}
+                />
+                <span className="hidden lg:inline">Ejecuciones</span>
               </button>
             </div>
 

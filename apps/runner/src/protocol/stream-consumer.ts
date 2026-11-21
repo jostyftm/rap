@@ -94,7 +94,15 @@ export class RedisStreamConsumer {
         return;
       }
 
-      console.log(`[StreamConsumer] Comando recibido: ${data.command} (id: ${commandId})`);
+      const extra = [
+        data.run_id ? `run: ${data.run_id}` : "",
+        data.trigger ? `trigger: ${data.trigger}` : "",
+      ]
+        .filter(Boolean)
+        .join(", ");
+      console.log(
+        `[StreamConsumer] Comando recibido: ${data.command} (id: ${commandId}${extra ? `, ${extra}` : ""})`
+      );
 
       await this.dispatch(data, executor, recorder);
       await this.redis.set(dedupeKey, "1", "EX", COMMAND_TTL_SECONDS);

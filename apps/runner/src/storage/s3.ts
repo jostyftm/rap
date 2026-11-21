@@ -13,12 +13,27 @@ const s3Client = new S3Client({
     secretAccessKey: S3_SECRET_KEY,
   },
   forcePathStyle: true,
+  maxAttempts: 2,
 });
 
 let bucketChecked = false;
+let s3UnavailableUntil = 0;
+const S3_CONNECTION_COOLDOWN_MS = 5000;
+const CONNECTION_ERROR_CODES = new Set([
+  "ECONNREFUSED",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNRESET",
+  "ETIMEDOUT",
+]);
+
+function isConnectionError(error: any): boolean {
+  const code = error?.code || error?.cause?.code;
+  return typeof code === "string" && CONNECTION_ERROR_CODES.has(code);
+}
 
 export async function ensureBucket(): Promise<void> {
-  if (bucketChecked) return;
+  if (bucketChecked || Date.now() < s3UnavailableUntil) return;
   try {
     await s3Client.send(new CreateBucketCommand({ Bucket: S3_BUCKET }));
     bucketChecked = true;
@@ -31,17 +46,28 @@ export async function ensureBucket(): Promise<void> {
       bucketChecked = true;
       return;
     }
+    if (isConnectionError(error)) {
+      s3UnavailableUntil = Date.now() + S3_CONNECTION_COOLDOWN_MS;
+    }
     // Si no está disponible aún, reintentará en la siguiente subida
   }
 }
 
-export async function uploadArtifact(
+export async function uploadArtifactWithStatus(
   key: string,
   body: Buffer | Uint8Array | string,
   contentType = "image/png"
-): Promise<string> {
+): Promise<{ key: string; uploaded: boolean }> {
+  if (Date.now() < s3UnavailableUntil) {
+    return { key, uploaded: false };
+  }
+
   try {
     await ensureBucket();
+    if (Date.now() < s3UnavailableUntil) {
+      return { key, uploaded: false };
+    }
+
     await s3Client.send(
       new PutObjectCommand({
         Bucket: S3_BUCKET,
@@ -50,9 +76,21 @@ export async function uploadArtifact(
         ContentType: contentType,
       })
     );
-    return key;
+    return { key, uploaded: true };
   } catch (error) {
+    if (isConnectionError(error)) {
+      s3UnavailableUntil = Date.now() + S3_CONNECTION_COOLDOWN_MS;
+    }
     console.error(`[S3] Error subiendo artefacto ${key}:`, error);
-    return key; // Retornar la clave incluso si S3 no está disponible en testing local
+    return { key, uploaded: false };
   }
+}
+
+export async function uploadArtifact(
+  key: string,
+  body: Buffer | Uint8Array | string,
+  contentType = "image/png"
+): Promise<string> {
+  const { key: resolvedKey } = await uploadArtifactWithStatus(key, body, contentType);
+  return resolvedKey; // Retornar la clave incluso si S3 no está disponible en testing local
 }

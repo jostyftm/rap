@@ -47,7 +47,10 @@ export interface CustomNodeData extends Record<string, unknown> {
 export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selected?: boolean }) {
   const nodeData = data;
   const runningNodeId = useRecipeStore((s) => s.runningNodeId);
-  const isRunning = runningNodeId === nodeData.id;
+  const execStatus = useRecipeStore((s) => s.nodeExecStatuses[nodeData.id]);
+  const execDuration = useRecipeStore((s) => s.nodeExecDurations[nodeData.id]);
+  const execError = useRecipeStore((s) => s.nodeExecErrors[nodeData.id]);
+  const isRunning = runningNodeId === nodeData.id || execStatus === "running";
   const isArmed = useLiveStore((s) => s.armedNodeId === nodeData.id);
   const [isQuickTesting, setIsQuickTesting] = React.useState(false);
   const [isPreviewZoomOpen, setIsPreviewZoomOpen] = React.useState(false);
@@ -81,6 +84,10 @@ export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selec
           ? "opacity-50 grayscale"
           : isRunning
           ? "border-amber-400 ring-2 ring-amber-400/20"
+          : execStatus === "error"
+          ? "border-rose-500/80 ring-1 ring-rose-500/20"
+          : execStatus === "success"
+          ? "border-emerald-500/70 ring-1 ring-emerald-500/15"
           : selected
           ? "border-zinc-300 ring-1 ring-zinc-300/30"
           : "border-zinc-800 hover:border-zinc-700"
@@ -284,6 +291,25 @@ export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selec
             <Crosshair className="w-3.5 h-3.5" />
             <span>{isArmed ? "Seleccionando en el sitio…" : "Inspeccionar elemento"}</span>
           </button>
+        )}
+
+        {/* Indicador de resultado de ejecución del paso */}
+        {(execStatus === "success" || execStatus === "error") && (
+          <div
+            className={`flex items-center justify-between px-1.5 py-1 rounded text-[10px] font-mono border ${
+              execStatus === "error"
+                ? "bg-rose-950/40 border-rose-500/30 text-rose-300"
+                : "bg-emerald-950/30 border-emerald-500/25 text-emerald-300"
+            }`}
+            title={execError || undefined}
+          >
+            <span className="truncate">
+              {execStatus === "error" ? `✗ ${execError || "Error"}` : "✓ Ejecutado"}
+            </span>
+            {typeof execDuration === "number" && (
+              <span className="shrink-0 ml-1 text-zinc-400">{execDuration}ms</span>
+            )}
+          </div>
         )}
 
         {/* Indicador de error de validación */}

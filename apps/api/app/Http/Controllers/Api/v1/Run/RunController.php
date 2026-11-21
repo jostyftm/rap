@@ -11,6 +11,8 @@ use App\Models\Recipe;
 use App\Models\Run;
 use App\Services\RunService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 
 class RunController extends Controller
@@ -18,6 +20,25 @@ class RunController extends Controller
     public function __construct(
         private RunService $runService
     ) {}
+
+    /**
+     * List recent executions for a recipe
+     */
+    public function index(Request $request, Recipe $recipe): AnonymousResourceCollection
+    {
+        $trigger = $request->query('trigger');
+        $status = $request->query('status');
+        $limit = (int) $request->query('limit', 25);
+
+        $runs = $this->runService->listForRecipe(
+            recipe: $recipe,
+            trigger: is_string($trigger) ? $trigger : null,
+            status: is_string($status) ? $status : null,
+            limit: $limit
+        );
+
+        return RunResource::collection($runs);
+    }
 
     /**
      * Dispatch a deterministic run for a recipe

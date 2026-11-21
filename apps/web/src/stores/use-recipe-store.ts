@@ -15,6 +15,7 @@ export type EditorView = "canvas" | "steps" | "code";
 
 export interface ExecutionLog {
   id: string;
+  dbId?: number | string;
   timestamp: string;
   level: "info" | "warn" | "error" | "success";
   message: string;
@@ -28,7 +29,22 @@ export interface ExecutionScreenshot {
   nodeId: string;
   timestamp: string;
   url: string;
+  artifactKey?: string;
 }
+
+export interface ExecutionStepRecord {
+  nodeId: string;
+  status: "pending" | "running" | "success" | "failed" | "skipped";
+  durationMs?: number | null;
+  locatorStrategy?: string | null;
+  locatorValue?: string | null;
+  output?: unknown;
+  screenshotPath?: string | null;
+  screenshotUrl?: string | null;
+  errorMessage?: string | null;
+}
+
+export type ConsoleTab = "executions" | "result" | "logs" | "screenshots";
 
 export interface RecipeStoreState {
   recipeId: string | null;
@@ -67,6 +83,16 @@ export interface RecipeStoreState {
   runningNodeId: string | null;
   logs: ExecutionLog[];
   screenshots: ExecutionScreenshot[];
+  runTrigger: string | null;
+  runVersion: number | null;
+  runIsDraft: boolean;
+  runParameters: Record<string, unknown> | null;
+  runResult: Record<string, unknown> | null;
+  runDurationMs: number | null;
+  runErrorMessage: string | null;
+  runSteps: ExecutionStepRecord[];
+  consoleOpen: boolean;
+  consoleTab: ConsoleTab;
 
   // Métricas y estado por nodo individual
   nodeExecStatuses: Record<string, "idle" | "running" | "success" | "error">;
@@ -167,10 +193,39 @@ export interface RecipeStoreState {
 
   // Control de Ejecución
   startRun: (runId: string) => void;
+  setConsoleOpen: (open: boolean) => void;
+  setConsoleTab: (tab: ConsoleTab) => void;
+  attachRun: (
+    runId: string,
+    opts?: {
+      trigger?: string | null;
+      version?: number | null;
+      isDraft?: boolean;
+      status?: "running" | "success" | "failed";
+      controlState?: "idle" | "running" | "paused" | "stopping" | "waiting";
+      openConsole?: boolean;
+      consoleTab?: ConsoleTab;
+      initialMessage?: string;
+    }
+  ) => void;
+  setRunMeta: (meta: {
+    trigger?: string | null;
+    version?: number | null;
+    isDraft?: boolean;
+    parameters?: Record<string, unknown> | null;
+    result?: Record<string, unknown> | null;
+    durationMs?: number | null;
+    errorMessage?: string | null;
+    status?: "idle" | "running" | "success" | "failed";
+    controlState?: "idle" | "running" | "paused" | "stopping" | "waiting";
+  }) => void;
+  upsertRunStep: (step: ExecutionStepRecord) => void;
+  hydrateRunLogs: (entries: ExecutionLog[]) => void;
+  hydrateRunScreenshots: (items: Array<Omit<ExecutionScreenshot, "id" | "timestamp"> & { timestamp?: string }>) => void;
   setRunningNodeId: (nodeId: string | null) => void;
   setRunControlState: (state: "idle" | "running" | "paused" | "stopping" | "waiting") => void;
   addLog: (log: Omit<ExecutionLog, "id" | "timestamp">) => void;
-  addScreenshot: (screenshot: Omit<ExecutionScreenshot, "id" | "timestamp">) => void;
+  addScreenshot: (screenshot: Omit<ExecutionScreenshot, "id" | "timestamp"> & { timestamp?: string }) => void;
   finishRun: (status: "success" | "failed", errorMessage?: string) => void;
   clearRunState: () => void;
 
@@ -294,6 +349,16 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   runningNodeId: null,
   logs: [],
   screenshots: [],
+  runTrigger: null,
+  runVersion: null,
+  runIsDraft: false,
+  runParameters: null,
+  runResult: null,
+  runDurationMs: null,
+  runErrorMessage: null,
+  runSteps: [],
+  consoleOpen: false,
+  consoleTab: "logs",
 
   nodeExecStatuses: {},
   nodeExecDurations: {},
@@ -462,6 +527,14 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       runningNodeId: null,
       logs: [],
       screenshots: [],
+      runTrigger: null,
+      runVersion: null,
+      runIsDraft: false,
+      runParameters: null,
+      runResult: null,
+      runDurationMs: null,
+      runErrorMessage: null,
+      runSteps: [],
       nodeExecStatuses: {},
       nodeExecDurations: {},
       nodeExecErrors: {},
@@ -1054,17 +1127,219 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
     }
   },
 
+  setConsoleOpen: (consoleOpen) => set({ consoleOpen }),
+  setConsoleTab: (consoleTab) => set({ consoleTab }),
+
+  attachRun: (runId, opts) => {
+    const nextStatus = opts?.status ?? "running";
+    const nextControl =
+      opts?.controlState ?? (nextStatus === "running" ? "running" : "idle");
+    const initialLogs: ExecutionLog[] = opts?.initialMessage
+      ? [
+          {
+            id: Math.random().toString(36).substring(2, 9),
+            timestamp: new Date().toLocaleTimeString(),
+            level: "info",
+            source: "runner",
+            message: opts.initialMessage,
+          },
+        ]
+      : [];
+
+    set((state) => ({
+      runId,
+      runStatus: nextStatus,
+      runControlState: nextControl,
+      runningNodeId: null,
+      logs: initialLogs,
+      screenshots: [],
+      runTrigger: opts?.trigger ?? null,
+      runVersion: opts?.version ?? null,
+      runIsDraft: opts?.isDraft ?? false,
+      runParameters: null,
+      runResult: null,
+      runDurationMs: null,
+      runErrorMessage: null,
+      runSteps: [],
+      nodeExecStatuses: {},
+      nodeExecDurations: {},
+      nodeExecErrors: {},
+      nodeOutputs: {},
+      consoleOpen: opts?.openConsole !== undefined ? opts.openConsole : true,
+      consoleTab: opts?.consoleTab ?? state.consoleTab,
+    }));
+  },
+
+  setRunMeta: (meta) => {
+    set((state) => ({
+      runTrigger: meta.trigger !== undefined ? meta.trigger : state.runTrigger,
+      runVersion: meta.version !== undefined ? meta.version : state.runVersion,
+      runIsDraft: meta.isDraft !== undefined ? meta.isDraft : state.runIsDraft,
+      runParameters: meta.parameters !== undefined ? meta.parameters : state.runParameters,
+      runResult: meta.result !== undefined ? meta.result : state.runResult,
+      runDurationMs: meta.durationMs !== undefined ? meta.durationMs : state.runDurationMs,
+      runErrorMessage:
+        meta.errorMessage !== undefined ? meta.errorMessage : state.runErrorMessage,
+      runStatus: meta.status !== undefined ? meta.status : state.runStatus,
+      runControlState:
+        meta.controlState !== undefined ? meta.controlState : state.runControlState,
+    }));
+  },
+
+  upsertRunStep: (step) => {
+    set((state) => {
+      const idx = state.runSteps.findIndex((s) => s.nodeId === step.nodeId);
+      const existing = idx >= 0 ? state.runSteps[idx] : undefined;
+      const merged: ExecutionStepRecord = {
+        nodeId: step.nodeId,
+        status: step.status,
+        durationMs: step.durationMs !== undefined ? step.durationMs : existing?.durationMs,
+        locatorStrategy:
+          step.locatorStrategy !== undefined
+            ? step.locatorStrategy
+            : existing?.locatorStrategy,
+        locatorValue:
+          step.locatorValue !== undefined ? step.locatorValue : existing?.locatorValue,
+        output: step.output !== undefined ? step.output : existing?.output,
+        screenshotPath:
+          step.screenshotPath !== undefined
+            ? step.screenshotPath
+            : existing?.screenshotPath,
+        screenshotUrl:
+          step.screenshotUrl !== undefined ? step.screenshotUrl : existing?.screenshotUrl,
+        errorMessage:
+          step.errorMessage !== undefined
+            ? step.errorMessage
+            : step.status === "running" || step.status === "success"
+            ? null
+            : existing?.errorMessage,
+      };
+
+      const nextSteps = [...state.runSteps];
+      if (idx >= 0) {
+        nextSteps[idx] = merged;
+      } else {
+        nextSteps.push(merged);
+      }
+
+      const mappedExecStatus: "idle" | "running" | "success" | "error" =
+        merged.status === "failed"
+          ? "error"
+          : merged.status === "success"
+          ? "success"
+          : merged.status === "running"
+          ? "running"
+          : "idle";
+
+      const nextOutputs =
+        merged.output !== undefined
+          ? { ...state.nodeOutputs, [step.nodeId]: merged.output }
+          : state.nodeOutputs;
+
+      return {
+        runSteps: nextSteps,
+        nodeExecStatuses: {
+          ...state.nodeExecStatuses,
+          [step.nodeId]: mappedExecStatus,
+        },
+        nodeExecDurations:
+          typeof merged.durationMs === "number"
+            ? { ...state.nodeExecDurations, [step.nodeId]: merged.durationMs }
+            : state.nodeExecDurations,
+        nodeExecErrors:
+          merged.errorMessage
+            ? { ...state.nodeExecErrors, [step.nodeId]: merged.errorMessage }
+            : merged.status === "running" || merged.status === "success"
+            ? { ...state.nodeExecErrors, [step.nodeId]: "" }
+            : state.nodeExecErrors,
+        nodeOutputs: nextOutputs,
+      };
+    });
+  },
+
+  hydrateRunLogs: (entries) => {
+    set((state) => {
+      if (entries.length === 0) return state;
+
+      const makeKey = (entry: ExecutionLog) =>
+        `${entry.nodeId || ""}|${entry.level}|${entry.message}`;
+
+      const incomingCounts = new Map<string, number>();
+      for (const entry of entries) {
+        const k = makeKey(entry);
+        incomingCounts.set(k, (incomingCounts.get(k) || 0) + 1);
+      }
+
+      const retainedLocalLogs: ExecutionLog[] = [];
+      for (const log of state.logs) {
+        if (log.dbId !== undefined) continue;
+        const k = makeKey(log);
+        const remaining = incomingCounts.get(k) || 0;
+        if (remaining > 0) {
+          incomingCounts.set(k, remaining - 1);
+          continue;
+        }
+        retainedLocalLogs.push(log);
+      }
+
+      return {
+        logs: [...retainedLocalLogs, ...entries],
+      };
+    });
+  },
+
+  hydrateRunScreenshots: (items) => {
+    set((state) => {
+      if (items.length === 0) return state;
+      const next = [...state.screenshots];
+      const existingKeys = new Set(
+        next.map((s) => s.artifactKey || s.url.split("?")[0])
+      );
+      let changed = false;
+
+      for (const item of items) {
+        const key = item.artifactKey || item.url.split("?")[0];
+        if (existingKeys.has(key)) continue;
+        existingKeys.add(key);
+        next.push({
+          ...item,
+          artifactKey: key,
+          id: Math.random().toString(36).substring(2, 9),
+          timestamp: item.timestamp || new Date().toLocaleTimeString(),
+        });
+        changed = true;
+      }
+
+      return changed ? { screenshots: next } : state;
+    });
+  },
+
   startRun: (runId) => {
+    const state = get();
+    const isPublished = state.editorMode === "published";
     set({
       runId,
       runStatus: "running",
       runControlState: "running",
       runningNodeId: null,
+      runTrigger: "manual",
+      runVersion: isPublished ? (state.publishedVersion?.version ?? null) : 0,
+      runIsDraft: !isPublished,
+      runParameters: null,
+      runResult: null,
+      runDurationMs: null,
+      runErrorMessage: null,
+      runSteps: [],
+      nodeExecStatuses: {},
+      nodeExecDurations: {},
+      nodeExecErrors: {},
+      consoleOpen: true,
       logs: [
         {
           id: Math.random().toString(36).substring(2, 9),
           timestamp: new Date().toLocaleTimeString(),
           level: "info",
+          source: "runner",
           message: `Iniciando ejecución determinista ${runId}...`,
         },
       ],
@@ -1089,16 +1364,24 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
   },
 
   addScreenshot: (screenshot) => {
-    set((state) => ({
-      screenshots: [
-        ...state.screenshots,
-        {
-          ...screenshot,
-          id: Math.random().toString(36).substring(2, 9),
-          timestamp: new Date().toLocaleTimeString(),
-        },
-      ],
-    }));
+    const key = screenshot.artifactKey || screenshot.url.split("?")[0];
+    set((state) => {
+      const exists = state.screenshots.some(
+        (s) => (s.artifactKey || s.url.split("?")[0]) === key
+      );
+      if (exists) return state;
+      return {
+        screenshots: [
+          ...state.screenshots,
+          {
+            ...screenshot,
+            artifactKey: key,
+            id: Math.random().toString(36).substring(2, 9),
+            timestamp: screenshot.timestamp || new Date().toLocaleTimeString(),
+          },
+        ],
+      };
+    });
   },
 
   finishRun: (status, errorMessage) => {
@@ -1106,12 +1389,15 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       runStatus: status,
       runControlState: "idle",
       runningNodeId: null,
+      runErrorMessage:
+        errorMessage !== undefined ? errorMessage : state.runErrorMessage,
       logs: [
         ...state.logs,
         {
           id: Math.random().toString(36).substring(2, 9),
           timestamp: new Date().toLocaleTimeString(),
           level: status === "success" ? "success" : "error",
+          source: "runner",
           message:
             status === "success"
               ? "✓ Receta completada con éxito."
@@ -1131,6 +1417,17 @@ export const useRecipeStore = create<RecipeStoreState>((set, get) => ({
       runningNodeId: null,
       logs: [],
       screenshots: [],
+      runTrigger: null,
+      runVersion: null,
+      runIsDraft: false,
+      runParameters: null,
+      runResult: null,
+      runDurationMs: null,
+      runErrorMessage: null,
+      runSteps: [],
+      nodeExecStatuses: {},
+      nodeExecDurations: {},
+      nodeExecErrors: {},
       nodeOutputs: {},
     });
   },
