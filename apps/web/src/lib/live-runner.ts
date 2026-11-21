@@ -2,6 +2,7 @@ import type { RecipeDsl, RecipeNode } from "@rpa/dsl";
 import { useRecipeStore } from "../stores/use-recipe-store";
 import { useLiveStore } from "../stores/use-live-store";
 import { useLayoutStore } from "../stores/use-layout-store";
+import { testRecipeNode } from "./node-tester";
 
 let isSimulationPaused = false;
 let isSimulationStopped = false;
@@ -111,6 +112,26 @@ export async function runRecipeInLivePanel(
           }
           // Esperar un momento a que el frame/navegador cargue y la SPA inicialice parámetros
           await new Promise((r) => setTimeout(r, 2000));
+        }
+      } else if (
+        node.type === "javascript" ||
+        node.type === "httpRequest" ||
+        node.type === "respond"
+      ) {
+        const testRes = await testRecipeNode(node);
+        const duration = Date.now() - startTime;
+        if (!testRes.ok) {
+          throw new Error(testRes.error || `Error ejecutando nodo ${node.type}`);
+        }
+        recipeStore.addLog({
+          level: "success",
+          message: `Paso [${node.id}] completado en ${duration}ms`,
+          nodeId: node.id,
+        });
+        if (node.type === "respond" && node.params.terminateFlow !== false) {
+          visited.add(node.id);
+          currentNodeId = undefined;
+          continue;
         }
       } else {
         const result = await liveStore.exec(node);

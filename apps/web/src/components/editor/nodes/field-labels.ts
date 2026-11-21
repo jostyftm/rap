@@ -24,6 +24,16 @@ export const FIELD_LABELS: Record<string, string> = {
   "retry.backoff": "Tipo de espera entre intentos",
   "params.y": "Desplazamiento vertical (Y)",
   "params.x": "Desplazamiento horizontal (X)",
+  "params.code": "Código JavaScript",
+  "params.mode": "Modo de ejecución",
+  "params.outputVariable": "Variable de salida",
+  "params.responseType": "Tipo de respuesta",
+  "params.statusCode": "Código HTTP",
+  "params.redirectUrl": "URL de redirección",
+  "params.method": "Método HTTP",
+  "params.bodyType": "Tipo de cuerpo (Body)",
+  "params.responseMode": "Modo de respuesta del webhook",
+  "params.responseTimeoutMs": "Tiempo máximo de espera (ms)",
 };
 
 export function getFieldLabel(field: string): string {

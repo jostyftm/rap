@@ -7,10 +7,13 @@ import { waitForHandler } from "./wait-for.handler.js";
 import { extractHandler } from "./extract.handler.js";
 import { screenshotHandler } from "./screenshot.handler.js";
 import { setVariableHandler } from "./set-variable.handler.js";
+import { javascriptHandler } from "./javascript.handler.js";
 import { conditionHandler } from "./condition.handler.js";
 import { loopHandler } from "./loop.handler.js";
 import { scrollHandler } from "./scroll.handler.js";
 import { webhookHandler } from "./webhook.handler.js";
+import { respondHandler } from "./respond.handler.js";
+import { httpRequestHandler } from "./http-request.handler.js";
 import { tryCatchHandler } from "./try-catch.handler.js";
 
 export * from "./types.js";
@@ -23,10 +26,13 @@ export { waitForHandler } from "./wait-for.handler.js";
 export { extractHandler } from "./extract.handler.js";
 export { screenshotHandler } from "./screenshot.handler.js";
 export { setVariableHandler } from "./set-variable.handler.js";
+export { javascriptHandler } from "./javascript.handler.js";
 export { conditionHandler } from "./condition.handler.js";
 export { loopHandler } from "./loop.handler.js";
 export { scrollHandler } from "./scroll.handler.js";
 export { webhookHandler } from "./webhook.handler.js";
+export { respondHandler } from "./respond.handler.js";
+export { httpRequestHandler } from "./http-request.handler.js";
 export { tryCatchHandler } from "./try-catch.handler.js";
 
 export const defaultActionRegistry = new ActionHandlerRegistry()
@@ -38,8 +44,11 @@ export const defaultActionRegistry = new ActionHandlerRegistry()
   .register(extractHandler)
   .register(screenshotHandler)
   .register(setVariableHandler)
+  .register(javascriptHandler)
   .register(conditionHandler)
   .register(loopHandler)
   .register(scrollHandler)
   .register(webhookHandler)
+  .register(respondHandler)
+  .register(httpRequestHandler)
   .register(tryCatchHandler);

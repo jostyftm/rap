@@ -10,7 +10,15 @@ import { useLayoutStore } from "../../stores/use-layout-store";
 import { testRecipeNode } from "@/lib/node-tester";
 
 const TARGET_TYPES = ["click", "type", "select", "extract", "scroll"];
-const LOGIC_TYPES = ["webhook", "setVariable", "condition", "loop"];
+const LOGIC_TYPES = [
+  "webhook",
+  "respond",
+  "httpRequest",
+  "setVariable",
+  "javascript",
+  "condition",
+  "loop",
+];
 
 /**
  * Herramientas del nodo seleccionado sobre el sitio en vivo o en memoria:

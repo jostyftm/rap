@@ -9,6 +9,7 @@ use App\Http\Resources\Run\RunResource;
 use App\Models\Recipe;
 use App\Models\Run;
 use App\Services\RunService;
+use App\Services\WebhookResponseWaiter;
 use App\Services\WebhookRunDelivery;
 use App\Support\WebhookPath;
 use App\Support\WebhookPayload;
@@ -16,12 +17,14 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class WebhookTriggerController extends Controller
 {
     public function __construct(
         private RunService $runService,
-        private WebhookRunDelivery $webhookRuns
+        private WebhookRunDelivery $webhookRuns,
+        private WebhookResponseWaiter $responseWaiter
     ) {}
 
     /**
@@ -72,13 +75,13 @@ class WebhookTriggerController extends Controller
     /**
      * Endpoint público siempre activo para recetas publicadas cuyo nodo inicial es un webhook (/api/v1/webhooks/{path}).
      */
-    public function triggerByPath(Request $request, string $path): Response|JsonResponse
+    public function triggerByPath(Request $request, string $path): SymfonyResponse
     {
         $prodPath = WebhookPath::productionPath($path);
         $requestMethod = strtoupper($request->method());
 
         $candidates = Recipe::query()
-            ->with('publishedVersion')
+            ->with(['publishedVersion', 'project'])
             ->where('status', 'active')
             ->whereNotNull('published_version_id')
             ->where('published_webhook_path', $prodPath)
@@ -149,6 +152,23 @@ class WebhookTriggerController extends Controller
             $runUuid = $run->uuid;
         }
 
+        $baseHeaders = [
+            'X-RPA-Run-Id' => $runUuid,
+            'X-RPA-Recipe-Version' => (string) ($recipe->publishedVersion?->version ?? ''),
+        ];
+
+        $responseMode = (string) ($node['params']['responseMode'] ?? 'immediate');
+        $responseTimeoutMs = (int) ($node['params']['responseTimeoutMs'] ?? 30_000);
+
+        if ($responseMode === 'lastNode' || $responseMode === 'respondNode') {
+            return $this->responseWaiter->waitAndBuildResponse(
+                runUuid: $runUuid,
+                timeoutMs: $responseTimeoutMs,
+                baseHeaders: $baseHeaders,
+                workspaceId: $recipe->project?->workspace_id
+            );
+        }
+
         $rawCode = (int) ($node['params']['responseCode'] ?? 200);
         $statusCode = max(100, min(599, $rawCode));
         $rawBody = isset($node['params']['responseBody']) ? trim((string) $node['params']['responseBody']) : '';
@@ -160,10 +180,21 @@ class WebhookTriggerController extends Controller
                 'status' => 'queued',
             ], JSON_UNESCAPED_SLASHES);
 
-        $headers = [
-            'X-RPA-Run-Id' => $runUuid,
-            'X-RPA-Recipe-Version' => (string) ($recipe->publishedVersion?->version ?? ''),
-        ];
+        $headers = [];
+        $configuredHeaders = is_array($node['params']['responseHeaders'] ?? null)
+            ? $node['params']['responseHeaders']
+            : [];
+        foreach ($configuredHeaders as $pair) {
+            if (! is_array($pair) || ($pair['enabled'] ?? true) === false) {
+                continue;
+            }
+            $hKey = trim((string) ($pair['key'] ?? ''));
+            if ($hKey !== '') {
+                $headers[$hKey] = (string) ($pair['value'] ?? '');
+            }
+        }
+        $headers = array_merge($headers, $baseHeaders);
+
         if (json_validate($responseBody)) {
             $headers['Content-Type'] = 'application/json';
         }

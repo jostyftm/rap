@@ -184,6 +184,27 @@ const SetVariableNodeSchema = BaseNodeSchema.extend({
   }),
 });
 
+const JavascriptNodeSchema = BaseNodeSchema.extend({
+  type: z.literal("javascript"),
+  params: z.object({
+    code: z
+      .string()
+      .refine((v) => v.trim().length > 0, "El código JavaScript es obligatorio"),
+    mode: z.enum(["sandbox", "browser"]).default("sandbox"),
+    outputVariable: z
+      .union([
+        z.literal(""),
+        z
+          .string()
+          .regex(
+            /^[a-zA-Z_][a-zA-Z0-9_]*$/,
+            "El nombre de variable debe ser un identificador válido"
+          ),
+      ])
+      .optional(),
+  }),
+});
+
 const ConditionNodeSchema = BaseNodeSchema.extend({
   type: z.literal("condition"),
   params: z.object({
@@ -223,6 +244,37 @@ const ScrollNodeSchema = BaseNodeSchema.extend({
   }),
 });
 
+const KeyValuePairSchema = z.object({
+  key: z.string(),
+  value: z.string(),
+  enabled: z.boolean().default(true),
+});
+
+const HttpMultipartFieldSchema = z.object({
+  key: z.string(),
+  value: z.string(),
+  fieldType: z.enum(["text", "fileBase64"]).default("text"),
+  filename: z.string().optional(),
+  contentType: z.string().optional(),
+  enabled: z.boolean().default(true),
+});
+
+const HttpAuthConfigSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("none") }),
+  z.object({ type: z.literal("bearer"), token: z.string() }),
+  z.object({
+    type: z.literal("basic"),
+    username: z.string(),
+    password: z.string(),
+  }),
+  z.object({
+    type: z.literal("apiKey"),
+    keyName: z.string(),
+    keyValue: z.string(),
+    in: z.enum(["header", "query"]).default("header"),
+  }),
+]);
+
 const WebhookNodeSchema = BaseNodeSchema.extend({
   type: z.literal("webhook"),
   params: z.object({
@@ -233,6 +285,76 @@ const WebhookNodeSchema = BaseNodeSchema.extend({
     outputVariable: z.string().default("webhook"),
     responseCode: z.number().int().min(100).max(599).default(200),
     responseBody: z.string().optional(),
+    responseMode: z
+      .enum(["immediate", "lastNode", "respondNode"])
+      .default("immediate"),
+    responseTimeoutMs: z.number().int().min(1000).max(120000).optional(),
+    responseHeaders: z.array(KeyValuePairSchema).optional(),
+  }),
+});
+
+const RespondNodeSchema = BaseNodeSchema.extend({
+  type: z.literal("respond"),
+  params: z.object({
+    responseType: z.enum([
+      "json",
+      "text",
+      "html",
+      "xml",
+      "binary",
+      "redirect",
+      "empty",
+    ]),
+    statusCode: z.number().int().min(100).max(599).optional(),
+    body: z.string().optional(),
+    redirectUrl: z.string().optional(),
+    contentType: z.string().optional(),
+    filename: z.string().optional(),
+    headers: z.array(KeyValuePairSchema).optional(),
+    terminateFlow: z.boolean().default(true),
+  }),
+});
+
+const HttpRequestNodeSchema = BaseNodeSchema.extend({
+  type: z.literal("httpRequest"),
+  params: z.object({
+    method: z
+      .enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
+      .default("GET"),
+    url: z
+      .string()
+      .refine((v) => v.trim().length > 0, "La URL de la petición es obligatoria"),
+    pathParams: z.array(KeyValuePairSchema).optional(),
+    queryParams: z.array(KeyValuePairSchema).optional(),
+    headers: z.array(KeyValuePairSchema).optional(),
+    auth: HttpAuthConfigSchema.optional(),
+    bodyType: z
+      .enum(["none", "json", "formUrlEncoded", "multipart", "raw", "binary"])
+      .default("none"),
+    bodyJson: z.string().optional(),
+    bodyForm: z.array(KeyValuePairSchema).optional(),
+    bodyMultipart: z.array(HttpMultipartFieldSchema).optional(),
+    bodyRaw: z.string().optional(),
+    rawContentType: z.string().optional(),
+    bodyBinaryBase64: z.string().optional(),
+    binaryContentType: z.string().optional(),
+    responseType: z
+      .enum(["auto", "json", "text", "xml", "binary", "headersOnly"])
+      .default("auto"),
+    timeoutMs: z.number().int().min(500).max(300000).optional(),
+    followRedirects: z.boolean().default(true),
+    failOnHttpError: z.boolean().default(true),
+    outputVariable: z
+      .union([
+        z.literal(""),
+        z
+          .string()
+          .regex(
+            /^[a-zA-Z_][a-zA-Z0-9_]*$/,
+            "El nombre de variable debe ser un identificador válido"
+          ),
+      ])
+      .optional(),
   }),
 });
 
@@ -256,10 +378,13 @@ const RecipeNodeSchema = z.discriminatedUnion("type", [
   ExtractNodeSchema,
   ScreenshotNodeSchema,
   SetVariableNodeSchema,
+  JavascriptNodeSchema,
   ConditionNodeSchema,
   LoopNodeSchema,
   ScrollNodeSchema,
   WebhookNodeSchema,
+  RespondNodeSchema,
+  HttpRequestNodeSchema,
   TryCatchNodeSchema,
 ]);
 
@@ -419,6 +544,18 @@ export const RecipeDslSchema = z
           code: z.ZodIssueCode.custom,
           path: ["nodes", nodeId, "next"],
           message: `El siguiente nodo '${node.next}' no existe en el catálogo`,
+        });
+      }
+
+      if (
+        node.type === "respond" &&
+        node.params.responseType === "redirect" &&
+        !(node.params.redirectUrl && node.params.redirectUrl.trim().length > 0)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["nodes", nodeId, "params", "redirectUrl"],
+          message: "La URL de redirección es obligatoria cuando responseType es 'redirect'",
         });
       }
 

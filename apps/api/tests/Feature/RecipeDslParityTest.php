@@ -359,3 +359,123 @@ it('crea una receta con el DSL inicial y la devuelve en el listado', function ()
         ->assertOk()
         ->assertJsonPath('data.latest_version.definition.entry', 'step_navigate');
 });
+
+it('acepta y persiste nodos javascript en modo sandbox y browser y rechaza código vacío o modo inválido', function () {
+    $validator = app(DslValidator::class);
+
+    $validSandbox = dslParityRecipe([
+        'js_1' => dslParityNode('js_1', 'javascript', [
+            'mode' => 'sandbox',
+            'outputVariable' => 'resultadoJs',
+            'code' => 'return { ok: true };',
+        ]),
+    ], 'js_1');
+
+    $validBrowser = dslParityRecipe([
+        'js_2' => dslParityNode('js_2', 'javascript', [
+            'mode' => 'browser',
+            'code' => 'return document.title;',
+        ]),
+    ], 'js_2');
+
+    $invalidEmptyCode = dslParityRecipe([
+        'js_bad' => dslParityNode('js_bad', 'javascript', [
+            'mode' => 'sandbox',
+            'code' => '',
+        ]),
+    ], 'js_bad');
+
+    $invalidMode = dslParityRecipe([
+        'js_bad_mode' => dslParityNode('js_bad_mode', 'javascript', [
+            'mode' => 'eval_host',
+            'code' => 'return 1;',
+        ]),
+    ], 'js_bad_mode');
+
+    expect($validator->validate($validSandbox))->toBe([])
+        ->and($validator->validate($validBrowser))->toBe([])
+        ->and($validator->validate($invalidEmptyCode))->not->toBeEmpty()
+        ->and($validator->validate($invalidMode))->not->toBeEmpty();
+
+    $user = User::factory()->create();
+    $workspace = Workspace::create(['name' => 'JS Paridad', 'slug' => 'js-paridad']);
+    $workspace->members()->attach($user->id, ['role' => Role::Owner->value]);
+    $project = $workspace->projects()->create(['name' => 'Proyecto JS']);
+
+    Sanctum::actingAs($user);
+
+    $this->postJson("/api/v1/projects/{$project->uuid}/recipes", [
+        'name' => 'Receta JavaScript',
+        'definition' => $validSandbox,
+    ])->assertCreated()
+        ->assertJsonPath('data.latest_version.definition.nodes.js_1.type', 'javascript');
+});
+
+it('acepta y persiste nodos respond y httpRequest y rechaza parámetros inválidos', function () {
+    $validator = app(DslValidator::class);
+
+    $validFlow = dslParityRecipe([
+        'hook_1' => array_merge(
+            dslParityNode('hook_1', 'webhook', [
+                'httpMethod' => 'POST',
+                'path' => '/api/v1/webhooks/http-parity',
+                'responseMode' => 'respondNode',
+                'responseTimeoutMs' => 15000,
+            ]),
+            ['next' => 'http_1']
+        ),
+        'http_1' => array_merge(
+            dslParityNode('http_1', 'httpRequest', [
+                'method' => 'POST',
+                'url' => 'https://api.example.com/v1/orders/:id',
+                'pathParams' => [['key' => 'id', 'value' => '10', 'enabled' => true]],
+                'queryParams' => [['key' => 'debug', 'value' => '1', 'enabled' => true]],
+                'headers' => [['key' => 'X-Test', 'value' => 'ok', 'enabled' => true]],
+                'auth' => ['type' => 'bearer', 'token' => '{{secret.API_TOKEN}}'],
+                'bodyType' => 'json',
+                'bodyJson' => '{"ok":true}',
+                'responseType' => 'json',
+                'outputVariable' => 'httpOut',
+            ]),
+            ['next' => 'resp_1']
+        ),
+        'resp_1' => dslParityNode('resp_1', 'respond', [
+            'responseType' => 'json',
+            'statusCode' => 200,
+            'body' => '{{steps.http_1.output.data}}',
+            'headers' => [['key' => 'X-Result', 'value' => 'done', 'enabled' => true]],
+            'terminateFlow' => true,
+        ]),
+    ], 'hook_1');
+
+    $invalidHttp = dslParityRecipe([
+        'http_bad' => dslParityNode('http_bad', 'httpRequest', [
+            'method' => 'BREW',
+            'url' => '',
+        ]),
+    ], 'http_bad');
+
+    $invalidRespond = dslParityRecipe([
+        'resp_bad' => dslParityNode('resp_bad', 'respond', [
+            'responseType' => 'audio_stream',
+        ]),
+    ], 'resp_bad');
+
+    expect($validator->validate($validFlow))->toBe([])
+        ->and($validator->validate($invalidHttp))->not->toBeEmpty()
+        ->and($validator->validate($invalidRespond))->not->toBeEmpty();
+
+    $user = User::factory()->create();
+    $workspace = Workspace::create(['name' => 'HTTP Respond Paridad', 'slug' => 'http-resp-'.uniqid()]);
+    $workspace->members()->attach($user->id, ['role' => Role::Owner->value]);
+    $project = $workspace->projects()->create(['name' => 'Proyecto HTTP Respond']);
+
+    Sanctum::actingAs($user);
+
+    $this->postJson("/api/v1/projects/{$project->uuid}/recipes", [
+        'name' => 'Receta HTTP y Respond',
+        'definition' => $validFlow,
+    ])->assertCreated()
+        ->assertJsonPath('data.latest_version.definition.nodes.http_1.type', 'httpRequest')
+        ->assertJsonPath('data.latest_version.definition.nodes.resp_1.type', 'respond');
+});

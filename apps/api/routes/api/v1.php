@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\Api\v1\Auth\AuthController;
 use App\Http\Controllers\Api\v1\Live\LiveSessionController;
 use App\Http\Controllers\Api\v1\Project\ProjectController;
+use App\Http\Controllers\Api\v1\Recipe\HttpNodeTestController;
 use App\Http\Controllers\Api\v1\Recipe\RecipeController;
 use App\Http\Controllers\Api\v1\Recipe\RecipeExportController;
 use App\Http\Controllers\Api\v1\Recipe\RecipePortabilityController;
@@ -80,6 +81,7 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function (): void {
     Route::get('recipes/{recipe}/export', [RecipePortabilityController::class, 'export']);
     Route::post('recipes/{recipe}/import', [RecipePortabilityController::class, 'importIntoDraft']);
     Route::get('recipes/{recipe}/export/playwright', [RecipeExportController::class, 'export']);
+    Route::post('recipes/{recipe}/http-test', [HttpNodeTestController::class, 'test']);
 
     // Programación de Recetas (Cron Schedules)
     Route::get('recipes/{recipe}/schedules', [RecipeScheduleController::class, 'index']);

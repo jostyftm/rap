@@ -311,6 +311,35 @@ export function exportToPlaywright(recipe: RecipeDsl, options: PlaywrightExportO
         break;
       }
 
+      case "javascript": {
+        const mode = node.params.mode || "sandbox";
+        const outVar = node.params.outputVariable?.trim();
+        const safeVarName = `jsResult_${node.id.replace(/[^a-zA-Z0-9_]/g, "_")}`;
+        const codeLines = node.params.code
+          .split("\n")
+          .map((line) => `  ${line}`)
+          .join("\n");
+
+        if (mode === "browser") {
+          nodeLines.push(`const ${safeVarName} = await page.evaluate(async ({ variables }) => {`);
+          for (const codeLine of codeLines.split("\n")) {
+            nodeLines.push(codeLine);
+          }
+          nodeLines.push(`}, { variables });`);
+        } else {
+          nodeLines.push(`const ${safeVarName} = await (async () => {`);
+          for (const codeLine of codeLines.split("\n")) {
+            nodeLines.push(codeLine);
+          }
+          nodeLines.push(`})();`);
+        }
+
+        if (outVar) {
+          nodeLines.push(`variables[${JSON.stringify(outVar)}] = ${safeVarName};`);
+        }
+        break;
+      }
+
       case "scroll": {
         const mode = node.params.mode || "element";
         const behavior = node.params.behavior || "smooth";
@@ -342,6 +371,124 @@ export function exportToPlaywright(recipe: RecipeDsl, options: PlaywrightExportO
         const varName = node.params.outputVariable || "webhook";
         nodeLines.push(`// Webhook trigger payload`);
         nodeLines.push(`variables[${JSON.stringify(varName)}] = variables[${JSON.stringify(varName)}] || {};`);
+        break;
+      }
+
+      case "httpRequest": {
+        const safeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
+        const outVar = node.params.outputVariable?.trim();
+        const method = node.params.method || "GET";
+        const urlVar = `httpUrl_${safeId}`;
+        const headersVar = `httpHeaders_${safeId}`;
+        const resVar = `httpRes_${safeId}`;
+        const dataVar = `httpData_${safeId}`;
+
+        nodeLines.push(`let ${urlVar} = ${JSON.stringify(node.params.url)};`);
+        for (const p of (node.params.pathParams || []).filter((item) => item.enabled !== false && item.key)) {
+          nodeLines.push(
+            `${urlVar} = ${urlVar}.replaceAll(${JSON.stringify(`:${p.key}`)}, encodeURIComponent(${JSON.stringify(p.value)})).replaceAll(${JSON.stringify(`{${p.key}}`)}, encodeURIComponent(${JSON.stringify(p.value)}));`
+          );
+        }
+        const queryUrlVar = `httpUrlObj_${safeId}`;
+        nodeLines.push(`const ${queryUrlVar} = new URL(${urlVar});`);
+        for (const q of (node.params.queryParams || []).filter((item) => item.enabled !== false && item.key)) {
+          nodeLines.push(
+            `${queryUrlVar}.searchParams.append(${JSON.stringify(q.key)}, ${JSON.stringify(q.value)});`
+          );
+        }
+        if (node.params.auth?.type === "apiKey" && node.params.auth.in === "query" && node.params.auth.keyName) {
+          nodeLines.push(
+            `${queryUrlVar}.searchParams.append(${JSON.stringify(node.params.auth.keyName)}, ${JSON.stringify(node.params.auth.keyValue)});`
+          );
+        }
+
+        const initHeaders: Record<string, string> = {};
+        for (const h of (node.params.headers || []).filter((item) => item.enabled !== false && item.key)) {
+          initHeaders[h.key] = h.value;
+        }
+        if (node.params.auth?.type === "bearer") {
+          initHeaders["Authorization"] = `Bearer ${node.params.auth.token}`;
+        } else if (node.params.auth?.type === "basic") {
+          const encoded = Buffer.from(`${node.params.auth.username}:${node.params.auth.password}`).toString("base64");
+          initHeaders["Authorization"] = `Basic ${encoded}`;
+        } else if (node.params.auth?.type === "apiKey" && node.params.auth.in === "header" && node.params.auth.keyName) {
+          initHeaders[node.params.auth.keyName] = node.params.auth.keyValue;
+        }
+
+        nodeLines.push(`const ${headersVar}: Record<string, string> = ${JSON.stringify(initHeaders)};`);
+
+        let bodyLine = "";
+        if (method !== "GET" && method !== "HEAD") {
+          const bodyType = node.params.bodyType || "none";
+          if (bodyType === "json" && node.params.bodyJson) {
+            nodeLines.push(`${headersVar}["Content-Type"] ??= "application/json";`);
+            bodyLine = `, body: ${JSON.stringify(node.params.bodyJson)}`;
+          } else if (bodyType === "formUrlEncoded") {
+            const formEntries = (node.params.bodyForm || [])
+              .filter((item) => item.enabled !== false && item.key)
+              .map((item) => [item.key, item.value]);
+            nodeLines.push(`${headersVar}["Content-Type"] ??= "application/x-www-form-urlencoded";`);
+            bodyLine = `, body: new URLSearchParams(${JSON.stringify(formEntries)}).toString()`;
+          } else if (bodyType === "raw") {
+            nodeLines.push(`${headersVar}["Content-Type"] ??= ${JSON.stringify(node.params.rawContentType || "text/plain; charset=utf-8")};`);
+            bodyLine = `, body: ${JSON.stringify(node.params.bodyRaw || "")}`;
+          } else if (bodyType === "binary") {
+            nodeLines.push(`${headersVar}["Content-Type"] ??= ${JSON.stringify(node.params.binaryContentType || "application/octet-stream")};`);
+            bodyLine = `, body: Buffer.from(${JSON.stringify(node.params.bodyBinaryBase64 || "")}, "base64")`;
+          }
+        }
+
+        const redirectOpt = node.params.followRedirects === false ? ', redirect: "manual"' : "";
+        nodeLines.push(
+          `const ${resVar} = await fetch(${queryUrlVar}.toString(), { method: ${JSON.stringify(method)}, headers: ${headersVar}${bodyLine}${redirectOpt} });`
+        );
+        const respType = node.params.responseType || "auto";
+        if (respType === "headersOnly") {
+          nodeLines.push(`const ${dataVar} = null;`);
+        } else if (respType === "binary") {
+          nodeLines.push(`const ${dataVar} = Buffer.from(await ${resVar}.arrayBuffer()).toString("base64");`);
+        } else if (respType === "json") {
+          nodeLines.push(`const ${dataVar} = await ${resVar}.json();`);
+        } else if (respType === "text" || respType === "xml") {
+          nodeLines.push(`const ${dataVar} = await ${resVar}.text();`);
+        } else {
+          nodeLines.push(
+            `const ${dataVar} = (${resVar}.headers.get("content-type") || "").includes("json") ? await ${resVar}.json() : await ${resVar}.text();`
+          );
+        }
+        if (node.params.failOnHttpError !== false) {
+          nodeLines.push(`if (!${resVar}.ok) throw new Error(\`HTTP \${${resVar}.status} \${${resVar}.statusText}\`);`);
+        }
+        if (outVar) {
+          nodeLines.push(
+            `variables[${JSON.stringify(outVar)}] = { status: ${resVar}.status, headers: Object.fromEntries(${resVar}.headers.entries()), data: ${dataVar} };`
+          );
+        }
+        break;
+      }
+
+      case "respond": {
+        const statusCode =
+          node.params.statusCode ??
+          (node.params.responseType === "empty"
+            ? 204
+            : node.params.responseType === "redirect"
+              ? 302
+              : 200);
+        const payloadObj = {
+          responseType: node.params.responseType,
+          statusCode,
+          contentType: node.params.contentType,
+          filename: node.params.filename,
+          redirectUrl: node.params.redirectUrl,
+          body: node.params.body ?? "",
+          headers: (node.params.headers || []).filter((h) => h.enabled !== false && h.key),
+        };
+        nodeLines.push(`// Respuesta final de la automatización (${node.params.responseType})`);
+        nodeLines.push(`variables["__automationResponse"] = ${JSON.stringify(payloadObj)};`);
+        if (node.params.terminateFlow !== false) {
+          nodeLines.push(`return;`);
+        }
         break;
       }
     }

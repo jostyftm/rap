@@ -121,10 +121,13 @@
             "extract",
             "screenshot",
             "setVariable",
+            "javascript",
             "condition",
             "loop",
             "scroll",
             "webhook",
+            "respond",
+            "httpRequest",
             "tryCatch"
           ]
         },
@@ -190,6 +193,221 @@
                   "finallyEntryNodeId": { "type": "string" },
                   "errorVariable": { "type": "string", "minLength": 1, "default": "error" },
                   "rethrow": { "type": "boolean", "default": false }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "javascript" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["code"],
+                "properties": {
+                  "code": { "type": "string", "minLength": 1 },
+                  "mode": {
+                    "type": "string",
+                    "enum": ["sandbox", "browser"],
+                    "default": "sandbox"
+                  },
+                  "outputVariable": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "webhook" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {
+                  "httpMethod": {
+                    "type": "string",
+                    "enum": ["ANY", "GET", "POST", "PUT", "DELETE", "PATCH"]
+                  },
+                  "path": { "type": "string" },
+                  "outputVariable": { "type": "string" },
+                  "responseCode": { "type": "integer", "minimum": 100, "maximum": 599 },
+                  "responseBody": { "type": "string" },
+                  "responseMode": {
+                    "type": "string",
+                    "enum": ["immediate", "lastNode", "respondNode"]
+                  },
+                  "responseTimeoutMs": { "type": "integer", "minimum": 1000, "maximum": 120000 },
+                  "responseHeaders": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["key", "value"],
+                      "properties": {
+                        "key": { "type": "string" },
+                        "value": { "type": "string" },
+                        "enabled": { "type": "boolean" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "respond" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["responseType"],
+                "properties": {
+                  "responseType": {
+                    "type": "string",
+                    "enum": ["json", "text", "html", "xml", "binary", "redirect", "empty"]
+                  },
+                  "statusCode": { "type": "integer", "minimum": 100, "maximum": 599 },
+                  "body": { "type": "string" },
+                  "redirectUrl": { "type": "string" },
+                  "contentType": { "type": "string" },
+                  "filename": { "type": "string" },
+                  "headers": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["key", "value"],
+                      "properties": {
+                        "key": { "type": "string" },
+                        "value": { "type": "string" },
+                        "enabled": { "type": "boolean" }
+                      }
+                    }
+                  },
+                  "terminateFlow": { "type": "boolean", "default": true }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "httpRequest" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["method", "url"],
+                "properties": {
+                  "method": {
+                    "type": "string",
+                    "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+                  },
+                  "url": { "type": "string", "minLength": 1 },
+                  "pathParams": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["key", "value"],
+                      "properties": {
+                        "key": { "type": "string" },
+                        "value": { "type": "string" },
+                        "enabled": { "type": "boolean" }
+                      }
+                    }
+                  },
+                  "queryParams": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["key", "value"],
+                      "properties": {
+                        "key": { "type": "string" },
+                        "value": { "type": "string" },
+                        "enabled": { "type": "boolean" }
+                      }
+                    }
+                  },
+                  "headers": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["key", "value"],
+                      "properties": {
+                        "key": { "type": "string" },
+                        "value": { "type": "string" },
+                        "enabled": { "type": "boolean" }
+                      }
+                    }
+                  },
+                  "auth": {
+                    "type": "object",
+                    "required": ["type"],
+                    "properties": {
+                      "type": { "type": "string", "enum": ["none", "bearer", "basic", "apiKey"] },
+                      "token": { "type": "string" },
+                      "username": { "type": "string" },
+                      "password": { "type": "string" },
+                      "keyName": { "type": "string" },
+                      "keyValue": { "type": "string" },
+                      "in": { "type": "string", "enum": ["header", "query"] }
+                    }
+                  },
+                  "bodyType": {
+                    "type": "string",
+                    "enum": ["none", "json", "formUrlEncoded", "multipart", "raw", "binary"]
+                  },
+                  "bodyJson": { "type": "string" },
+                  "bodyForm": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["key", "value"],
+                      "properties": {
+                        "key": { "type": "string" },
+                        "value": { "type": "string" },
+                        "enabled": { "type": "boolean" }
+                      }
+                    }
+                  },
+                  "bodyMultipart": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["key", "value"],
+                      "properties": {
+                        "key": { "type": "string" },
+                        "value": { "type": "string" },
+                        "fieldType": { "type": "string", "enum": ["text", "fileBase64"] },
+                        "filename": { "type": "string" },
+                        "contentType": { "type": "string" },
+                        "enabled": { "type": "boolean" }
+                      }
+                    }
+                  },
+                  "bodyRaw": { "type": "string" },
+                  "rawContentType": { "type": "string" },
+                  "bodyBinaryBase64": { "type": "string" },
+                  "binaryContentType": { "type": "string" },
+                  "responseType": {
+                    "type": "string",
+                    "enum": ["auto", "json", "text", "xml", "binary", "headersOnly"]
+                  },
+                  "timeoutMs": { "type": "integer", "minimum": 500, "maximum": 300000 },
+                  "followRedirects": { "type": "boolean" },
+                  "failOnHttpError": { "type": "boolean" },
+                  "outputVariable": { "type": "string" }
                 }
               }
             }

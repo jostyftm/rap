@@ -368,4 +368,93 @@ describe("Playwright Exporter", () => {
     expect(code).toContain("for (const item of");
     expect(code).toContain("await page.waitForTimeout(100);");
   });
+
+  it("exporta nodos javascript en modo sandbox y modo browser", () => {
+    const recipe: RecipeDsl = {
+      schema: "rpa/v1",
+      name: "Flujo con JavaScript",
+      entry: "js_sandbox",
+      nodes: {
+        js_sandbox: {
+          id: "js_sandbox",
+          type: "javascript",
+          description: "Transformar datos",
+          params: {
+            mode: "sandbox",
+            outputVariable: "resumen",
+            code: "const x = 21 * 2;\nreturn { total: x };",
+          },
+          next: "js_browser",
+        },
+        js_browser: {
+          id: "js_browser",
+          type: "javascript",
+          description: "Leer título en DOM",
+          params: {
+            mode: "browser",
+            outputVariable: "tituloDom",
+            code: "return document.title;",
+          },
+        },
+      },
+      edges: [{ from: "js_sandbox", to: "js_browser" }],
+    };
+
+    const code = exportToPlaywright(recipe);
+    expect(code).toContain("const jsResult_js_sandbox = await (async () => {");
+    expect(code).toContain("const x = 21 * 2;");
+    expect(code).toContain('variables["resumen"] = jsResult_js_sandbox;');
+    expect(code).toContain("const jsResult_js_browser = await page.evaluate(async ({ variables }) => {");
+    expect(code).toContain("return document.title;");
+    expect(code).toContain('variables["tituloDom"] = jsResult_js_browser;');
+  });
+
+  it("exporta nodos httpRequest y respond", () => {
+    const recipe: RecipeDsl = {
+      schema: "rpa/v1",
+      name: "Flujo HTTP y Respond",
+      entry: "http_1",
+      nodes: {
+        http_1: {
+          id: "http_1",
+          type: "httpRequest",
+          description: "Consultar API",
+          params: {
+            method: "POST",
+            url: "https://api.example.com/users/:id",
+            pathParams: [{ key: "id", value: "42", enabled: true }],
+            queryParams: [{ key: "active", value: "true", enabled: true }],
+            headers: [{ key: "X-Custom", value: "1", enabled: true }],
+            auth: { type: "bearer", token: "tok_123" },
+            bodyType: "json",
+            bodyJson: '{"role":"admin"}',
+            responseType: "json",
+            outputVariable: "apiRes",
+          },
+          next: "resp_1",
+        },
+        resp_1: {
+          id: "resp_1",
+          type: "respond",
+          description: "Responder al cliente",
+          params: {
+            responseType: "json",
+            statusCode: 201,
+            body: '{"created":true}',
+            terminateFlow: true,
+          },
+        },
+      },
+      edges: [{ from: "http_1", to: "resp_1" }],
+    };
+
+    const code = exportToPlaywright(recipe);
+    expect(code).toContain('https://api.example.com/users/:id');
+    expect(code).toContain('searchParams.append("active", "true")');
+    expect(code).toContain('Authorization');
+    expect(code).toContain('fetch(');
+    expect(code).toContain('variables["apiRes"] =');
+    expect(code).toContain('__automationResponse');
+    expect(code).toContain("return;");
+  });
 });

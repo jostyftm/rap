@@ -159,6 +159,20 @@ export interface SetVariableNode extends BaseNode {
   };
 }
 
+export type JavascriptExecutionMode = "sandbox" | "browser";
+
+export interface JavascriptNode extends BaseNode {
+  type: "javascript";
+  params: {
+    /** Código JavaScript (cuerpo de función async; admite `return ...` y `await`) */
+    code: string;
+    /** Entorno: 'sandbox' (flujo/datos en VM aislada) o 'browser' (DOM vía page.evaluate) */
+    mode?: JavascriptExecutionMode;
+    /** Variable opcional del flujo donde guardar el valor retornado */
+    outputVariable?: string;
+  };
+}
+
 export type ConditionDataType =
   | "string"
   | "number"
@@ -221,6 +235,12 @@ export interface ScrollNode extends BaseNode {
   };
 }
 
+export interface KeyValuePair {
+  key: string;
+  value: string;
+  enabled?: boolean;
+}
+
 export type WebhookHttpMethod =
   | "ANY"
   | "GET"
@@ -228,6 +248,8 @@ export type WebhookHttpMethod =
   | "PUT"
   | "DELETE"
   | "PATCH";
+
+export type WebhookResponseMode = "immediate" | "lastNode" | "respondNode";
 
 export interface WebhookNode extends BaseNode {
   type: "webhook";
@@ -237,6 +259,98 @@ export interface WebhookNode extends BaseNode {
     outputVariable?: string;
     responseCode?: number;
     responseBody?: string;
+    responseMode?: WebhookResponseMode;
+    responseTimeoutMs?: number;
+    responseHeaders?: KeyValuePair[];
+  };
+}
+
+export type RespondType =
+  | "json"
+  | "text"
+  | "html"
+  | "xml"
+  | "binary"
+  | "redirect"
+  | "empty";
+
+export interface RespondNode extends BaseNode {
+  type: "respond";
+  params: {
+    responseType: RespondType;
+    statusCode?: number;
+    body?: string;
+    redirectUrl?: string;
+    contentType?: string;
+    filename?: string;
+    headers?: KeyValuePair[];
+    /** Si true (por defecto), finaliza el flujo tras enviar la respuesta */
+    terminateFlow?: boolean;
+  };
+}
+
+export type HttpRequestMethod =
+  | "GET"
+  | "POST"
+  | "PUT"
+  | "PATCH"
+  | "DELETE"
+  | "HEAD"
+  | "OPTIONS";
+
+export type HttpBodyType =
+  | "none"
+  | "json"
+  | "formUrlEncoded"
+  | "multipart"
+  | "raw"
+  | "binary";
+
+export type HttpResponseType =
+  | "auto"
+  | "json"
+  | "text"
+  | "xml"
+  | "binary"
+  | "headersOnly";
+
+export type HttpAuthConfig =
+  | { type: "none" }
+  | { type: "bearer"; token: string }
+  | { type: "basic"; username: string; password: string }
+  | { type: "apiKey"; keyName: string; keyValue: string; in: "header" | "query" };
+
+export interface HttpMultipartField {
+  key: string;
+  value: string;
+  fieldType: "text" | "fileBase64";
+  filename?: string;
+  contentType?: string;
+  enabled?: boolean;
+}
+
+export interface HttpRequestNode extends BaseNode {
+  type: "httpRequest";
+  params: {
+    method: HttpRequestMethod;
+    url: string;
+    pathParams?: KeyValuePair[];
+    queryParams?: KeyValuePair[];
+    headers?: KeyValuePair[];
+    auth?: HttpAuthConfig;
+    bodyType?: HttpBodyType;
+    bodyJson?: string;
+    bodyForm?: KeyValuePair[];
+    bodyMultipart?: HttpMultipartField[];
+    bodyRaw?: string;
+    rawContentType?: string;
+    bodyBinaryBase64?: string;
+    binaryContentType?: string;
+    responseType?: HttpResponseType;
+    timeoutMs?: number;
+    followRedirects?: boolean;
+    failOnHttpError?: boolean;
+    outputVariable?: string;
   };
 }
 
@@ -270,10 +384,13 @@ export type RecipeNode =
   | ExtractNode
   | ScreenshotNode
   | SetVariableNode
+  | JavascriptNode
   | ConditionNode
   | LoopNode
   | ScrollNode
   | WebhookNode
+  | RespondNode
+  | HttpRequestNode
   | TryCatchNode;
 
 /**
@@ -289,10 +406,13 @@ export const SYSTEM_NODE_TYPES = [
   "extract",
   "screenshot",
   "setVariable",
+  "javascript",
   "condition",
   "loop",
   "scroll",
   "webhook",
+  "respond",
+  "httpRequest",
   "tryCatch",
 ] as const;
 

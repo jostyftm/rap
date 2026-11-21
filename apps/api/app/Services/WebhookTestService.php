@@ -6,11 +6,13 @@ namespace App\Services;
 
 use App\Events\WebhookTestReceived;
 use App\Models\Recipe;
+use App\Models\Run;
 use App\Support\WebhookPath;
 use App\Support\WebhookPayload;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 class WebhookTestService
@@ -18,7 +20,8 @@ class WebhookTestService
     private const TTL_SECONDS = 120;
 
     public function __construct(
-        private WebhookRunDelivery $webhookRuns
+        private WebhookRunDelivery $webhookRuns,
+        private WebhookResponseWaiter $responseWaiter
     ) {}
 
     /**
@@ -91,9 +94,9 @@ class WebhookTestService
 
     /**
      * Intenta capturar una petición HTTP si existe una sesión de escucha activa para la ruta.
-     * Retorna array con datos de respuesta o null si no hay sesión.
+     * Retorna array con datos de respuesta (o una HttpResponse directa) o null si no hay sesión.
      *
-     * @return array{response_code: int, response_body: string, method_match: bool}|null
+     * @return array{response_code: int, response_body: string, method_match: bool, http_response?: Response}|null
      */
     public function capture(Request $request, string $rawPath): ?array
     {
@@ -104,6 +107,33 @@ class WebhookTestService
         if (! $session) {
             $deliveredRunIds = $this->webhookRuns->deliverByPath($normalizedPath, $request, true);
             if ($deliveredRunIds !== []) {
+                $deliveredRun = Run::query()
+                    ->with('recipeVersion.recipe.project')
+                    ->where('uuid', $deliveredRunIds[0])
+                    ->first();
+
+                $entryNode = WebhookRunDelivery::entryWebhookNode(
+                    (array) ($deliveredRun?->recipeVersion?->definition ?? [])
+                );
+                $responseMode = (string) ($entryNode['params']['responseMode'] ?? 'immediate');
+
+                if ($responseMode === 'lastNode' || $responseMode === 'respondNode') {
+                    $timeoutMs = (int) ($entryNode['params']['responseTimeoutMs'] ?? 30_000);
+                    $httpResponse = $this->responseWaiter->waitAndBuildResponse(
+                        runUuid: $deliveredRunIds[0],
+                        timeoutMs: $timeoutMs,
+                        baseHeaders: ['X-RPA-Run-Id' => $deliveredRunIds[0]],
+                        workspaceId: $deliveredRun?->recipeVersion?->recipe?->project?->workspace_id
+                    );
+
+                    return [
+                        'response_code' => $httpResponse->getStatusCode(),
+                        'response_body' => (string) $httpResponse->getContent(),
+                        'method_match' => true,
+                        'http_response' => $httpResponse,
+                    ];
+                }
+
                 return [
                     'response_code' => 200,
                     'response_body' => json_encode([

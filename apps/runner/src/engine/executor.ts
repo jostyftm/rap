@@ -1,7 +1,13 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import type { LoopNode, RecipeDsl, RecipeNode, RetryPolicy, TryCatchNode } from "@rpa/dsl";
 import type { RunnerEventEmitter } from "../protocol/event-emitter.js";
-import { executeNodeAction, type ExecutionContext, type ActionResult } from "./action-handlers.js";
+import { SecretRedactor } from "../protocol/redactor.js";
+import {
+  executeNodeAction,
+  type ExecutionContext,
+  type ActionResult,
+} from "./action-handlers.js";
+import type { AutomationResponse } from "./handlers/types.js";
 import { createMissingTokenReporter } from "./handlers/token-warnings.js";
 import { hasWebhookPayload, mergeWebhookPayload, waitForWebhookPayload } from "./webhook-wait.js";
 import { evaluateExpression, interpolateString } from "../evaluator/jsonata-evaluator.js";
@@ -337,15 +343,56 @@ export class RecipeExecutor {
       });
     }
 
+    let lastStepOutput: unknown = undefined;
+    let responsePublished = false;
+    const responseRedactor = new SecretRedactor(secrets);
+
+    const publishRunResponse = async (rawResponse: AutomationResponse): Promise<void> => {
+      const redacted: AutomationResponse = {
+        ...rawResponse,
+        body: rawResponse.isBase64
+          ? rawResponse.body
+          : responseRedactor.redactString(rawResponse.body),
+        headers: responseRedactor.redactRecord(rawResponse.headers),
+        redirectUrl: rawResponse.redirectUrl
+          ? responseRedactor.redactString(rawResponse.redirectUrl)
+          : undefined,
+        filename: rawResponse.filename
+          ? responseRedactor.redactString(rawResponse.filename)
+          : undefined,
+      };
+
+      execContext.response = redacted;
+      responsePublished = true;
+
+      if (!this.redis) {
+        return;
+      }
+
+      const responseKey = `rpa:run:${runId}:response`;
+      try {
+        await this.redis.rpush(responseKey, JSON.stringify(redacted));
+        await this.redis.expire(responseKey, 120);
+      } catch (redisErr) {
+        console.warn(`[Run ${runId}] Error publicando respuesta en Redis:`, redisErr);
+      }
+    };
+
     const execContext: ExecutionContext = {
       runId,
       variables,
       secrets,
       stepResults: {},
       parameters,
+      emitResponse: publishRunResponse,
       warn: (message, context) => {
         this.eventEmitter
           .emitRunLog(runId, "warn", message, activeNodeId, "runner", context)
+          .catch(() => undefined);
+      },
+      log: (level, message, context) => {
+        this.eventEmitter
+          .emitRunLog(runId, level, message, activeNodeId, "runner", context)
           .catch(() => undefined);
       },
     };
@@ -494,6 +541,7 @@ export class RecipeExecutor {
 
     type ChainOutcome =
       | { kind: "next"; nodeId?: string }
+      | { kind: "respond" }
       | { kind: "stop" }
       | { kind: "error"; nodeId: string; error: unknown };
 
@@ -590,6 +638,7 @@ export class RecipeExecutor {
 
         // Guardar salida de paso en el contexto de variables y pasos
         if (result.output !== undefined) {
+          lastStepOutput = result.output;
           execContext.stepResults[node.id] = result.output;
           execContext.variables[`steps.${node.id}.output`] = result.output;
           if (!execContext.variables.steps || typeof execContext.variables.steps !== "object") {
@@ -599,6 +648,9 @@ export class RecipeExecutor {
         }
 
         // Política de capturas de pantalla
+        const isVisualStep =
+          VISUAL_SCREENSHOT_TYPES.has(node.type) ||
+          (node.type === "javascript" && node.params.mode === "browser");
         let finalScreenshotPath = result.screenshotPath;
         if (node.screenshot === "always" && !finalScreenshotPath) {
           const buf = await page.screenshot({ fullPage: false });
@@ -608,7 +660,7 @@ export class RecipeExecutor {
         } else if (
           !finalScreenshotPath &&
           node.screenshot !== "never" &&
-          VISUAL_SCREENSHOT_TYPES.has(node.type)
+          isVisualStep
         ) {
           finalScreenshotPath = await captureAutoScreenshot(node.id);
         }
@@ -644,6 +696,9 @@ export class RecipeExecutor {
         );
 
         visitedNodes.add(node.id);
+        if (result.terminateFlow) {
+          return { kind: "respond" };
+        }
         return { kind: "next", nodeId: result.nextNodeId };
       } catch (nodeError: unknown) {
         if (nodeError instanceof ExecutionStoppedError) {
@@ -737,7 +792,7 @@ export class RecipeExecutor {
 
       const tryOutcome = await runChain(node.params.tryEntryNodeId, node.next);
 
-      if (tryOutcome.kind === "stop") {
+      if (tryOutcome.kind === "stop" || tryOutcome.kind === "respond") {
         return tryOutcome;
       }
 
@@ -761,7 +816,7 @@ export class RecipeExecutor {
 
         const catchOutcome = await runChain(node.params.catchEntryNodeId, node.next);
 
-        if (catchOutcome.kind === "stop") {
+        if (catchOutcome.kind === "stop" || catchOutcome.kind === "respond") {
           return catchOutcome;
         }
 
@@ -777,7 +832,7 @@ export class RecipeExecutor {
         await logPhase("finally", "info", "Ejecutando bloque finally");
         const finallyOutcome = await runChain(node.params.finallyEntryNodeId, node.next);
 
-        if (finallyOutcome.kind === "stop") {
+        if (finallyOutcome.kind === "stop" || finallyOutcome.kind === "respond") {
           return finallyOutcome;
         }
 
@@ -1014,7 +1069,7 @@ export class RecipeExecutor {
           const outcome = await runChain(node.params.bodyEntryNodeId, node.next);
           loopScopeStack.pop();
 
-          if (outcome.kind === "stop") {
+          if (outcome.kind === "stop" || outcome.kind === "respond") {
             return outcome;
           }
 
@@ -1208,6 +1263,8 @@ export class RecipeExecutor {
         final_url: finalUrl && finalUrl !== "about:blank" ? finalUrl : undefined,
         final_title: finalTitle || undefined,
         outputs: execContext.stepResults,
+        last_output: lastStepOutput,
+        response: execContext.response,
         counters: { ...runCounters },
         last_screenshot_path: lastScreenshotPath,
       };
@@ -1222,6 +1279,18 @@ export class RecipeExecutor {
 
       if (outcome.kind === "error") {
         throw outcome.error instanceof Error ? outcome.error : new Error(String(outcome.error));
+      }
+
+      if (!responsePublished) {
+        await publishRunResponse({
+          kind: "lastNode",
+          responseType: "json",
+          statusCode: 200,
+          contentType: "application/json; charset=utf-8",
+          headers: {},
+          body: JSON.stringify(lastStepOutput !== undefined ? lastStepOutput : { ok: true }),
+          isBase64: false,
+        });
       }
 
       const totalDuration = Date.now() - startTime;
@@ -1252,6 +1321,19 @@ export class RecipeExecutor {
     } catch (fatalError: unknown) {
       const totalDuration = Date.now() - startTime;
       const fatalMsg = fatalError instanceof Error ? fatalError.message : String(fatalError);
+
+      if (!responsePublished) {
+        await publishRunResponse({
+          kind: "error",
+          responseType: "json",
+          statusCode: 500,
+          contentType: "application/json; charset=utf-8",
+          headers: {},
+          body: JSON.stringify({ ok: false, error: fatalMsg, run_id: runId }),
+          isBase64: false,
+        });
+      }
+
       const runResult = await buildRunResult();
 
       await this.eventEmitter.emitRunLog(

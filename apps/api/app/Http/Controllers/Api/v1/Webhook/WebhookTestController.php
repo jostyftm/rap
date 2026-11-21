@@ -11,6 +11,7 @@ use App\Services\WebhookTestService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class WebhookTestController extends Controller
 {
@@ -50,7 +51,7 @@ class WebhookTestController extends Controller
     /**
      * Endpoint público que recibe las peticiones de prueba enviadas a la URL del webhook
      */
-    public function capture(Request $request, string $path): Response|JsonResponse
+    public function capture(Request $request, string $path): SymfonyResponse
     {
         $result = $this->webhookTestService->capture($request, '/api/v1/webhooks-test/'.$path);
 
@@ -61,6 +62,10 @@ class WebhookTestController extends Controller
                 'status' => Response::HTTP_NOT_FOUND,
                 'detail' => 'No hay ninguna sesión de escucha de prueba activa para esta ruta. Haz clic en "Escuchar evento de prueba" o ejecuta el borrador para probarla.',
             ], Response::HTTP_NOT_FOUND);
+        }
+
+        if (isset($result['http_response']) && $result['http_response'] instanceof SymfonyResponse) {
+            return $result['http_response'];
         }
 
         $headers = [];

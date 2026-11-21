@@ -70,6 +70,12 @@ const MINIMAL_VALID_NODES: Record<RecipeNode["type"], any> = {
     description: "Asignar variable",
     params: { name: "count", expression: "10" },
   },
+  javascript: {
+    id: "node_javascript",
+    type: "javascript",
+    description: "Ejecutar JavaScript",
+    params: { code: "return { ok: true };", mode: "sandbox", outputVariable: "jsResult" },
+  },
   condition: {
     id: "node_condition",
     type: "condition",
@@ -99,6 +105,18 @@ const MINIMAL_VALID_NODES: Record<RecipeNode["type"], any> = {
     description: "Recepción de webhook",
     params: { httpMethod: "POST", outputVariable: "webhook" },
   },
+  respond: {
+    id: "node_respond",
+    type: "respond",
+    description: "Responder petición",
+    params: { responseType: "json", statusCode: 200, body: '{"ok":true}' },
+  },
+  httpRequest: {
+    id: "node_httpRequest",
+    type: "httpRequest",
+    description: "Petición HTTP",
+    params: { method: "GET", url: "https://api.example.com/items" },
+  },
   tryCatch: {
     id: "node_tryCatch",
     type: "tryCatch",
@@ -119,10 +137,13 @@ const recipeJson = JSON.parse(
 const JSON_SCHEMA_NODE_TYPES = recipeJson.$defs.Node.properties.type.enum;
 
 describe("Schema Parity & Discriminator Integrity", () => {
-  it("contiene exactamente los 13 tipos de nodos soportados por RPA Studio", () => {
-    expect(ALL_SYSTEM_NODE_TYPES).toHaveLength(13);
+  it("contiene exactamente los 16 tipos de nodos soportados por RPA Studio", () => {
+    expect(ALL_SYSTEM_NODE_TYPES).toHaveLength(16);
+    expect(ALL_SYSTEM_NODE_TYPES).toContain("javascript");
     expect(ALL_SYSTEM_NODE_TYPES).toContain("scroll");
     expect(ALL_SYSTEM_NODE_TYPES).toContain("webhook");
+    expect(ALL_SYSTEM_NODE_TYPES).toContain("respond");
+    expect(ALL_SYSTEM_NODE_TYPES).toContain("httpRequest");
     expect(ALL_SYSTEM_NODE_TYPES).toContain("tryCatch");
   });
 

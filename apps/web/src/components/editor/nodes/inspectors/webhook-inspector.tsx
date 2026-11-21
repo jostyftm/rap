@@ -1,8 +1,14 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import type { WebhookNode, WebhookHttpMethod } from "@rpa/dsl";
+import type {
+  KeyValuePair,
+  WebhookHttpMethod,
+  WebhookNode,
+  WebhookResponseMode,
+} from "@rpa/dsl";
 import type { NodeInspectorProps } from "../types";
+import { KeyValueList } from "./key-value-list";
 import {
   Copy,
   Check,
@@ -64,6 +70,9 @@ export function WebhookInspectorForm({
   const outputVar = node.params.outputVariable || "webhook";
   const responseCode = node.params.responseCode ?? 200;
   const responseBody = node.params.responseBody || '{"ok":true}';
+  const responseMode: WebhookResponseMode = node.params.responseMode || "immediate";
+  const responseTimeoutMs = node.params.responseTimeoutMs ?? 30000;
+  const responseHeaders: KeyValuePair[] = node.params.responseHeaders || [];
 
   const pubDef = publishedVersion?.definition;
   const pubEntryNode = pubDef?.entry ? pubDef.nodes[pubDef.entry] : undefined;
@@ -364,38 +373,99 @@ export function WebhookInspectorForm({
         {showAdvanced && (
           <div className="rpa-tab-panel space-y-4 border-t border-line px-3 py-3">
             <Field
-              label="Código de respuesta HTTP"
-              htmlFor="webhook-response-code"
-              hint="Entre 100 y 599."
+              label="Cuándo responder al cliente"
+              htmlFor="webhook-response-mode"
+              hint={
+                responseMode === "immediate"
+                  ? "Responde al instante con un JSON estático y ejecuta la automatización en segundo plano."
+                  : responseMode === "lastNode"
+                    ? "Mantiene abierta la conexión HTTP y devuelve automáticamente la salida JSON del último paso ejecutado."
+                    : "Espera hasta que el flujo ejecute un nodo «Responder / Retornar» para enviar estado, headers y cuerpo exactos."
+              }
             >
-              <TextInput
-                id="webhook-response-code"
-                type="number"
-                value={responseCode}
+              <Select
+                id="webhook-response-mode"
+                value={responseMode}
                 disabled={isReadOnly}
-                onChange={(e) => updateParam("responseCode", Number(e.target.value))}
-                min={100}
-                max={599}
-                className="font-mono"
-              />
+                onChange={(e) =>
+                  updateParam("responseMode", e.target.value as WebhookResponseMode)
+                }
+              >
+                <option value="immediate">De inmediato (asíncrono)</option>
+                <option value="lastNode">Al finalizar el flujo (último nodo)</option>
+                <option value="respondNode">Cuando se ejecute un nodo «Responder»</option>
+              </Select>
             </Field>
 
-            <Field
-              label="Contenido de respuesta (JSON)"
-              htmlFor="webhook-response-body"
-              error={jsonError || undefined}
-            >
-              <textarea
-                id="webhook-response-body"
-                rows={3}
-                value={responseBody}
-                disabled={isReadOnly}
-                onChange={(e) => handleResponseBodyChange(e.target.value)}
-                placeholder='{"ok": true}'
-                aria-invalid={Boolean(jsonError)}
-                className="w-full resize-none rounded-field border border-line bg-input px-3.5 py-2.5 font-mono text-[12px] text-fg placeholder:text-fg-subtle transition-[border-color,box-shadow] hover:border-line-strong focus:border-accent focus:outline-none focus:ring-4 focus:ring-accent/15 disabled:cursor-not-allowed disabled:opacity-50"
-              />
-            </Field>
+            {responseMode === "immediate" ? (
+              <>
+                <Field
+                  label="Código de respuesta HTTP"
+                  htmlFor="webhook-response-code"
+                  hint="Entre 100 y 599."
+                >
+                  <TextInput
+                    id="webhook-response-code"
+                    type="number"
+                    value={responseCode}
+                    disabled={isReadOnly}
+                    onChange={(e) => updateParam("responseCode", Number(e.target.value))}
+                    min={100}
+                    max={599}
+                    className="font-mono"
+                  />
+                </Field>
+
+                <Field
+                  label="Contenido de respuesta (JSON)"
+                  htmlFor="webhook-response-body"
+                  error={jsonError || undefined}
+                >
+                  <textarea
+                    id="webhook-response-body"
+                    rows={3}
+                    value={responseBody}
+                    disabled={isReadOnly}
+                    onChange={(e) => handleResponseBodyChange(e.target.value)}
+                    placeholder='{"ok": true}'
+                    aria-invalid={Boolean(jsonError)}
+                    className="w-full resize-none rounded-field border border-line bg-input px-3.5 py-2.5 font-mono text-[12px] text-fg placeholder:text-fg-subtle transition-[border-color,box-shadow] hover:border-line-strong focus:border-accent focus:outline-none focus:ring-4 focus:ring-accent/15 disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                </Field>
+
+                <Field label="Headers adicionales (opcional)">
+                  <KeyValueList
+                    items={responseHeaders}
+                    onChange={(next) => updateParam("responseHeaders", next)}
+                    disabled={isReadOnly}
+                    keyPlaceholder="X-Webhook-Version"
+                    valuePlaceholder="1"
+                    addLabel="Añadir header"
+                    emptyText="Sin cabeceras extra."
+                    showVariablePicker={false}
+                  />
+                </Field>
+              </>
+            ) : (
+              <Field
+                label="Tiempo máximo de espera de respuesta (ms)"
+                htmlFor="webhook-response-timeout"
+                hint="Entre 1000 ms (1s) y 120000 ms (120s). Si se supera, devuelve HTTP 504."
+              >
+                <TextInput
+                  id="webhook-response-timeout"
+                  type="number"
+                  value={responseTimeoutMs}
+                  disabled={isReadOnly}
+                  onChange={(e) =>
+                    updateParam("responseTimeoutMs", Number(e.target.value))
+                  }
+                  min={1000}
+                  max={120000}
+                  className="font-mono"
+                />
+              </Field>
+            )}
 
             <Field
               label="Guardar payload en variable"

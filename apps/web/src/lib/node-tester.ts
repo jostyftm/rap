@@ -3,7 +3,68 @@ import { resolveExpression } from "@rpa/dsl";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { useLiveStore } from "@/stores/use-live-store";
 import { useLayoutStore } from "@/stores/use-layout-store";
+import { apiFetch } from "./api-client";
 import { buildTestWebhookPath } from "./webhook-url";
+
+function getByDotPath(root: unknown, dotPath: string): unknown {
+  if (!dotPath) return root;
+  let current: unknown = root;
+  for (const part of dotPath.split(".")) {
+    if (current === null || current === undefined || typeof current !== "object") {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
+}
+
+function resolveEditorToken(
+  rawKey: string,
+  variables: Record<string, unknown>,
+  stepResults: Record<string, unknown>
+): { found: boolean; value: unknown } {
+  const key = rawKey.trim();
+  if (key.startsWith("variables.")) {
+    const val = getByDotPath(variables, key.slice("variables.".length));
+    return { found: val !== undefined, value: val };
+  }
+  if (key.startsWith("steps.")) {
+    const rest = key.slice("steps.".length);
+    const parts = rest.split(".");
+    const stepId = parts[0];
+    const stepOut = stepResults[stepId];
+    if (stepOut === undefined) return { found: false, value: undefined };
+    const tail = parts.slice(1).join(".");
+    if (!tail || tail === "output") return { found: true, value: stepOut };
+    const cleanTail = tail.startsWith("output.") ? tail.slice("output.".length) : tail;
+    const nested = getByDotPath(stepOut, cleanTail);
+    return { found: nested !== undefined, value: nested };
+  }
+  const direct = getByDotPath(variables, key);
+  if (direct !== undefined) return { found: true, value: direct };
+  const fromSteps = getByDotPath(stepResults, key);
+  return { found: fromSteps !== undefined, value: fromSteps };
+}
+
+function interpolateEditorString(
+  template: string,
+  variables: Record<string, unknown>,
+  stepResults: Record<string, unknown>,
+  preserveSecrets = true
+): string {
+  if (!template) return "";
+  return template.replace(/\{\{([^{}]+)\}\}/g, (full, rawKey: string) => {
+    const trimmed = rawKey.trim();
+    if (preserveSecrets && trimmed.startsWith("secret.")) {
+      return full;
+    }
+    const res = resolveEditorToken(trimmed, variables, stepResults);
+    if (!res.found) return full;
+    return typeof res.value === "object" && res.value !== null
+      ? JSON.stringify(res.value)
+      : String(res.value ?? "");
+  });
+}
 
 export interface NodeTestResult {
   ok: boolean;
@@ -126,6 +187,301 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
           nodeId: node.id,
         });
         return { ok: true, output: evaluated, durationMs };
+      }
+
+      case "javascript": {
+        const mode = node.params.mode ?? "sandbox";
+        if (mode === "browser") {
+          const durationMs = Date.now() - startTime;
+          const error =
+            "Este nodo está en modo 'Página (DOM)'. Ejecuta la receta con Playwright para evaluar sobre el navegador real.";
+          store.addLog({
+            level: "warn",
+            message: `[Test] ${error}`,
+            nodeId: node.id,
+          });
+          return { ok: false, error, durationMs };
+        }
+
+        const safeVars = { ...currentVariables };
+        const stepsCtx: Record<string, { output: unknown }> = {};
+        for (const [stepId, out] of Object.entries(currentStepOutputs)) {
+          stepsCtx[stepId] = { output: out };
+        }
+        const webhookNode = Object.values(store.definition.nodes || {}).find(
+          (n) => n.type === "webhook"
+        );
+        const webhookOutput = webhookNode ? currentStepOutputs[webhookNode.id] : undefined;
+        const inputCtx = {
+          webhook: webhookOutput ?? {},
+          ...(typeof webhookOutput === "object" && webhookOutput !== null && "body" in webhookOutput
+            ? ((webhookOutput as { body?: Record<string, unknown> }).body ?? {})
+            : {}),
+        };
+        const setVar = (name: string, value: unknown) => {
+          safeVars[name] = value;
+          currentVariables[name] = value;
+        };
+        const formatArg = (arg: unknown) => {
+          if (typeof arg === "string") return arg;
+          try {
+            return JSON.stringify(arg);
+          } catch {
+            return String(arg);
+          }
+        };
+        const logJs = (level: "info" | "warn" | "error", args: unknown[]) => {
+          store.addLog({
+            level,
+            message: `[JS] ${args.map(formatArg).join(" ")}`,
+            nodeId: node.id,
+          });
+        };
+        const consoleMock = {
+          log: (...args: unknown[]) => logJs("info", args),
+          info: (...args: unknown[]) => logJs("info", args),
+          warn: (...args: unknown[]) => logJs("warn", args),
+          error: (...args: unknown[]) => logJs("error", args),
+        };
+
+        const AsyncFunction = Object.getPrototypeOf(async function () {})
+          .constructor as new (
+          ...args: string[]
+        ) => (...values: unknown[]) => Promise<unknown>;
+
+        const fn = new AsyncFunction(
+          "variables",
+          "steps",
+          "input",
+          "setVariable",
+          "console",
+          `"use strict";\n${node.params.code}`
+        );
+
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error("Tiempo de espera agotado (5000ms) en JavaScript")),
+            5000
+          );
+        });
+
+        let result: unknown;
+        try {
+          result = await Promise.race([
+            fn(safeVars, stepsCtx, inputCtx, setVar, consoleMock),
+            timeoutPromise,
+          ]);
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+
+        if (node.params.outputVariable) {
+          setVar(node.params.outputVariable, result);
+        }
+
+        const durationMs = Date.now() - startTime;
+        store.setNodeOutput(node.id, result);
+        store.addLog({
+          level: "success",
+          message: `[Test] JavaScript ejecutado (${durationMs}ms)`,
+          nodeId: node.id,
+        });
+        return { ok: true, output: result, durationMs };
+      }
+
+      case "respond": {
+        const responseType = node.params.responseType || "json";
+        const statusCode =
+          node.params.statusCode ??
+          (responseType === "empty" ? 204 : responseType === "redirect" ? 302 : 200);
+
+        const resolvedHeaders: Record<string, string> = {};
+        for (const pair of node.params.headers || []) {
+          if (pair.enabled === false || !pair.key.trim()) continue;
+          resolvedHeaders[pair.key.trim()] = interpolateEditorString(
+            pair.value || "",
+            currentVariables,
+            currentStepOutputs,
+            false
+          );
+        }
+
+        let bodyPreview: unknown = "";
+        let redirectUrl: string | undefined;
+        let contentType = node.params.contentType?.trim() || "";
+
+        if (responseType === "redirect") {
+          redirectUrl = interpolateEditorString(
+            node.params.redirectUrl || "",
+            currentVariables,
+            currentStepOutputs,
+            false
+          ).trim();
+          resolvedHeaders.Location = redirectUrl;
+        } else if (responseType === "empty") {
+          bodyPreview = "";
+        } else if (responseType === "json") {
+          contentType ||= "application/json; charset=utf-8";
+          const rawBody = (node.params.body || "").trim();
+          const singleMatch = rawBody.match(/^\{\{([^{}]+)\}\}$/);
+          if (singleMatch) {
+            const resolved = resolveEditorToken(
+              singleMatch[1],
+              currentVariables,
+              currentStepOutputs
+            );
+            bodyPreview = resolved.found ? resolved.value : null;
+          } else if (!rawBody) {
+            bodyPreview = { ok: true };
+          } else {
+            const text = interpolateEditorString(
+              rawBody,
+              currentVariables,
+              currentStepOutputs,
+              false
+            );
+            try {
+              bodyPreview = JSON.parse(text);
+            } catch {
+              bodyPreview = text;
+            }
+          }
+        } else if (responseType === "binary") {
+          contentType ||= "application/octet-stream";
+          bodyPreview = {
+            isBase64: true,
+            filename: node.params.filename,
+            sourcePreview: String(node.params.body || "").slice(0, 120),
+          };
+        } else {
+          contentType ||=
+            responseType === "html"
+              ? "text/html; charset=utf-8"
+              : responseType === "xml"
+                ? "application/xml; charset=utf-8"
+                : "text/plain; charset=utf-8";
+          bodyPreview = interpolateEditorString(
+            node.params.body || "",
+            currentVariables,
+            currentStepOutputs,
+            false
+          );
+        }
+
+        const output = {
+          responseType,
+          statusCode,
+          contentType,
+          headers: resolvedHeaders,
+          filename: node.params.filename,
+          redirectUrl,
+          body: bodyPreview,
+          terminateFlow: node.params.terminateFlow !== false,
+        };
+
+        const durationMs = Date.now() - startTime;
+        store.setNodeOutput(node.id, output);
+        store.addLog({
+          level: "success",
+          message: `[Test] Respuesta preparada (${responseType}, HTTP ${statusCode}) en ${durationMs}ms`,
+          nodeId: node.id,
+        });
+        return { ok: true, output, durationMs };
+      }
+
+      case "httpRequest": {
+        if (!store.recipeId) {
+          const durationMs = Date.now() - startTime;
+          const error = "Guarda la receta primero para probar peticiones HTTP desde el servidor.";
+          store.addLog({ level: "warn", message: `[Test] ${error}`, nodeId: node.id });
+          return { ok: false, error, durationMs };
+        }
+
+        const interp = (v?: string) =>
+          interpolateEditorString(v || "", currentVariables, currentStepOutputs, true);
+
+        const mapPairs = (pairs?: Array<{ key: string; value: string; enabled?: boolean }>) =>
+          (pairs || []).map((p) => ({
+            key: interp(p.key),
+            value: interp(p.value),
+            enabled: p.enabled !== false,
+          }));
+
+        const auth = node.params.auth;
+        let resolvedAuth = auth;
+        if (auth?.type === "bearer") {
+          resolvedAuth = { type: "bearer", token: interp(auth.token) };
+        } else if (auth?.type === "basic") {
+          resolvedAuth = {
+            type: "basic",
+            username: interp(auth.username),
+            password: interp(auth.password),
+          };
+        } else if (auth?.type === "apiKey") {
+          resolvedAuth = {
+            type: "apiKey",
+            keyName: interp(auth.keyName),
+            keyValue: interp(auth.keyValue),
+            in: auth.in,
+          };
+        }
+
+        const res = await apiFetch<{
+          ok: boolean;
+          error?: string;
+          output?: Record<string, unknown>;
+        }>(`/api/v1/recipes/${store.recipeId}/http-test`, {
+          method: "POST",
+          body: JSON.stringify({
+            method: node.params.method || "GET",
+            url: interp(node.params.url),
+            pathParams: mapPairs(node.params.pathParams),
+            queryParams: mapPairs(node.params.queryParams),
+            headers: mapPairs(node.params.headers),
+            auth: resolvedAuth,
+            bodyType: node.params.bodyType || "none",
+            bodyJson: interp(node.params.bodyJson),
+            bodyForm: mapPairs(node.params.bodyForm),
+            bodyMultipart: (node.params.bodyMultipart || []).map((m) => ({
+              key: interp(m.key),
+              value: interp(m.value),
+              fieldType: m.fieldType,
+              filename: m.filename ? interp(m.filename) : undefined,
+              contentType: m.contentType,
+              enabled: m.enabled !== false,
+            })),
+            bodyRaw: interp(node.params.bodyRaw),
+            rawContentType: node.params.rawContentType,
+            bodyBinaryBase64: interp(node.params.bodyBinaryBase64),
+            binaryContentType: node.params.binaryContentType,
+            responseType: node.params.responseType || "auto",
+            timeoutMs: node.params.timeoutMs ?? 30000,
+            followRedirects: node.params.followRedirects !== false,
+            failOnHttpError: node.params.failOnHttpError !== false,
+          }),
+        });
+
+        const durationMs = Date.now() - startTime;
+        if (res.output !== undefined) {
+          store.setNodeOutput(node.id, res.output);
+        }
+
+        const status = (res.output as { status?: number } | undefined)?.status ?? "?";
+        store.addLog({
+          level: res.ok ? "success" : "error",
+          message: res.ok
+            ? `[Test] HTTP ${node.params.method} -> ${status} (${durationMs}ms)`
+            : `[Test] ${res.error || `HTTP error ${status}`}`,
+          nodeId: node.id,
+        });
+
+        return {
+          ok: res.ok,
+          output: res.output,
+          error: res.error,
+          durationMs,
+        };
       }
 
       case "condition": {
