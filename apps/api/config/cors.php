@@ -2,6 +2,19 @@
 
 declare(strict_types=1);
 
+$isProduction = env('APP_ENV', 'production') === 'production';
+
+$extraOrigins = array_values(array_filter(array_map(
+    static fn (string $origin): string => trim($origin),
+    explode(',', (string) env('CORS_ALLOWED_ORIGINS', ''))
+)));
+
+$localOrigins = $isProduction ? [] : [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost',
+];
+
 return [
 
     /*
@@ -25,14 +38,14 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => array_values(array_filter([
-        'http://localhost:3000',
-        'http://127.0.0.1:3000',
-        'http://localhost',
+    'allowed_origins' => array_values(array_unique(array_filter([
+        ...$localOrigins,
         env('FRONTEND_URL'),
-    ])),
+        env('APP_URL'),
+        ...$extraOrigins,
+    ]))),
 
-    'allowed_origins_patterns' => [
+    'allowed_origins_patterns' => $isProduction ? [] : [
         '#^https?://localhost(:\d+)?$#',
         '#^https?://127\.0\.0\.1(:\d+)?$#',
     ],

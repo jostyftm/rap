@@ -18,6 +18,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->trustProxies(at: env('TRUSTED_PROXIES', '*'));
         $middleware->statefulApi();
         $middleware->append(SecurityHeaders::class);
         $middleware->redirectGuestsTo(fn () => null);
