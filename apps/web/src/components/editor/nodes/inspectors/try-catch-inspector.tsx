@@ -6,6 +6,10 @@ import type { NodeInspectorProps } from "../types";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { Field, Select, TextInput } from "@/components/ui/primitives";
 import { ShieldAlert } from "lucide-react";
+import {
+  formatBranchNodeOption,
+  sortBranchCandidateNodes,
+} from "./node-option-label";
 
 type BranchHandle = "try" | "catch" | "finally";
 
@@ -46,11 +50,7 @@ export function TryCatchInspectorForm({
   const definition = useRecipeStore((s) => s.definition);
   const setBranchTarget = useRecipeStore((s) => s.setBranchTarget);
 
-  const availableNodes = Object.values(definition.nodes)
-    .filter((candidate) => candidate.id !== node.id)
-    .sort((a, b) =>
-      (a.description || a.id).localeCompare(b.description || b.id, "es")
-    );
+  const availableNodes = sortBranchCandidateNodes(definition, node.id);
 
   return (
     <div className="space-y-4">
@@ -85,7 +85,7 @@ export function TryCatchInspectorForm({
             <option value="">— Sin conectar —</option>
             {availableNodes.map((candidate) => (
               <option key={candidate.id} value={candidate.id}>
-                {candidate.description || candidate.id} ({candidate.type})
+                {formatBranchNodeOption(candidate)}
               </option>
             ))}
           </Select>
