@@ -10,6 +10,7 @@ import {
   Clock,
   Play,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { useLiveStore } from "@/stores/use-live-store";
@@ -50,10 +51,14 @@ export function OutputLivePanel({
 
   const nodeOutputs = useRecipeStore((s) => s.nodeOutputs);
   const nodeExecDurations = useRecipeStore((s) => s.nodeExecDurations);
+  const nodeExecStatuses = useRecipeStore((s) => s.nodeExecStatuses);
+  const nodeExecErrors = useRecipeStore((s) => s.nodeExecErrors);
 
   const live = useLiveStore();
   const outputData = nodeOutputs[node.id];
   const duration = nodeExecDurations[node.id];
+  const execStatus = nodeExecStatuses[node.id];
+  const execError = nodeExecErrors[node.id];
 
   const [activeTab, setActiveTab] = useState<"live" | "output">(() => {
     return isBrowserAction && outputData === undefined ? "live" : "output";
@@ -117,9 +122,11 @@ export function OutputLivePanel({
               icon: (
                 <span className="relative flex">
                   <Database className="h-3.5 w-3.5" />
-                  {outputData !== undefined && (
+                  {execStatus === "error" ? (
+                    <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-danger" />
+                  ) : outputData !== undefined ? (
                     <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-success" />
-                  )}
+                  ) : null}
                 </span>
               ),
             },
@@ -178,8 +185,34 @@ export function OutputLivePanel({
             activeTab === "output" ? "rpa-tab-panel" : "hidden"
           }`}
         >
+          {execStatus === "error" && execError && (
+            <div className="mx-3 mt-3 flex items-start gap-2 rounded-card border border-danger/30 bg-danger-soft px-3 py-2.5 text-[11.5px] text-danger-text">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <div className="font-medium">Error en la última prueba</div>
+                <p className="break-words font-mono text-[11px] opacity-90">{execError}</p>
+              </div>
+            </div>
+          )}
+
           {outputData !== undefined ? (
             <DataViewer data={outputData} baseTokenPrefix={`{{steps.${node.id}.output`} />
+          ) : execStatus === "error" && execError ? (
+            <div className="m-auto flex max-w-[280px] flex-col items-center justify-center gap-4 px-6 text-center">
+              <Button variant="secondary" onClick={onExecuteNode} disabled={isExecuting} className="w-full">
+                {isExecuting ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Ejecutando…</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-3.5 w-3.5 fill-current" />
+                    <span>Reintentar nodo</span>
+                  </>
+                )}
+              </Button>
+            </div>
           ) : (
             <div className="m-auto flex max-w-[280px] flex-col items-center justify-center gap-4 px-6 text-center">
               <div className="grid h-10 w-10 place-items-center rounded-full border border-line bg-card text-fg-subtle">

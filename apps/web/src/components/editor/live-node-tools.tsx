@@ -1,8 +1,8 @@
 "use client";
 
 import React from "react";
-import { Crosshair, Play, Search, CheckCircle2, XCircle, Globe, Info, Camera, Clock } from "lucide-react";
-import type { RecipeNode } from "@rpa/dsl";
+import { Crosshair, Play, Search, CheckCircle2, XCircle, Info, Camera, Clock, ShieldAlert } from "lucide-react";
+import type { RecipeDsl, RecipeNode, TryCatchNode } from "@rpa/dsl";
 import { useLiveStore } from "../../stores/use-live-store";
 import { useRecipeStore } from "../../stores/use-recipe-store";
 import { useLayoutStore } from "../../stores/use-layout-store";
@@ -18,7 +18,26 @@ const LOGIC_TYPES = [
   "javascript",
   "condition",
   "loop",
+  "tryCatch",
 ];
+
+function findEnclosingTryCatch(
+  definition: RecipeDsl,
+  nodeId: string
+): TryCatchNode | undefined {
+  const nodes = definition?.nodes || {};
+  for (const candidate of Object.values(nodes)) {
+    if (candidate.type !== "tryCatch") continue;
+    let curr: string | undefined = candidate.params.tryEntryNodeId;
+    const seen = new Set<string>();
+    while (curr && curr !== candidate.next && !seen.has(curr)) {
+      if (curr === nodeId) return candidate;
+      seen.add(curr);
+      curr = nodes[curr]?.next;
+    }
+  }
+  return undefined;
+}
 
 /**
  * Herramientas del nodo seleccionado sobre el sitio en vivo o en memoria:
@@ -28,6 +47,8 @@ const LOGIC_TYPES = [
  */
 export function LiveNodeTools({ node }: { node: RecipeNode }) {
   const [testingLogic, setTestingLogic] = React.useState(false);
+  const [testingStep, setTestingStep] = React.useState(false);
+  const [testingTryCatch, setTestingTryCatch] = React.useState(false);
   const isOpen = useLiveStore((s) => s.isOpen);
   const status = useLiveStore((s) => s.status);
   const kind = useLiveStore((s) => s.kind);
@@ -36,14 +57,21 @@ export function LiveNodeTools({ node }: { node: RecipeNode }) {
   const execResult = useLiveStore((s) => s.execResults[node.id]);
   const arm = useLiveStore((s) => s.arm);
   const disarm = useLiveStore((s) => s.disarm);
-  const exec = useLiveStore((s) => s.exec);
   const locate = useLiveStore((s) => s.locate);
   const startEmbedded = useLiveStore((s) => s.startEmbedded);
   const startScreencast = useLiveStore((s) => s.startScreencast);
   const startExternal = useLiveStore((s) => s.startExternal);
   const applyCandidates = useLiveStore((s) => s.applyCandidates);
   const recipeId = useRecipeStore((s) => s.recipeId);
+  const definition = useRecipeStore((s) => s.definition);
   const nodeOutput = useRecipeStore((s) => s.nodeOutputs[node.id]);
+  const execStatus = useRecipeStore((s) => s.nodeExecStatuses[node.id]);
+  const execError = useRecipeStore((s) => s.nodeExecErrors[node.id]);
+
+  const enclosingTryCatch = React.useMemo(
+    () => (node.type === "tryCatch" ? undefined : findEnclosingTryCatch(definition, node.id)),
+    [definition, node.id, node.type]
+  );
 
   const isLogicNode = LOGIC_TYPES.includes(node.type);
 
@@ -66,6 +94,25 @@ export function LiveNodeTools({ node }: { node: RecipeNode }) {
       await testRecipeNode(node);
     } finally {
       setTestingLogic(false);
+    }
+  };
+
+  const handleTestBrowserStep = async () => {
+    setTestingStep(true);
+    try {
+      await testRecipeNode(node);
+    } finally {
+      setTestingStep(false);
+    }
+  };
+
+  const handleTestEnclosingTryCatch = async () => {
+    if (!enclosingTryCatch) return;
+    setTestingTryCatch(true);
+    try {
+      await testRecipeNode(enclosingTryCatch);
+    } finally {
+      setTestingTryCatch(false);
     }
   };
 
@@ -95,7 +142,7 @@ export function LiveNodeTools({ node }: { node: RecipeNode }) {
     }
   };
 
-  // SI ES NODO DE LÓGICA / TRIGGER: Probar directamente en memoria
+  // SI ES NODO DE LÓGICA / TRIGGER: Probar directamente en memoria o contra el sitio
   if (isLogicNode) {
     return (
       <div className="border-t border-zinc-800/80 pt-3 space-y-2.5">
@@ -103,11 +150,15 @@ export function LiveNodeTools({ node }: { node: RecipeNode }) {
           <span className="text-[10px] font-mono font-medium text-zinc-500 uppercase tracking-wider">
             Prueba de Paso
           </span>
-          {nodeOutput !== undefined && (
+          {execStatus === "error" ? (
+            <span className="text-[10px] font-mono text-rose-400 font-medium">
+              ✗ Error
+            </span>
+          ) : nodeOutput !== undefined ? (
             <span className="text-[10px] font-mono text-emerald-400 font-medium">
               ✓ Salida disponible
             </span>
-          )}
+          ) : null}
         </div>
 
         <button
@@ -119,6 +170,13 @@ export function LiveNodeTools({ node }: { node: RecipeNode }) {
           <Play className="w-3.5 h-3.5 fill-current" />
           <span>{testingLogic ? "Probando..." : "Probar este paso"}</span>
         </button>
+
+        {execStatus === "error" && execError && (
+          <div className="flex items-start space-x-1.5 text-[11px] p-2 rounded border bg-rose-950/40 border-rose-900 text-rose-300">
+            <XCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span className="break-all">{execError}</span>
+          </div>
+        )}
 
         {nodeOutput !== undefined && (
           <div className="p-2 rounded bg-zinc-950 border border-zinc-800/80 space-y-1">
@@ -236,14 +294,16 @@ export function LiveNodeTools({ node }: { node: RecipeNode }) {
       {canTestStep && (
         <div className="grid grid-cols-2 gap-2">
           <button
-            disabled={!ready}
-            onClick={() => exec(node)}
+            type="button"
+            disabled={!ready || testingStep}
+            onClick={handleTestBrowserStep}
             className="flex items-center justify-center space-x-1 py-1.5 rounded-md bg-emerald-600/90 hover:bg-emerald-500 text-white text-xs disabled:opacity-40"
           >
             <Play className="w-3 h-3" />
-            <span>Probar paso</span>
+            <span>{testingStep ? "Probando..." : "Probar paso"}</span>
           </button>
           <button
+            type="button"
             disabled={!ready}
             onClick={() => locate(node)}
             className="flex items-center justify-center space-x-1 py-1.5 rounded-md bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs disabled:opacity-40"
@@ -254,28 +314,54 @@ export function LiveNodeTools({ node }: { node: RecipeNode }) {
         </div>
       )}
 
-          {execResult && (
-            <div
-              className={`flex items-start space-x-1.5 text-[11px] p-2 rounded border ${
-                execResult.ok
-                  ? "bg-emerald-950/40 border-emerald-900 text-emerald-300"
-                  : "bg-rose-950/40 border-rose-900 text-rose-300"
-              }`}
-            >
-              {execResult.ok ? (
-                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-              ) : (
-                <XCircle className="w-3.5 h-3.5 shrink-0" />
-              )}
-              <span className="break-all">
-                {execResult.ok
-                  ? `OK (${execResult.strategy})${
-                      execResult.output !== undefined ? ` → ${String(execResult.output)}` : ""
-                    }`
-                  : execResult.error}
-              </span>
-            </div>
-          )}
+      {enclosingTryCatch && (
+        <button
+          type="button"
+          disabled={!ready || testingTryCatch}
+          onClick={handleTestEnclosingTryCatch}
+          className="w-full flex items-center justify-center space-x-1.5 py-1.5 rounded-md bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-medium transition-colors disabled:opacity-40"
+          title={`Ejecuta ${enclosingTryCatch.description || enclosingTryCatch.id} (try → catch → finally)`}
+        >
+          <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+          <span>{testingTryCatch ? "Probando TryCatch..." : "Probar bloque TryCatch"}</span>
+        </button>
+      )}
+
+          {(execStatus === "error" || execStatus === "success" || execResult) && (() => {
+            const isOk =
+              execStatus === "success" || (execStatus !== "error" && Boolean(execResult?.ok));
+            const errorText =
+              execError || execResult?.error || "Fallo en ejecución del sitio en vivo";
+            const outputText =
+              nodeOutput !== undefined
+                ? typeof nodeOutput === "object"
+                  ? JSON.stringify(nodeOutput)
+                  : String(nodeOutput)
+                : execResult?.output !== undefined
+                ? String(execResult.output)
+                : "";
+            const strategyLabel = execResult?.strategy ? ` (${execResult.strategy})` : "";
+            return (
+              <div
+                className={`flex items-start space-x-1.5 text-[11px] p-2 rounded border ${
+                  isOk
+                    ? "bg-emerald-950/40 border-emerald-900 text-emerald-300"
+                    : "bg-rose-950/40 border-rose-900 text-rose-300"
+                }`}
+              >
+                {isOk ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                ) : (
+                  <XCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                )}
+                <span className="break-all">
+                  {isOk
+                    ? `OK${strategyLabel}${outputText ? ` → ${outputText}` : ""}`
+                    : errorText}
+                </span>
+              </div>
+            );
+          })()}
 
           {pick && (
             <div className="space-y-1">
@@ -317,24 +403,26 @@ export function LiveNodeTools({ node }: { node: RecipeNode }) {
               : `Espera de URL coincidente (${(node as any).params?.value || ""}).`}
           </p>
           <button
-            disabled={!ready}
-            onClick={() => exec(node)}
+            type="button"
+            disabled={!ready || testingStep}
+            onClick={handleTestBrowserStep}
             className="w-full flex items-center justify-center space-x-1.5 py-1.5 rounded-md bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs disabled:opacity-40"
           >
             <Clock className="w-3.5 h-3.5" />
-            <span>Probar espera en vivo</span>
+            <span>{testingStep ? "Probando espera..." : "Probar espera en vivo"}</span>
           </button>
         </div>
       )}
 
       {isScreenshot && (
         <button
-          disabled={!ready}
-          onClick={() => exec(node)}
+          type="button"
+          disabled={!ready || testingStep}
+          onClick={handleTestBrowserStep}
           className="w-full flex items-center justify-center space-x-1.5 py-2 rounded-md bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold disabled:opacity-40"
         >
           <Camera className="w-3.5 h-3.5" />
-          <span>Tomar captura de prueba</span>
+          <span>{testingStep ? "Capturando..." : "Tomar captura de prueba"}</span>
         </button>
       )}
 

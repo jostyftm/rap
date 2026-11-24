@@ -88,6 +88,38 @@ export interface SequentialTestResult {
   failedNodeId?: string;
 }
 
+export interface TesterRunContext {
+  variables: Record<string, unknown>;
+  visitedControlStack: Set<string>;
+  executedNodeIds: Set<string>;
+  abortSignal?: { aborted: boolean };
+  delayMs: number;
+}
+
+type BranchOutcome =
+  | { kind: "next"; lastOutput?: unknown }
+  | { kind: "error"; nodeId: string; error: string; errorType: string }
+  | { kind: "respond"; output?: unknown; lastOutput?: unknown }
+  | { kind: "stop" };
+
+function createTesterContext(
+  delayMs = 0,
+  abortSignal?: { aborted: boolean }
+): TesterRunContext {
+  const store = useRecipeStore.getState();
+  const variables: Record<string, unknown> = {};
+  for (const v of store.definition.variables || []) {
+    variables[v.name] = v.defaultValue ?? "";
+  }
+  return {
+    variables,
+    visitedControlStack: new Set<string>(),
+    executedNodeIds: new Set<string>(),
+    abortSignal,
+    delayMs,
+  };
+}
+
 function resolveValue(
   tokenOrStr: string,
   variables: Record<string, unknown>,
@@ -97,15 +129,12 @@ function resolveValue(
   const trimmed = tokenOrStr.trim();
   if (trimmed.startsWith("{{") && trimmed.endsWith("}}")) {
     const key = trimmed.slice(2, -2).trim();
-    if (key.startsWith("variables.")) {
-      return variables[key.slice("variables.".length)] ?? key;
-    }
-    if (key.startsWith("steps.")) {
-      const parts = key.split(".");
-      const stepId = parts[1];
-      return stepResults[stepId] ?? `[Output de ${stepId}]`;
-    }
-    return variables[key] ?? stepResults[key] ?? key;
+    const res = resolveEditorToken(key, variables, stepResults);
+    return res.found ? res.value : key;
+  }
+  if (trimmed.startsWith("variables.") || trimmed.startsWith("steps.")) {
+    const res = resolveEditorToken(trimmed, variables, stepResults);
+    if (res.found) return res.value;
   }
   if (!Number.isNaN(Number(trimmed)) && trimmed !== "") return Number(trimmed);
   if (trimmed === "true") return true;
@@ -113,13 +142,271 @@ function resolveValue(
   return trimmed;
 }
 
+function resolveLoopCollection(
+  rawExpression: string,
+  variables: Record<string, unknown>,
+  stepResults: Record<string, unknown>
+): { valid: true; items: unknown[] } | { valid: false; error: string } {
+  const expr = (rawExpression || "").trim();
+  if (!expr) {
+    return { valid: false, error: "La expresión de colección del bucle está vacía." };
+  }
+
+  let candidate: unknown;
+  const singleToken = expr.match(/^\{\{([^{}]+)\}\}$/);
+  if (singleToken) {
+    const res = resolveEditorToken(singleToken[1], variables, stepResults);
+    candidate = res.found ? res.value : undefined;
+  } else if (expr.startsWith("variables.") || expr.startsWith("steps.")) {
+    const res = resolveEditorToken(expr, variables, stepResults);
+    candidate = res.found ? res.value : undefined;
+  } else {
+    const interpolated = expr.includes("{{")
+      ? interpolateEditorString(expr, variables, stepResults, false)
+      : expr;
+    try {
+      candidate = JSON.parse(interpolated);
+    } catch {
+      candidate = interpolated;
+    }
+  }
+
+  if (typeof candidate === "string") {
+    const trimmed = candidate.trim();
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      try {
+        candidate = JSON.parse(trimmed);
+      } catch {
+        // mantener como cadena
+      }
+    }
+  }
+
+  if (!Array.isArray(candidate)) {
+    return {
+      valid: false,
+      error: `La colección '${expr}' no devolvió un arreglo válido.`,
+    };
+  }
+
+  return { valid: true, items: candidate };
+}
+
+function getBranchEntryIds(node: RecipeNode): string[] {
+  if (node.type === "condition") {
+    return [node.params.thenNodeId, node.params.elseNodeId].filter(
+      (id): id is string => typeof id === "string" && id.trim().length > 0
+    );
+  }
+  if (node.type === "loop") {
+    return node.params.bodyEntryNodeId ? [node.params.bodyEntryNodeId] : [];
+  }
+  if (node.type === "tryCatch") {
+    return [
+      node.params.tryEntryNodeId,
+      node.params.catchEntryNodeId,
+      node.params.finallyEntryNodeId,
+    ].filter((id): id is string => typeof id === "string" && id.trim().length > 0);
+  }
+  return [];
+}
+
+function collectOwnedBranchNodeIds(
+  definition: RecipeDsl,
+  selectedNodeIds: Set<string>
+): Set<string> {
+  const owned = new Set<string>();
+
+  const walkBranch = (startId: string | undefined, stopId: string | undefined) => {
+    let curr = startId;
+    const localSeen = new Set<string>();
+    while (curr && curr !== stopId && !localSeen.has(curr)) {
+      localSeen.add(curr);
+      const target = definition.nodes[curr];
+      if (!target) break;
+      owned.add(curr);
+      for (const nestedEntry of getBranchEntryIds(target)) {
+        walkBranch(nestedEntry, target.next);
+      }
+      curr = target.next;
+    }
+  };
+
+  for (const nodeId of selectedNodeIds) {
+    const node = definition.nodes[nodeId];
+    if (!node) continue;
+    for (const entryId of getBranchEntryIds(node)) {
+      walkBranch(entryId, node.next);
+    }
+  }
+
+  return owned;
+}
+
+function resetBranchExecStates(controlNodeId: string): void {
+  const store = useRecipeStore.getState();
+  const owned = collectOwnedBranchNodeIds(
+    store.definition,
+    new Set([controlNodeId])
+  );
+  for (const branchNodeId of owned) {
+    store.setNodeExecState(branchNodeId, "idle", undefined, "");
+  }
+}
+
+async function runBranchChain(
+  entryNodeId: string | undefined,
+  stopNodeId: string | undefined,
+  ctx: TesterRunContext
+): Promise<BranchOutcome> {
+  if (!entryNodeId) return { kind: "next" };
+
+  const seenInChain = new Set<string>();
+  let currId: string | undefined = entryNodeId;
+  let lastOutput: unknown = undefined;
+
+  while (currId && currId !== stopNodeId) {
+    if (ctx.abortSignal?.aborted) {
+      return { kind: "stop" };
+    }
+
+    if (seenInChain.has(currId)) {
+      return {
+        kind: "error",
+        nodeId: currId,
+        error: `Ciclo detectado en la rama al volver a '${currId}'`,
+        errorType: "CycleError",
+      };
+    }
+    seenInChain.add(currId);
+
+    const store = useRecipeStore.getState();
+    const target: RecipeNode | undefined = store.definition.nodes[currId];
+    if (!target) {
+      return { kind: "next" };
+    }
+
+    if (store.disabledNodeIds.includes(target.id)) {
+      store.addLog({
+        level: "info",
+        message: `[Test] Paso '${target.description || target.id}' omitido (deshabilitado).`,
+        nodeId: target.id,
+      });
+      currId = target.next;
+      continue;
+    }
+
+    store.setRunningNodeId(target.id);
+
+    const maxAttempts =
+      target.onError === "retry"
+        ? Math.min(Math.max(target.retry?.maxAttempts ?? 3, 1), 10)
+        : 1;
+    const baseRetryDelay = Math.min(Math.max(target.retry?.delayMs ?? 500, 0), 2000);
+    const backoff = target.retry?.backoff ?? "exponential";
+
+    let lastResult: NodeTestResult = { ok: false, error: "Error desconocido", durationMs: 0 };
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (ctx.abortSignal?.aborted) {
+        return { kind: "stop" };
+      }
+
+      lastResult = await executeNodeWithContext(target, ctx);
+      if (lastResult.ok) break;
+
+      if (attempt < maxAttempts) {
+        const waitMs =
+          backoff === "exponential"
+            ? Math.min(baseRetryDelay * 2 ** (attempt - 1), 2000)
+            : baseRetryDelay;
+        store.addLog({
+          level: "warn",
+          message: `[Test] Reintentando '${target.description || target.id}' (${attempt}/${maxAttempts}) en ${waitMs}ms...`,
+          nodeId: target.id,
+        });
+        if (waitMs > 0) {
+          await new Promise((r) => setTimeout(r, waitMs));
+        }
+      }
+    }
+
+    if (!lastResult.ok) {
+      if (target.onError === "continue") {
+        store.addLog({
+          level: "warn",
+          message: `[Test] Error absorbido por onError='continue' en '${target.description || target.id}': ${lastResult.error}`,
+          nodeId: target.id,
+        });
+        currId = target.next;
+        continue;
+      }
+
+      return {
+        kind: "error",
+        nodeId: target.id,
+        error: lastResult.error || "Fallo en ejecución del paso",
+        errorType: "NodeExecutionError",
+      };
+    }
+
+    ctx.executedNodeIds.add(target.id);
+    if (lastResult.output !== undefined) {
+      lastOutput = lastResult.output;
+    } else {
+      const storedOut = useRecipeStore.getState().nodeOutputs[target.id];
+      if (storedOut !== undefined) lastOutput = storedOut;
+    }
+
+    if (target.type === "respond" && target.params.terminateFlow !== false) {
+      return { kind: "respond", output: lastResult.output, lastOutput };
+    }
+
+    if (ctx.delayMs > 0 && target.next && target.next !== stopNodeId) {
+      await new Promise((r) => setTimeout(r, Math.min(ctx.delayMs, 2000)));
+    }
+
+    currId = target.next;
+  }
+
+  return { kind: "next", lastOutput };
+}
+
 export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> {
+  const store = useRecipeStore.getState();
+  const prevRunningNodeId = store.runningNodeId;
+  const ctx = createTesterContext(0);
+  store.setRunningNodeId(node.id);
+  try {
+    return await executeNodeWithContext(node, ctx);
+  } finally {
+    useRecipeStore.getState().setRunningNodeId(prevRunningNodeId ?? null);
+  }
+}
+
+async function executeNodeWithContext(
+  node: RecipeNode,
+  ctx: TesterRunContext
+): Promise<NodeTestResult> {
+  useRecipeStore.getState().setNodeExecState(node.id, "running");
+  const result = await executeNodeBody(node, ctx);
+  useRecipeStore
+    .getState()
+    .setNodeExecState(
+      node.id,
+      result.ok ? "success" : "error",
+      result.durationMs,
+      result.ok ? undefined : result.error
+    );
+  return result;
+}
+
+async function executeNodeBody(
+  node: RecipeNode,
+  ctx: TesterRunContext
+): Promise<NodeTestResult> {
   const startTime = Date.now();
   const store = useRecipeStore.getState();
-  const currentVariables: Record<string, unknown> = {};
-  for (const v of store.definition.variables || []) {
-    currentVariables[v.name] = v.defaultValue ?? "";
-  }
+  const currentVariables = ctx.variables;
   const currentStepOutputs = store.nodeOutputs || {};
 
   try {
@@ -139,6 +426,9 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
             "user-agent": "RPAStudio-Tester/1.0",
           },
         };
+        if (node.params.outputVariable) {
+          currentVariables[node.params.outputVariable] = payload;
+        }
         const durationMs = Date.now() - startTime;
         store.setNodeOutput(node.id, payload);
         store.addLog({
@@ -153,24 +443,21 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
         const rawExpr = node.params.expression || "";
         let evaluated: unknown = rawExpr;
 
-        if (rawExpr.includes("{{")) {
-          evaluated = rawExpr.replace(/\{\{([^{}]+)\}\}/g, (_, key) => {
-            const trimmed = key.trim();
-            if (trimmed.startsWith("steps.")) {
-              const stepId = trimmed.split(".")[1];
-              const out = currentStepOutputs[stepId];
-              return out !== undefined
-                ? typeof out === "object"
-                  ? JSON.stringify(out)
-                  : String(out)
-                : `[${trimmed}]`;
-            }
-            if (trimmed.startsWith("variables.")) {
-              const varName = trimmed.slice("variables.".length);
-              return String(currentVariables[varName] ?? `[${trimmed}]`);
-            }
-            return String(currentVariables[trimmed] ?? currentStepOutputs[trimmed] ?? `[${trimmed}]`);
-          });
+        const singleToken = rawExpr.trim().match(/^\{\{([^{}]+)\}\}$/);
+        if (singleToken) {
+          const resolved = resolveEditorToken(
+            singleToken[1],
+            currentVariables,
+            currentStepOutputs
+          );
+          evaluated = resolved.found ? resolved.value : rawExpr;
+        } else if (rawExpr.includes("{{")) {
+          evaluated = interpolateEditorString(
+            rawExpr,
+            currentVariables,
+            currentStepOutputs,
+            false
+          );
         } else if (!Number.isNaN(Number(rawExpr)) && rawExpr.trim() !== "") {
           evaluated = Number(rawExpr);
         } else if (rawExpr === "true") {
@@ -179,6 +466,9 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
           evaluated = false;
         }
 
+        if (node.params.name) {
+          currentVariables[node.params.name] = evaluated;
+        }
         const durationMs = Date.now() - startTime;
         store.setNodeOutput(node.id, evaluated);
         store.addLog({
@@ -465,6 +755,9 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
         const durationMs = Date.now() - startTime;
         if (res.output !== undefined) {
           store.setNodeOutput(node.id, res.output);
+          if (node.params.outputVariable) {
+            currentVariables[node.params.outputVariable] = res.output;
+          }
         }
 
         const status = (res.output as { status?: number } | undefined)?.status ?? "?";
@@ -525,11 +818,14 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
         }
 
         const durationMs = Date.now() - startTime;
+        const targetBranchId = isSatisfied
+          ? node.params.thenNodeId
+          : node.params.elseNodeId;
         const resultOutput = {
           cumpleCondicion: isSatisfied,
-          ramaSiguiente: isSatisfied
-            ? node.params.thenNodeId || "Rama VERDADERA (then)"
-            : node.params.elseNodeId || "Rama FALSA (else)",
+          ramaSiguiente:
+            targetBranchId ||
+            (isSatisfied ? "Rama VERDADERA (then)" : "Rama FALSA (else)"),
           comparacion: `${JSON.stringify(leftVal)} [${operator}] ${JSON.stringify(rightVal)}`,
         };
         store.setNodeOutput(node.id, resultOutput);
@@ -538,41 +834,273 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
           message: `[Test] Condición evaluada a ${isSatisfied ? "VERDADERO" : "FALSO"} (${durationMs}ms)`,
           nodeId: node.id,
         });
-        return { ok: true, output: resultOutput, durationMs };
+
+        if (targetBranchId && store.definition.nodes[targetBranchId]) {
+          if (ctx.visitedControlStack.has(node.id)) {
+            return {
+              ok: false,
+              output: resultOutput,
+              error: `Reentrada recursiva detectada en '${node.id}'`,
+              durationMs: Date.now() - startTime,
+            };
+          }
+          ctx.visitedControlStack.add(node.id);
+          resetBranchExecStates(node.id);
+          try {
+            const branchOutcome = await runBranchChain(targetBranchId, node.next, ctx);
+            if (branchOutcome.kind === "stop") {
+              return {
+                ok: false,
+                output: resultOutput,
+                error: "Ejecución cancelada por el usuario",
+                durationMs: Date.now() - startTime,
+              };
+            }
+            if (branchOutcome.kind === "error") {
+              return {
+                ok: false,
+                output: resultOutput,
+                error: branchOutcome.error,
+                durationMs: Date.now() - startTime,
+              };
+            }
+          } finally {
+            ctx.visitedControlStack.delete(node.id);
+          }
+        }
+
+        return { ok: true, output: resultOutput, durationMs: Date.now() - startTime };
       }
 
       case "loop": {
+        if (ctx.visitedControlStack.has(node.id)) {
+          return {
+            ok: false,
+            error: `Reentrada recursiva detectada en el bucle '${node.id}'`,
+            durationMs: Date.now() - startTime,
+          };
+        }
+
+        const resolvedCollection = resolveLoopCollection(
+          node.params.collectionExpression,
+          currentVariables,
+          currentStepOutputs
+        );
+        if (!resolvedCollection.valid) {
+          const durationMs = Date.now() - startTime;
+          store.addLog({
+            level: "error",
+            message: `[Test] ${resolvedCollection.error}`,
+            nodeId: node.id,
+          });
+          return { ok: false, error: resolvedCollection.error, durationMs };
+        }
+
+        const bodyEntryId = node.params.bodyEntryNodeId;
+        if (!bodyEntryId || !store.definition.nodes[bodyEntryId]) {
+          const durationMs = Date.now() - startTime;
+          const errMsg = "Conecta un nodo al cuerpo del bucle antes de probar.";
+          store.addLog({
+            level: "warn",
+            message: `[Test] ${errMsg}`,
+            nodeId: node.id,
+          });
+          return { ok: false, error: errMsg, durationMs };
+        }
+
+        const maxIterations = Math.min(Math.max(node.params.maxIterations ?? 10, 1), 100);
+        const items = resolvedCollection.items;
+        const limit = Math.min(items.length, maxIterations);
+        const truncated = items.length > maxIterations;
+        const itemVariable = node.params.itemVariable || "item";
+        let iterations = 0;
+
+        ctx.visitedControlStack.add(node.id);
+        resetBranchExecStates(node.id);
+        try {
+          for (let index = 0; index < limit; index++) {
+            if (ctx.abortSignal?.aborted) {
+              return {
+                ok: false,
+                error: "Ejecución cancelada por el usuario",
+                durationMs: Date.now() - startTime,
+              };
+            }
+            currentVariables[itemVariable] = items[index];
+            currentVariables[`${itemVariable}_index`] = index;
+            iterations++;
+
+            const iterOutcome = await runBranchChain(bodyEntryId, node.next, ctx);
+            if (iterOutcome.kind === "stop") {
+              return {
+                ok: false,
+                error: "Ejecución cancelada por el usuario",
+                durationMs: Date.now() - startTime,
+              };
+            }
+            if (iterOutcome.kind === "error") {
+              const output = { iterations, truncated };
+              store.setNodeOutput(node.id, output);
+              return {
+                ok: false,
+                output,
+                error: iterOutcome.error,
+                durationMs: Date.now() - startTime,
+              };
+            }
+            if (iterOutcome.kind === "respond") {
+              break;
+            }
+          }
+        } finally {
+          ctx.visitedControlStack.delete(node.id);
+        }
+
         const durationMs = Date.now() - startTime;
-        const output = {
-          coleccion: node.params.collectionExpression,
-          variableElemento: node.params.itemVariable,
-          limiteMaximo: node.params.maxIterations,
-          estado: "Bucle configurado correctamente",
-        };
+        const output = { iterations, truncated };
         store.setNodeOutput(node.id, output);
         store.addLog({
           level: "success",
-          message: `[Test] Bucle '${node.params.itemVariable}' configurado (${durationMs}ms)`,
+          message: `[Test] Bucle '${itemVariable}' completado: ${iterations} iteración(es)${truncated ? " (truncado)" : ""} (${durationMs}ms)`,
           nodeId: node.id,
         });
         return { ok: true, output, durationMs };
       }
 
       case "tryCatch": {
-        const durationMs = Date.now() - startTime;
-        const output = {
-          bloqueTry: node.params.tryEntryNodeId || "(sin conectar)",
-          bloqueCatch: node.params.catchEntryNodeId || "(sin conectar)",
-          bloqueFinally: node.params.finallyEntryNodeId || "(no definido)",
-          variableError: node.params.errorVariable || "error",
-          relanzarError: node.params.rethrow === true,
-          estado:
-            "Bloque try/catch configurado. La prueba rápida no ejecuta las ramas.",
-        };
-        store.setNodeOutput(node.id, output);
+        if (ctx.visitedControlStack.has(node.id)) {
+          return {
+            ok: false,
+            error: `Reentrada recursiva detectada en '${node.id}'`,
+            durationMs: Date.now() - startTime,
+          };
+        }
+
+        const tryEntryId = node.params.tryEntryNodeId;
+        if (!tryEntryId || !store.definition.nodes[tryEntryId]) {
+          const durationMs = Date.now() - startTime;
+          const errMsg = "Conecta un nodo al bloque try antes de probar.";
+          store.addLog({
+            level: "warn",
+            message: `[Test] ${errMsg}`,
+            nodeId: node.id,
+          });
+          return { ok: false, error: errMsg, durationMs };
+        }
+
+        const errorVariable = node.params.errorVariable || "error";
+        let caught = false;
+        let caughtError: { message: string; nodeId: string; type: string } | null = null;
+        let catchOutput: unknown = undefined;
+        let propagatedError: string | undefined;
+        let terminatedByRespond = false;
+
         store.addLog({
           level: "info",
-          message: `[Test] Bloque try/catch verificado: try=${output.bloqueTry}, catch=${output.bloqueCatch} (${durationMs}ms)`,
+          message: `[Test] [tryCatch] Ejecutando bloque try desde '${tryEntryId}'...`,
+          nodeId: node.id,
+        });
+
+        ctx.visitedControlStack.add(node.id);
+        resetBranchExecStates(node.id);
+        try {
+          const tryOutcome = await runBranchChain(tryEntryId, node.next, ctx);
+
+          if (tryOutcome.kind === "stop") {
+            return {
+              ok: false,
+              error: "Ejecución cancelada por el usuario",
+              durationMs: Date.now() - startTime,
+            };
+          }
+
+          if (tryOutcome.kind === "respond") {
+            terminatedByRespond = true;
+          } else if (tryOutcome.kind === "error") {
+            caught = true;
+            caughtError = {
+              message: tryOutcome.error,
+              nodeId: tryOutcome.nodeId,
+              type: tryOutcome.errorType,
+            };
+            currentVariables[errorVariable] = caughtError;
+
+            store.addLog({
+              level: "warn",
+              message: `[Test] [tryCatch] Error capturado en [${tryOutcome.nodeId}] → ejecutando catch`,
+              nodeId: node.id,
+            });
+
+            const catchEntryId = node.params.catchEntryNodeId;
+            if (catchEntryId && store.definition.nodes[catchEntryId]) {
+              const catchOutcome = await runBranchChain(catchEntryId, node.next, ctx);
+              if (catchOutcome.kind === "stop") {
+                return {
+                  ok: false,
+                  error: "Ejecución cancelada por el usuario",
+                  durationMs: Date.now() - startTime,
+                };
+              }
+              if (catchOutcome.kind === "respond") {
+                terminatedByRespond = true;
+                catchOutput = catchOutcome.lastOutput;
+              } else if (catchOutcome.kind === "error") {
+                propagatedError = catchOutcome.error;
+              } else {
+                catchOutput = catchOutcome.lastOutput;
+                if (node.params.rethrow) {
+                  propagatedError = tryOutcome.error;
+                }
+              }
+            } else if (node.params.rethrow) {
+              propagatedError = tryOutcome.error;
+            }
+          }
+
+          const finallyEntryId = node.params.finallyEntryNodeId;
+          if (!terminatedByRespond && finallyEntryId && store.definition.nodes[finallyEntryId]) {
+            store.addLog({
+              level: "info",
+              message: `[Test] [tryCatch] Ejecutando bloque finally desde '${finallyEntryId}'...`,
+              nodeId: node.id,
+            });
+            const finallyOutcome = await runBranchChain(finallyEntryId, node.next, ctx);
+            if (finallyOutcome.kind === "stop") {
+              return {
+                ok: false,
+                error: "Ejecución cancelada por el usuario",
+                durationMs: Date.now() - startTime,
+              };
+            }
+            if (finallyOutcome.kind === "error") {
+              propagatedError = finallyOutcome.error;
+            }
+          }
+        } finally {
+          ctx.visitedControlStack.delete(node.id);
+        }
+
+        const durationMs = Date.now() - startTime;
+        const output =
+          catchOutput !== undefined
+            ? { caught, error: caughtError, catchOutput }
+            : { caught, error: caughtError };
+        store.setNodeOutput(node.id, output);
+
+        if (propagatedError) {
+          store.addLog({
+            level: "error",
+            message: `[Test] [tryCatch] Error propagado: ${propagatedError} (${durationMs}ms)`,
+            nodeId: node.id,
+          });
+          return { ok: false, output, error: propagatedError, durationMs };
+        }
+
+        store.addLog({
+          level: "success",
+          message: caught
+            ? `[Test] [tryCatch] Error capturado y manejado (${durationMs}ms)`
+            : `[Test] [tryCatch] Completado sin errores (${durationMs}ms)`,
           nodeId: node.id,
         });
         return { ok: true, output, durationMs };
@@ -644,7 +1172,120 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
         return { ok: true, output, durationMs };
       }
 
-      // Pasos de interacción en navegador (click, type, select, waitFor, extract, screenshot, scroll)
+      case "screenshot": {
+        const live = useLiveStore.getState();
+        const recipeId = store.recipeId;
+        const resolvedName =
+          typeof node.params.name === "string" && node.params.name.includes("{{")
+            ? interpolateEditorString(node.params.name, currentVariables, currentStepOutputs, false)
+            : node.params.name;
+
+        const resolvedNode =
+          resolvedName !== node.params.name
+            ? ({ ...node, params: { ...node.params, name: resolvedName } } as typeof node)
+            : node;
+
+        if (
+          live.isOpen &&
+          live.status === "ready" &&
+          (live.kind === "screencast" || live.kind === "external")
+        ) {
+          const result = await live.exec(resolvedNode, 25000);
+          const durationMs = Date.now() - startTime;
+
+          if (!result.ok) {
+            const err = result.error || "Error al capturar pantalla en el navegador en vivo";
+            store.addLog({ level: "error", message: `[Test] ${err}`, nodeId: node.id });
+            return { ok: false, error: err, durationMs };
+          }
+
+          store.setNodeOutput(node.id, result.output);
+          const shotUrl = (result.output as { url?: string | null } | undefined)?.url;
+          store.addLog({
+            level: "success",
+            message: shotUrl
+              ? `[Test] Captura subida a S3: ${shotUrl} (${durationMs}ms)`
+              : `[Test] Captura generada (${durationMs}ms)`,
+            nodeId: node.id,
+          });
+          return { ok: true, output: result.output, durationMs };
+        }
+
+        let targetUrl =
+          live.currentUrl && /^https?:\/\//i.test(live.currentUrl) ? live.currentUrl : "";
+
+        if (!targetUrl) {
+          const navNode = Object.values(store.definition.nodes).find(
+            (n) => n.type === "navigate"
+          );
+          const entryNode = store.definition.entry
+            ? store.definition.nodes[store.definition.entry]
+            : null;
+          const rawTargetUrl =
+            (navNode as { params?: { url?: string } } | undefined)?.params?.url ||
+            (entryNode as { params?: { url?: string } } | null)?.params?.url ||
+            "";
+          if (rawTargetUrl) {
+            targetUrl = rawTargetUrl.includes("{{")
+              ? interpolateEditorString(rawTargetUrl, currentVariables, currentStepOutputs, false)
+              : rawTargetUrl;
+          }
+        }
+
+        if (!recipeId) {
+          const durationMs = Date.now() - startTime;
+          const error = "Guarda la receta primero para subir capturas a S3.";
+          store.addLog({ level: "warn", message: `[Test] ${error}`, nodeId: node.id });
+          return { ok: false, error, durationMs };
+        }
+
+        if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
+          const durationMs = Date.now() - startTime;
+          const error =
+            "Abre primero una URL en «Sitio en Vivo» o configura un nodo «Navegar» en la receta para tomar la captura.";
+          store.addLog({ level: "warn", message: `[Test] ${error}`, nodeId: node.id });
+          return { ok: false, error, durationMs };
+        }
+
+        const res = await apiFetch<{
+          ok: boolean;
+          output?: unknown;
+          error?: string;
+        }>(`/api/v1/recipes/${recipeId}/live/screenshot`, {
+          method: "POST",
+          body: JSON.stringify({
+            session_id: live.sessionId || undefined,
+            url: targetUrl,
+            node_id: node.id,
+            name: resolvedName,
+            full_page: node.params.fullPage ?? false,
+            locator: node.locator,
+            timeout: node.timeout ?? 5000,
+          }),
+        });
+
+        const durationMs = Date.now() - startTime;
+        if (!res.ok) {
+          const err = res.error || "Error al capturar pantalla en S3";
+          store.addLog({ level: "error", message: `[Test] ${err}`, nodeId: node.id });
+          return { ok: false, error: err, durationMs };
+        }
+
+        if (res.output !== undefined) {
+          store.setNodeOutput(node.id, res.output);
+        }
+        const shotUrl = (res.output as { url?: string | null } | undefined)?.url;
+        store.addLog({
+          level: "success",
+          message: shotUrl
+            ? `[Test] Captura subida a S3: ${shotUrl} (${durationMs}ms)`
+            : `[Test] Captura generada (${durationMs}ms)`,
+          nodeId: node.id,
+        });
+        return { ok: true, output: res.output, durationMs };
+      }
+
+      // Pasos de interacción en navegador (click, type, select, waitFor, extract, scroll)
       default: {
         let live = useLiveStore.getState();
         const recipeId = store.recipeId || "current";
@@ -732,6 +1373,9 @@ export async function testRecipeNode(node: RecipeNode): Promise<NodeTestResult> 
               status: "Acción completada en navegador",
               strategy: liveResult.strategy,
             };
+            if (node.type === "extract" && node.params.variable) {
+              currentVariables[node.params.variable] = out;
+            }
             store.setNodeOutput(node.id, out);
             store.addLog({
               level: "success",
@@ -853,7 +1497,12 @@ export async function testSequentialNodes(
   const layout = useLayoutStore.getState();
 
   const orderedNodes = sortNodesInExecutionOrder(store.definition, nodeIds);
-  if (orderedNodes.length === 0) {
+  const ownedBranchIds = collectOwnedBranchNodeIds(
+    store.definition,
+    new Set(orderedNodes.map((n) => n.id))
+  );
+  const effectiveNodes = orderedNodes.filter((n) => !ownedBranchIds.has(n.id));
+  if (effectiveNodes.length === 0) {
     return { completed: true, executedCount: 0, totalCount: 0 };
   }
 
@@ -866,7 +1515,7 @@ export async function testSequentialNodes(
   }
 
   // Si el primer paso no es un navegador y el simulador está cerrado/idle, intentar inicializarlo con la URL de la receta
-  const firstNode = orderedNodes[0];
+  const firstNode = effectiveNodes[0];
   if (
     firstNode.type !== "navigate" &&
     (live.status === "idle" || (!live.proxyUrl && !live.wsUrl && live.kind !== "external"))
@@ -891,44 +1540,45 @@ export async function testSequentialNodes(
 
   const currentAbort = { aborted: false };
   activeSequentialAbort = currentAbort;
+  const ctx = createTesterContext(delayMs, currentAbort);
 
   store.setIsTestingSteps(true, {
     current: 1,
-    total: orderedNodes.length,
-    nodeId: orderedNodes[0].id,
+    total: effectiveNodes.length,
+    nodeId: effectiveNodes[0].id,
   });
   store.addLog({
     level: "info",
-    message: `[Test] Iniciando ejecución secuencial de ${orderedNodes.length} pasos seleccionados en el simulador...`,
+    message: `[Test] Iniciando ejecución secuencial de ${effectiveNodes.length} pasos seleccionados en el simulador...`,
   });
 
   try {
-    for (let i = 0; i < orderedNodes.length; i++) {
+    for (let i = 0; i < effectiveNodes.length; i++) {
       if (currentAbort.aborted) {
         return {
           completed: false,
           executedCount: i,
-          totalCount: orderedNodes.length,
+          totalCount: effectiveNodes.length,
           error: "Ejecución cancelada por el usuario",
         };
       }
 
-      const currentNode = orderedNodes[i];
+      const currentNode = effectiveNodes[i];
       store.setRunningNodeId(currentNode.id);
       store.setIsTestingSteps(true, {
         current: i + 1,
-        total: orderedNodes.length,
+        total: effectiveNodes.length,
         nodeId: currentNode.id,
       });
 
       options.onProgress?.({
         currentStepIndex: i,
-        totalSteps: orderedNodes.length,
+        totalSteps: effectiveNodes.length,
         currentNodeId: currentNode.id,
         isTesting: true,
       });
 
-      const result = await testRecipeNode(currentNode);
+      const result = await executeNodeWithContext(currentNode, ctx);
 
       if (!result.ok) {
         store.setRunningNodeId(null);
@@ -941,14 +1591,14 @@ export async function testSequentialNodes(
         return {
           completed: false,
           executedCount: i,
-          totalCount: orderedNodes.length,
+          totalCount: effectiveNodes.length,
           error: result.error,
           failedNodeId: currentNode.id,
         };
       }
 
       // Pausa visual entre pasos para apreciar la interacción en el simulador
-      if (delayMs > 0 && i < orderedNodes.length - 1) {
+      if (delayMs > 0 && i < effectiveNodes.length - 1) {
         await new Promise((r) => setTimeout(r, delayMs));
       }
     }
@@ -957,13 +1607,13 @@ export async function testSequentialNodes(
     store.setIsTestingSteps(false, null);
     store.addLog({
       level: "success",
-      message: `[Test] Ejecución secuencial completada exitosamente (${orderedNodes.length}/${orderedNodes.length} pasos).`,
+      message: `[Test] Ejecución secuencial completada exitosamente (${effectiveNodes.length}/${effectiveNodes.length} pasos).`,
     });
 
     return {
       completed: true,
-      executedCount: orderedNodes.length,
-      totalCount: orderedNodes.length,
+      executedCount: effectiveNodes.length,
+      totalCount: effectiveNodes.length,
     };
   } finally {
     activeSequentialAbort = null;

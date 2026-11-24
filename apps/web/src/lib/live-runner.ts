@@ -116,7 +116,12 @@ export async function runRecipeInLivePanel(
       } else if (
         node.type === "javascript" ||
         node.type === "httpRequest" ||
-        node.type === "respond"
+        node.type === "respond" ||
+        node.type === "screenshot" ||
+        node.type === "setVariable" ||
+        node.type === "condition" ||
+        node.type === "loop" ||
+        node.type === "tryCatch"
       ) {
         const testRes = await testRecipeNode(node);
         const duration = Date.now() - startTime;

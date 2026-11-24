@@ -208,14 +208,41 @@ export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selec
         )}
 
         {/* Salida probada o ejecutada */}
-        {nodeData.output !== undefined && (
-          <div className="p-1.5 rounded bg-zinc-950 border border-emerald-500/20 text-[10px] font-mono text-emerald-400 truncate flex items-center justify-between">
-            <span className="text-zinc-500 text-[9px] uppercase shrink-0 mr-1">Salida:</span>
-            <span className="truncate text-right">
-              {typeof nodeData.output === "object" ? JSON.stringify(nodeData.output) : String(nodeData.output)}
-            </span>
-          </div>
-        )}
+        {nodeData.output !== undefined && (() => {
+          const tryOut =
+            nodeData.type === "tryCatch" &&
+            typeof nodeData.output === "object" &&
+            nodeData.output !== null
+              ? (nodeData.output as {
+                  caught?: boolean;
+                  catchOutput?: unknown;
+                  error?: { message?: string } | null;
+                })
+              : null;
+          const displayOutput = tryOut?.caught
+            ? tryOut.catchOutput !== undefined
+              ? typeof tryOut.catchOutput === "object"
+                ? JSON.stringify(tryOut.catchOutput)
+                : String(tryOut.catchOutput)
+              : tryOut.error?.message || "Error capturado"
+            : typeof nodeData.output === "object"
+            ? JSON.stringify(nodeData.output)
+            : String(nodeData.output);
+
+          return (
+            <div
+              className={`p-1.5 rounded bg-zinc-950 border text-[10px] font-mono truncate flex items-center justify-between ${
+                tryOut?.caught
+                  ? "border-amber-500/30 text-amber-300"
+                  : "border-emerald-500/20 text-emerald-400"
+              }`}
+              title={displayOutput}
+            >
+              <span className="text-zinc-500 text-[9px] uppercase shrink-0 mr-1">Salida:</span>
+              <span className="truncate text-right">{displayOutput}</span>
+            </div>
+          );
+        })()}
 
         {/* Localizador y Score de robustez */}
         {nodeData.locator && (
@@ -294,23 +321,42 @@ export function CustomFlowNode({ data, selected }: { data: CustomNodeData; selec
         )}
 
         {/* Indicador de resultado de ejecución del paso */}
-        {(execStatus === "success" || execStatus === "error") && (
-          <div
-            className={`flex items-center justify-between px-1.5 py-1 rounded text-[10px] font-mono border ${
-              execStatus === "error"
-                ? "bg-rose-950/40 border-rose-500/30 text-rose-300"
-                : "bg-emerald-950/30 border-emerald-500/25 text-emerald-300"
-            }`}
-            title={execError || undefined}
-          >
-            <span className="truncate">
-              {execStatus === "error" ? `✗ ${execError || "Error"}` : "✓ Ejecutado"}
-            </span>
-            {typeof execDuration === "number" && (
-              <span className="shrink-0 ml-1 text-zinc-400">{execDuration}ms</span>
-            )}
-          </div>
-        )}
+        {(execStatus === "success" || execStatus === "error") && (() => {
+          const tryOut =
+            nodeData.type === "tryCatch" &&
+            execStatus === "success" &&
+            typeof nodeData.output === "object" &&
+            nodeData.output !== null
+              ? (nodeData.output as { caught?: boolean })
+              : null;
+          const isCaughtSuccess = Boolean(tryOut?.caught);
+          const statusLabel =
+            execStatus === "error"
+              ? `✗ ${execError || "Error"}`
+              : nodeData.type === "tryCatch"
+              ? isCaughtSuccess
+                ? "✓ Error capturado → catch"
+                : "✓ Try sin errores"
+              : "✓ Ejecutado";
+
+          return (
+            <div
+              className={`flex items-center justify-between px-1.5 py-1 rounded text-[10px] font-mono border ${
+                execStatus === "error"
+                  ? "bg-rose-950/40 border-rose-500/30 text-rose-300"
+                  : isCaughtSuccess
+                  ? "bg-amber-950/40 border-amber-500/35 text-amber-300"
+                  : "bg-emerald-950/30 border-emerald-500/25 text-emerald-300"
+              }`}
+              title={execError || statusLabel}
+            >
+              <span className="truncate">{statusLabel}</span>
+              {typeof execDuration === "number" && (
+                <span className="shrink-0 ml-1 text-zinc-400">{execDuration}ms</span>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Indicador de error de validación */}
         {nodeData.hasErrors && (

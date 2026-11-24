@@ -36,6 +36,8 @@ export function CustomFlowEdge({
   });
 
   const removeEdge = useRecipeStore((s) => s.removeEdge);
+  const sourceOutput = useRecipeStore((s) => s.nodeOutputs[source]);
+  const targetStatus = useRecipeStore((s) => s.nodeExecStatuses[target]);
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -52,6 +54,16 @@ export function CustomFlowEdge({
   const isCatch = label === "catch";
   const isFinally = label === "finally";
   const isBody = label === "body";
+
+  const targetRan = targetStatus === "success" || targetStatus === "error";
+  const caughtFlag =
+    typeof sourceOutput === "object" &&
+    sourceOutput !== null &&
+    (sourceOutput as { caught?: boolean }).caught === true;
+  const isExecutedBranch =
+    (isCatch && caughtFlag && targetRan) ||
+    (isTry && targetRan) ||
+    ((isThen || isElse) && targetRan);
 
   return (
     <>
@@ -75,7 +87,7 @@ export function CustomFlowEdge({
             : isBody
             ? "#fb7185"
             : "#52525b",
-          strokeWidth: selected ? 2.5 : 1.75,
+          strokeWidth: selected || isExecutedBranch ? 2.5 : 1.75,
           transition: "stroke 0.15s ease, stroke-width 0.15s ease",
         }}
       />
@@ -104,6 +116,7 @@ export function CustomFlowEdge({
                   : "bg-zinc-900/90 text-zinc-300 border-zinc-800"
               }`}
             >
+              {isExecutedBranch ? "● " : ""}
               {isElse ? "else" : isThen ? "then" : label}
             </span>
           )}
