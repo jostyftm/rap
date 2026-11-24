@@ -1,5 +1,6 @@
-:80 {
-    # Logging estructurado en JSON
+{$CADDY_SITE_ADDRESS::80} {
+    encode zstd gzip
+
     log {
         output stdout
         format json
@@ -22,6 +23,11 @@
     # Laravel Reverb WebSockets
     handle /app/* {
         reverse_proxy reverb:8080
+    }
+
+    # Runner Screencast WebSockets (Sitio en Vivo remoto)
+    handle /live/ws/* {
+        reverse_proxy runner:8085
     }
 
     # Frontend Next.js

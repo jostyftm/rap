@@ -1,0 +1,439 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# RPA Studio - Production Environment Manager
+# Usage: ./prod [init|build|up|start|deploy|stop|down|restart|status|logs|artisan|config]
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMPOSE_FILE="$PROJECT_ROOT/docker-compose.prod.yml"
+ENV_FILE="${PROD_ENV_FILE:-$PROJECT_ROOT/.env.prod}"
+TEMPLATE_FILE="$PROJECT_ROOT/.env.prod.example"
+
+C_RESET='\033[0m'
+C_BOLD='\033[1m'
+C_GREEN='\033[32m'
+C_RED='\033[31m'
+C_YELLOW='\033[33m'
+C_CYAN='\033[36m'
+C_BLUE='\033[34m'
+
+print_header() {
+    echo -e "${C_CYAN}${C_BOLD}"
+    echo "=========================================================="
+    echo "          RPA Studio - Entorno de Producción              "
+    echo "=========================================================="
+    echo -e "${C_RESET}"
+}
+
+compose() {
+    PROD_ENV_FILE="$ENV_FILE" docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"
+}
+
+rand_hex() {
+    local bytes=${1:-24}
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -hex "$bytes" | tr -d '\n'
+    elif command -v node >/dev/null 2>&1; then
+        node -e "process.stdout.write(require('crypto').randomBytes(${bytes}).toString('hex'))"
+    else
+        od -An -tx1 -N "$bytes" /dev/urandom | tr -d ' \n'
+    fi
+}
+
+rand_b64_32() {
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -base64 32 | tr -d '\n'
+    elif command -v node >/dev/null 2>&1; then
+        node -e "process.stdout.write(require('crypto').randomBytes(32).toString('base64'))"
+    else
+        head -c 32 /dev/urandom | base64 | tr -d '\n'
+    fi
+}
+
+validate_env() {
+    if [ ! -f "$ENV_FILE" ]; then
+        echo -e "${C_RED}✗ No se encontró el archivo de entorno: $ENV_FILE${C_RESET}"
+        echo "  Genera uno ejecutando: ./prod init (o ./prod init --domain tu-dominio.com)"
+        exit 1
+    fi
+
+    if grep -q '__CHANGE_ME_' "$ENV_FILE"; then
+        echo -e "${C_RED}✗ El archivo $ENV_FILE aún contiene marcadores sin reemplazar (__CHANGE_ME_*):${C_RESET}"
+        grep -n '__CHANGE_ME_' "$ENV_FILE" || true
+        exit 1
+    fi
+}
+
+wait_for_pgsql() {
+    echo -ne "${C_BLUE}→ Esperando disponibilidad de PostgreSQL...${C_RESET}"
+    local retries=40
+    while [ "$retries" -gt 0 ]; do
+        if compose exec -T pgsql sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null 2>&1; then
+            echo -e "\r${C_GREEN}✓ PostgreSQL listo.                           ${C_RESET}"
+            return 0
+        fi
+        sleep 1
+        retries=$((retries - 1))
+        echo -ne "."
+    done
+    echo -e "\n${C_RED}✗ PostgreSQL no respondió a tiempo.${C_RESET}"
+    exit 1
+}
+
+cmd_init() {
+    local domain=""
+    local force=0
+    local target="$ENV_FILE"
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --domain)
+                domain="${2:-}"
+                if [ -z "$domain" ]; then
+                    echo -e "${C_RED}✗ Falta valor para --domain${C_RESET}"
+                    exit 1
+                fi
+                shift 2
+                ;;
+            --env-file)
+                target="${2:-}"
+                if [ -z "$target" ]; then
+                    echo -e "${C_RED}✗ Falta valor para --env-file${C_RESET}"
+                    exit 1
+                fi
+                shift 2
+                ;;
+            --force)
+                force=1
+                shift
+                ;;
+            *)
+                echo -e "${C_RED}Opción desconocida para init: $1${C_RESET}"
+                echo "Uso: ./prod init [--domain tudominio.com] [--env-file ruta] [--force]"
+                exit 1
+                ;;
+        esac
+    done
+
+    if [ ! -f "$TEMPLATE_FILE" ]; then
+        echo -e "${C_RED}✗ No se encontró la plantilla $TEMPLATE_FILE${C_RESET}"
+        exit 1
+    fi
+
+    if [ -f "$target" ] && [ "$force" -ne 1 ]; then
+        echo -e "${C_YELLOW}⚠ Ya existe $target. Usa --force para regenerarlo.${C_RESET}"
+        exit 1
+    fi
+
+    local app_key db_password redis_password reverb_key reverb_secret
+    local s3_access s3_secret live_token internal_secret keyring_b64
+
+    app_key="base64:$(rand_b64_32)"
+    db_password="$(rand_hex 24)"
+    redis_password="$(rand_hex 24)"
+    reverb_key="$(rand_hex 16)"
+    reverb_secret="$(rand_hex 24)"
+    s3_access="$(rand_hex 10)"
+    s3_secret="$(rand_hex 20)"
+    live_token="$(rand_hex 24)"
+    internal_secret="$(rand_hex 32)"
+    keyring_b64="$(rand_b64_32)"
+
+    local tmp_file
+    tmp_file="$(mktemp)"
+    trap 'rm -f "$tmp_file"' EXIT
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            APP_KEY=*)
+                printf 'APP_KEY=%s\n' "$app_key"
+                ;;
+            DB_PASSWORD=*)
+                printf 'DB_PASSWORD=%s\n' "$db_password"
+                ;;
+            POSTGRES_PASSWORD=*)
+                printf 'POSTGRES_PASSWORD=%s\n' "$db_password"
+                ;;
+            REDIS_PASSWORD=*)
+                printf 'REDIS_PASSWORD=%s\n' "$redis_password"
+                ;;
+            REVERB_APP_KEY=*)
+                printf 'REVERB_APP_KEY=%s\n' "$reverb_key"
+                ;;
+            NEXT_PUBLIC_REVERB_APP_KEY=*)
+                printf 'NEXT_PUBLIC_REVERB_APP_KEY=%s\n' "$reverb_key"
+                ;;
+            REVERB_APP_SECRET=*)
+                printf 'REVERB_APP_SECRET=%s\n' "$reverb_secret"
+                ;;
+            RUSTFS_ACCESS_KEY=*)
+                printf 'RUSTFS_ACCESS_KEY=%s\n' "$s3_access"
+                ;;
+            AWS_ACCESS_KEY_ID=*)
+                printf 'AWS_ACCESS_KEY_ID=%s\n' "$s3_access"
+                ;;
+            S3_ACCESS_KEY=*)
+                printf 'S3_ACCESS_KEY=%s\n' "$s3_access"
+                ;;
+            RUSTFS_SECRET_KEY=*)
+                printf 'RUSTFS_SECRET_KEY=%s\n' "$s3_secret"
+                ;;
+            AWS_SECRET_ACCESS_KEY=*)
+                printf 'AWS_SECRET_ACCESS_KEY=%s\n' "$s3_secret"
+                ;;
+            S3_SECRET_KEY=*)
+                printf 'S3_SECRET_KEY=%s\n' "$s3_secret"
+                ;;
+            RUNNER_LIVE_TOKEN=*)
+                printf 'RUNNER_LIVE_TOKEN=%s\n' "$live_token"
+                ;;
+            RPA_INTERNAL_SECRET=*)
+                printf 'RPA_INTERNAL_SECRET=%s\n' "$internal_secret"
+                ;;
+            RPA_SECRET_KEYS=*)
+                printf 'RPA_SECRET_KEYS={"v1":"%s"}\n' "$keyring_b64"
+                ;;
+            APP_DOMAIN=*)
+                if [ -n "$domain" ]; then
+                    printf 'APP_DOMAIN=%s\n' "$domain"
+                else
+                    printf '%s\n' "$line"
+                fi
+                ;;
+            CADDY_SITE_ADDRESS=*)
+                if [ -n "$domain" ]; then
+                    printf 'CADDY_SITE_ADDRESS=%s\n' "$domain"
+                else
+                    printf '%s\n' "$line"
+                fi
+                ;;
+            APP_SCHEME=*)
+                if [ -n "$domain" ]; then
+                    printf 'APP_SCHEME=https\n'
+                else
+                    printf '%s\n' "$line"
+                fi
+                ;;
+            APP_URL=*)
+                if [ -n "$domain" ]; then
+                    printf 'APP_URL=https://%s\n' "$domain"
+                else
+                    printf '%s\n' "$line"
+                fi
+                ;;
+            FRONTEND_URL=*)
+                if [ -n "$domain" ]; then
+                    printf 'FRONTEND_URL=https://%s\n' "$domain"
+                else
+                    printf '%s\n' "$line"
+                fi
+                ;;
+            SESSION_DOMAIN=*)
+                if [ -n "$domain" ]; then
+                    printf 'SESSION_DOMAIN=%s\n' "$domain"
+                else
+                    printf '%s\n' "$line"
+                fi
+                ;;
+            SESSION_SECURE_COOKIE=*)
+                if [ -n "$domain" ]; then
+                    printf 'SESSION_SECURE_COOKIE=true\n'
+                else
+                    printf '%s\n' "$line"
+                fi
+                ;;
+            SANCTUM_STATEFUL_DOMAINS=*)
+                if [ -n "$domain" ]; then
+                    printf 'SANCTUM_STATEFUL_DOMAINS=%s\n' "$domain"
+                else
+                    printf '%s\n' "$line"
+                fi
+                ;;
+            NEXT_PUBLIC_API_URL=*)
+                if [ -n "$domain" ]; then
+                    printf 'NEXT_PUBLIC_API_URL=https://%s\n' "$domain"
+                else
+                    printf '%s\n' "$line"
+                fi
+                ;;
+            NEXT_PUBLIC_REVERB_HOST=*)
+                if [ -n "$domain" ]; then
+                    printf 'NEXT_PUBLIC_REVERB_HOST=%s\n' "$domain"
+                else
+                    printf '%s\n' "$line"
+                fi
+                ;;
+            NEXT_PUBLIC_REVERB_PORT=*)
+                if [ -n "$domain" ]; then
+                    printf 'NEXT_PUBLIC_REVERB_PORT=443\n'
+                else
+                    printf '%s\n' "$line"
+                fi
+                ;;
+            NEXT_PUBLIC_REVERB_SCHEME=*)
+                if [ -n "$domain" ]; then
+                    printf 'NEXT_PUBLIC_REVERB_SCHEME=https\n'
+                else
+                    printf '%s\n' "$line"
+                fi
+                ;;
+            NEXT_PUBLIC_LIVE_PORT=*)
+                if [ -n "$domain" ]; then
+                    printf 'NEXT_PUBLIC_LIVE_PORT=443\n'
+                else
+                    printf '%s\n' "$line"
+                fi
+                ;;
+            *)
+                printf '%s\n' "$line"
+                ;;
+        esac
+    done < "$TEMPLATE_FILE" > "$tmp_file"
+
+    mkdir -p "$(dirname "$target")"
+    mv "$tmp_file" "$target"
+    chmod 600 "$target"
+    trap - EXIT
+
+    echo -e "${C_GREEN}✓ Entorno de producción generado en: $target (permisos 600)${C_RESET}"
+    if [ -n "$domain" ]; then
+        echo -e "  Modo: ${C_CYAN}HTTPS automático con Caddy para https://${domain}${C_RESET}"
+    else
+        echo -e "  Modo: ${C_CYAN}HTTP local en puerto :80 (sin TLS)${C_RESET}"
+    fi
+    echo -e "  ${C_YELLOW}Recuerda configurar GEMINI_API_KEY (si usas IA) en $target antes de compilar/levantar.${C_RESET}"
+}
+
+cmd_build() {
+    print_header
+    validate_env
+    echo -e "${C_BOLD}Compilando imágenes de producción...${C_RESET}"
+    compose build "$@"
+    echo -e "${C_GREEN}✓ Imágenes de producción compiladas.${C_RESET}"
+}
+
+cmd_up() {
+    print_header
+    validate_env
+
+    echo -e "${C_BOLD}1. Iniciando servicios de datos (pgsql, redis, rustfs)...${C_RESET}"
+    compose up -d pgsql redis rustfs
+    wait_for_pgsql
+
+    echo -e "\n${C_BOLD}2. Ejecutando migraciones de Laravel (--force)...${C_RESET}"
+    compose run --rm api php artisan migrate --force
+
+    echo -e "\n${C_BOLD}3. Levantando stack completo de producción...${C_RESET}"
+    compose up -d --remove-orphans
+
+    echo ""
+    cmd_status
+}
+
+cmd_deploy() {
+    print_header
+    validate_env
+
+    echo -e "${C_BOLD}1. Compilando imágenes de producción...${C_RESET}"
+    compose build
+
+    echo -e "\n${C_BOLD}2. Asegurando servicios de datos...${C_RESET}"
+    compose up -d pgsql redis rustfs
+    wait_for_pgsql
+
+    echo -e "\n${C_BOLD}3. Ejecutando migraciones de Laravel (--force)...${C_RESET}"
+    compose run --rm api php artisan migrate --force
+
+    echo -e "\n${C_BOLD}4. Actualizando servicios de producción...${C_RESET}"
+    compose up -d --remove-orphans
+
+    echo ""
+    cmd_status
+}
+
+cmd_stop() {
+    print_header
+    if [ ! -f "$ENV_FILE" ]; then
+        echo -e "${C_YELLOW}⚠ No existe $ENV_FILE, intentando detener stack con plantilla por defecto...${C_RESET}"
+        PROD_ENV_FILE="$TEMPLATE_FILE" docker compose -f "$COMPOSE_FILE" --env-file "$TEMPLATE_FILE" down --remove-orphans
+        return 0
+    fi
+    echo -e "${C_BOLD}Deteniendo contenedores de producción (conservando volúmenes)...${C_RESET}"
+    compose down --remove-orphans
+    echo -e "${C_GREEN}✓ Stack de producción detenido.${C_RESET}"
+}
+
+cmd_status() {
+    validate_env
+    compose ps
+}
+
+cmd_logs() {
+    validate_env
+    compose logs -f --tail=100 "$@"
+}
+
+cmd_artisan() {
+    validate_env
+    for arg in "$@"; do
+        case "$arg" in
+            migrate:fresh|db:wipe|migrate:reset)
+                echo -e "${C_RED}✗ Comando bloqueado en producción por seguridad: $arg${C_RESET}"
+                exit 1
+                ;;
+        esac
+    done
+    compose exec api php artisan "$@"
+}
+
+cmd_config() {
+    local file="$ENV_FILE"
+    if [ ! -f "$file" ]; then
+        file="$TEMPLATE_FILE"
+    fi
+    PROD_ENV_FILE="$file" docker compose -f "$COMPOSE_FILE" --env-file "$file" config -q
+    echo -e "${C_GREEN}✓ docker-compose.prod.yml válido.${C_RESET}"
+}
+
+case "${1:-}" in
+    init)
+        shift
+        cmd_init "$@"
+        ;;
+    build)
+        shift
+        cmd_build "$@"
+        ;;
+    up|start)
+        cmd_up
+        ;;
+    deploy)
+        cmd_deploy
+        ;;
+    stop|down)
+        cmd_stop
+        ;;
+    restart)
+        cmd_stop
+        sleep 1
+        cmd_up
+        ;;
+    status)
+        cmd_status
+        ;;
+    logs)
+        shift
+        cmd_logs "$@"
+        ;;
+    artisan)
+        shift
+        cmd_artisan "$@"
+        ;;
+    config)
+        cmd_config
+        ;;
+    *)
+        echo "Uso: ./prod [init|build|up|start|deploy|stop|down|restart|status|logs|artisan|config]"
+        exit 1
+        ;;
+esac

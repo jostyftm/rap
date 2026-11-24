@@ -70,7 +70,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Prepare env file
-        run: cp .env.example .env
-      - name: Validate Compose File
-        run: docker compose config -q
+      - name: Validate Dev Compose File
+        run: |
+          cp .env.dev.example .env
+          docker compose config -q
+      - name: Validate Prod Compose File
+        run: |
+          cp .env.prod.example .env.prod
+          docker compose -f docker-compose.prod.yml --env-file .env.prod config -q

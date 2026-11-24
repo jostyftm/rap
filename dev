@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # RPA Studio - Local Development Environment Manager
-# Usage: ./dev [start|stop|restart|status|logs|artisan|bash]
+# Usage: ./dev [init|start|stop|restart|status|logs|artisan|bash]
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PID_DIR="$PROJECT_ROOT/.dev/pids"
@@ -124,6 +124,33 @@ stop_process_by_pid() {
         fi
         rm -f "$pid_file"
     fi
+}
+
+cmd_init() {
+    print_header
+    local force=0
+    if [ "${1:-}" = "--force" ]; then
+        force=1
+    fi
+
+    local target="$PROJECT_ROOT/.env"
+    local template="$PROJECT_ROOT/.env.dev.example"
+    if [ ! -f "$template" ]; then
+        template="$PROJECT_ROOT/.env.example"
+    fi
+
+    if [ ! -f "$template" ]; then
+        echo -e "${C_RED}✗ No se encontró plantilla (.env.dev.example o .env.example).${C_RESET}"
+        exit 1
+    fi
+
+    if [ -f "$target" ] && [ "$force" -ne 1 ]; then
+        echo -e "${C_YELLOW}⚠ Ya existe $target. Usa './dev init --force' si deseas sobrescribirlo.${C_RESET}"
+        return 0
+    fi
+
+    cp "$template" "$target"
+    echo -e "${C_GREEN}✓ Archivo .env de desarrollo creado desde $(basename "$template").${C_RESET}"
 }
 
 cmd_start() {
@@ -328,6 +355,10 @@ cmd_bash() {
 
 # Main routing
 case "$1" in
+    init)
+        shift
+        cmd_init "$@"
+        ;;
     start)
         cmd_start
         ;;
@@ -354,7 +385,7 @@ case "$1" in
         cmd_bash
         ;;
     *)
-        echo "Uso: ./dev [start|stop|restart|status|logs|artisan|bash]"
+        echo "Uso: ./dev [init|start|stop|restart|status|logs|artisan|bash]"
         exit 1
         ;;
 esac

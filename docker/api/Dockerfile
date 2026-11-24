@@ -1,18 +1,25 @@
-FROM php:8.4.27-cli-alpine
+FROM php:8.4.27-fpm-alpine
 
-# Instalar dependencias del sistema y extensiones de PHP requeridas
 RUN apk add --no-cache \
+    nginx \
     curl \
-    git \
-    unzip \
-    libpq-dev \
-    libzip-dev \
-    icu-dev \
-    linux-headers \
-    $PHPIZE_DEPS \
+    su-exec \
+    libpq \
+    libzip \
+    icu-libs \
+    libsodium \
+    && apk add --no-cache --virtual .build-deps \
+        $PHPIZE_DEPS \
+        git \
+        unzip \
+        libpq-dev \
+        libzip-dev \
+        icu-dev \
+        libsodium-dev \
+        linux-headers \
     && pecl install redis \
     && docker-php-ext-enable redis \
-    && docker-php-ext-install -j$(nproc) \
+    && docker-php-ext-install -j"$(nproc)" \
         pdo \
         pdo_pgsql \
         bcmath \
@@ -20,27 +27,31 @@ RUN apk add --no-cache \
         zip \
         intl \
         opcache \
-    && apk del $PHPIZE_DEPS \
-    && echo "session.upload_progress.enabled = Off" > /usr/local/etc/php/conf.d/zz-security-php2shell.ini
+    && if ! php -m | grep -qi '^sodium$'; then docker-php-ext-install sodium; fi \
+    && php -r 'exit(extension_loaded("sodium") ? 0 : 1);' \
+    && apk del .build-deps \
+    && mkdir -p /run/nginx /var/log/nginx
 
-# Instalar Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html
 
-# Copiar archivos de dependencias
 COPY apps/api/composer.json apps/api/composer.lock ./
 
-# Instalar dependencias sin scripts de dev
 RUN composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev --no-scripts
 
-# Copiar el código fuente
 COPY apps/api ./
 
-# Generar autoloader y optimizaciones
-RUN composer dump-autoload --optimize \
+RUN composer dump-autoload --optimize --no-dev \
+    && mkdir -p storage/framework/sessions storage/framework/views storage/framework/cache/data storage/logs bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache
+
+COPY docker/api/php-prod.ini /usr/local/etc/php/conf.d/zz-rpa-prod.ini
+COPY docker/api/nginx.conf /etc/nginx/http.d/default.conf
+COPY docker/api/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE 8000
 
-CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["serve-http"]
