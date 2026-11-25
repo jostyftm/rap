@@ -55,6 +55,12 @@ function createSampleRecipe(): RecipeDsl {
           outputVariable: "ordenApi",
         },
       },
+      shot_1: {
+        id: "shot_1",
+        type: "screenshot",
+        description: "Screenshot",
+        params: { fullPage: false, name: "evidencia" },
+      },
     },
   };
 }
@@ -97,6 +103,16 @@ describe("js-autocomplete", () => {
     });
     expect(httpStepFields?.options.map((o) => o.label)).toEqual(
       expect.arrayContaining(["status", "ok", "headers", "data"])
+    );
+
+    const shotStepFields = queryCompletions("steps.shot_1.output.", {
+      definition: createSampleRecipe(),
+      currentNodeId: "js_1",
+      nodeOutputs: {},
+      mode: "sandbox",
+    });
+    expect(shotStepFields?.options.map((o) => o.label)).toEqual(
+      expect.arrayContaining(["url", "s3Url", "s3Key", "bucket"])
     );
   });
 

@@ -134,4 +134,36 @@ class LiveSessionController extends Controller
 
         return response()->json(['status' => 'stopped']);
     }
+
+    public function screenshot(Request $request, Recipe $recipe): JsonResponse
+    {
+        $data = $request->validate([
+            'session_id' => ['nullable', 'string', 'max:64'],
+            'url' => ['nullable', 'string', 'max:2048'],
+            'node_id' => ['nullable', 'string', 'max:100'],
+            'name' => ['nullable', 'string', 'max:200'],
+            'full_page' => ['nullable', 'boolean'],
+            'locator' => ['nullable', 'array'],
+            'timeout' => ['nullable', 'integer', 'between:500,30000'],
+        ]);
+
+        $payload = array_filter([
+            'session_id' => $data['session_id'] ?? null,
+            'recipe_id' => $recipe->uuid,
+            'node_id' => $data['node_id'] ?? null,
+            'url' => $data['url'] ?? null,
+            'name' => $data['name'] ?? null,
+            'full_page' => $data['full_page'] ?? false,
+            'locator' => $data['locator'] ?? null,
+            'timeout' => $data['timeout'] ?? 5000,
+        ], static fn ($value): bool => $value !== null);
+
+        try {
+            $res = $this->runner()->post('/live/screenshot', $payload);
+        } catch (\Throwable $e) {
+            return $this->unavailable($e);
+        }
+
+        return response()->json($res->json(), $res->status());
+    }
 }

@@ -1,5 +1,6 @@
 import { chromium, type Browser, type BrowserContext, type CDPSession, type Page } from "playwright";
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { captureAndUploadScreenshot } from "../engine/handlers/screenshot.handler.js";
 import { PICKER_JS } from "./picker-script.js";
 import { WsConnection } from "./ws-server.js";
 
@@ -487,6 +488,44 @@ export class ScreencastManager {
     const session = this.sessions.get(sessionId);
     if (!session || session.closed) return false;
     session.lastActivity = Date.now();
+
+    const msg = message as Record<string, any>;
+    if (msg && typeof msg === "object" && msg.type === "rpa:exec" && msg.action === "screenshot") {
+      try {
+        const captured = await captureAndUploadScreenshot(session.page, {
+          scopePath: `live/${session.recipeId || session.id}/screenshots`,
+          nodeId: String(msg.nodeId || "screenshot"),
+          name: typeof msg.params?.name === "string" ? msg.params.name : undefined,
+          fullPage: Boolean(msg.params?.fullPage),
+          locator: msg.locator,
+          timeout: Number(msg.timeout) || 5000,
+        });
+
+        this.broadcastJson(session, {
+          type: "rpa:exec:result",
+          reqId: msg.reqId,
+          nodeId: msg.nodeId,
+          action: "screenshot",
+          ok: true,
+          strategy:
+            captured.resolvedLocator?.strategy ||
+            (msg.params?.fullPage ? "fullPage" : "viewport"),
+          output: captured.output,
+        });
+      } catch (err: unknown) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        this.broadcastJson(session, {
+          type: "rpa:exec:result",
+          reqId: msg.reqId,
+          nodeId: msg.nodeId,
+          action: "screenshot",
+          ok: false,
+          error: errorMsg,
+        });
+      }
+      return true;
+    }
+
     await session.page
       .evaluate((m) => {
         const w = window as any;

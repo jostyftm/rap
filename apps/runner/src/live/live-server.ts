@@ -1,6 +1,8 @@
 import http from "node:http";
 import { Readable } from "node:stream";
 import { randomBytes } from "node:crypto";
+import { chromium, type Browser } from "playwright";
+import { captureAndUploadScreenshot } from "../engine/handlers/screenshot.handler.js";
 import { PICKER_JS } from "./picker-script.js";
 import { PROXY_CLIENT_JS } from "./proxy-client-script.js";
 import type { ExternalBrowserManager } from "./external-browser.js";
@@ -43,6 +45,7 @@ export class LiveServer {
   private originToSession = new Map<string, string>();
   private server: http.Server | null = null;
   private wss = new WsServer();
+  private screenshotBrowser: Browser | null = null;
 
   constructor(
     private port: number,
@@ -90,6 +93,10 @@ export class LiveServer {
   async close(): Promise<void> {
     this.wss.close();
     this.server?.close();
+    if (this.screenshotBrowser) {
+      await this.screenshotBrowser.close().catch(() => undefined);
+      this.screenshotBrowser = null;
+    }
   }
 
   private sweep(): void {
@@ -285,6 +292,78 @@ export class LiveServer {
       const sessionId = `ext_${randomBytes(5).toString("hex")}`;
       await this.external.start({ sessionId, recipeId: body.recipe_id, url: body.url });
       return this.json(res, 201, { session_id: sessionId, origin: new URL(body.url).origin });
+    }
+
+    if (req.method === "POST" && path === "/live/screenshot") {
+      const body = JSON.parse((await this.readBody(req)).toString() || "{}");
+      const embeddedSession =
+        typeof body.session_id === "string" ? this.sessions.get(body.session_id) : undefined;
+      let rawUrl = String(body.url || embeddedSession?.origin || "").trim();
+      if (rawUrl && !/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(rawUrl)) {
+        rawUrl = `https://${rawUrl}`;
+      }
+      let target: URL;
+      try {
+        target = new URL(rawUrl);
+        if (!/^https?:$/.test(target.protocol)) throw new Error("protocolo no soportado");
+      } catch {
+        return this.json(res, 422, { error: "URL inválida para capturar pantalla" });
+      }
+
+      if (!this.screenshotBrowser || !this.screenshotBrowser.isConnected()) {
+        this.screenshotBrowser = await chromium.launch({
+          headless: process.env.RUNNER_HEADLESS !== "false",
+          args: [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+          ],
+        });
+      }
+
+      const context = await this.screenshotBrowser.newContext({
+        viewport: { width: 1280, height: 800 },
+      });
+      try {
+        if (embeddedSession && embeddedSession.cookies.size > 0) {
+          const cookieItems = Array.from(embeddedSession.cookies.entries()).map(
+            ([name, value]) => ({
+              name,
+              value,
+              url: target.origin,
+            })
+          );
+          await context.addCookies(cookieItems).catch(() => undefined);
+        }
+
+        const page = await context.newPage();
+        await page.goto(target.href, { waitUntil: "domcontentloaded", timeout: 25000 });
+        const captured = await captureAndUploadScreenshot(page, {
+          scopePath: `live/${String(body.recipe_id || embeddedSession?.id || "preview")}/screenshots`,
+          nodeId: String(body.node_id || "screenshot"),
+          name: typeof body.name === "string" ? body.name : undefined,
+          fullPage: Boolean(body.full_page),
+          locator: body.locator,
+          timeout: Number(body.timeout) || 5000,
+        });
+
+        return this.json(res, 200, {
+          ok: true,
+          strategy:
+            captured.resolvedLocator?.strategy ||
+            (body.full_page ? "fullPage" : "viewport"),
+          output: captured.output,
+        });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return this.json(res, 502, {
+          ok: false,
+          error: `Error capturando pantalla: ${message}`,
+        });
+      } finally {
+        await context.close().catch(() => undefined);
+      }
     }
 
     this.json(res, 404, { error: "not found" });

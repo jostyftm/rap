@@ -135,6 +135,17 @@ function resolveStepOutputSample(nodeId: string, ctx: JsAutocompleteContext): un
   if (node.type === "loop") {
     return { iterations: 0, truncated: false };
   }
+  if (node.type === "screenshot") {
+    return {
+      url: "http://127.0.0.1:9000/rpa-artifacts/runs/run_1/screenshots/capture.png",
+      s3Url: "http://127.0.0.1:9000/rpa-artifacts/runs/run_1/screenshots/capture.png",
+      s3Key: "runs/run_1/screenshots/capture.png",
+      bucket: "rpa-artifacts",
+      contentType: "image/png",
+      sizeBytes: 0,
+      uploaded: true,
+    };
+  }
   if (node.type === "httpRequest") {
     return {
       status: 200,

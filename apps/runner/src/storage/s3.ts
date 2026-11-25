@@ -53,36 +53,50 @@ export async function ensureBucket(): Promise<void> {
   }
 }
 
+export function buildArtifactUrl(key: string): string {
+  const cleanKey = key.replace(/^\/+/, "");
+  const publicBase = (process.env.S3_PUBLIC_URL || "").trim().replace(/\/+$/, "");
+  if (publicBase) {
+    return `${publicBase}/${cleanKey}`;
+  }
+  const endpoint = (process.env.S3_ENDPOINT || S3_ENDPOINT).trim().replace(/\/+$/, "");
+  const bucket = (process.env.S3_BUCKET || S3_BUCKET).trim();
+  return `${endpoint}/${bucket}/${cleanKey}`;
+}
+
 export async function uploadArtifactWithStatus(
   key: string,
   body: Buffer | Uint8Array | string,
   contentType = "image/png"
-): Promise<{ key: string; uploaded: boolean }> {
+): Promise<{ key: string; bucket: string; url: string; uploaded: boolean }> {
+  const bucket = (process.env.S3_BUCKET || S3_BUCKET).trim();
+  const url = buildArtifactUrl(key);
+
   if (Date.now() < s3UnavailableUntil) {
-    return { key, uploaded: false };
+    return { key, bucket, url, uploaded: false };
   }
 
   try {
     await ensureBucket();
     if (Date.now() < s3UnavailableUntil) {
-      return { key, uploaded: false };
+      return { key, bucket, url, uploaded: false };
     }
 
     await s3Client.send(
       new PutObjectCommand({
-        Bucket: S3_BUCKET,
+        Bucket: bucket,
         Key: key,
         Body: typeof body === "string" ? Buffer.from(body) : body,
         ContentType: contentType,
       })
     );
-    return { key, uploaded: true };
+    return { key, bucket, url, uploaded: true };
   } catch (error) {
     if (isConnectionError(error)) {
       s3UnavailableUntil = Date.now() + S3_CONNECTION_COOLDOWN_MS;
     }
     console.error(`[S3] Error subiendo artefacto ${key}:`, error);
-    return { key, uploaded: false };
+    return { key, bucket, url, uploaded: false };
   }
 }
 

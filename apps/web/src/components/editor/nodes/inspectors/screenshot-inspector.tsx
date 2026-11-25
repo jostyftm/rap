@@ -13,7 +13,7 @@ export function ScreenshotInspectorForm({
     <Field
       label="Nombre de la captura"
       htmlFor="screenshot-name"
-      hint="Se usa para identificar el archivo generado por el runner."
+      hint={`Se usa para nombrar el archivo en S3. La URL resultante queda disponible en {{steps.${node.id}.output.url}}.`}
     >
       <TextInput
         id="screenshot-name"

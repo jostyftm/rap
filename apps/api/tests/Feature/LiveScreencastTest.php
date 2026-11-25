@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use App\Models\Recipe;
 use App\Models\User;
 use App\Models\Workspace;
 use Illuminate\Http\Client\ConnectionException;
@@ -108,5 +107,44 @@ it('detiene la sesión screencast mediante live/stop', function () {
     Http::assertSent(function (HttpClientRequest $req) {
         return $req->method() === 'DELETE'
             && str_ends_with($req->url(), '/live/sessions/sc_abc123def456');
+    });
+});
+
+it('reenvía captura de pantalla en vivo al runner y devuelve la URL de S3', function () {
+    Sanctum::actingAs($this->user);
+
+    Http::fake([
+        '*/live/screenshot' => Http::response([
+            'ok' => true,
+            'strategy' => 'fullPage',
+            'output' => [
+                'url' => 'http://127.0.0.1:9000/rpa-artifacts/live/rec/screenshots/shot_1.png',
+                's3Url' => 'http://127.0.0.1:9000/rpa-artifacts/live/rec/screenshots/shot_1.png',
+                's3Key' => 'live/rec/screenshots/shot_1.png',
+                'bucket' => 'rpa-artifacts',
+                'contentType' => 'image/png',
+                'sizeBytes' => 1024,
+                'uploaded' => true,
+            ],
+        ], 200),
+    ]);
+
+    $response = $this->postJson("/api/v1/recipes/{$this->recipe->uuid}/live/screenshot", [
+        'url' => 'https://example.com',
+        'node_id' => 'shot_1',
+        'name' => 'portada',
+        'full_page' => true,
+    ]);
+
+    $response->assertOk()
+        ->assertJsonPath('ok', true)
+        ->assertJsonPath('output.url', 'http://127.0.0.1:9000/rpa-artifacts/live/rec/screenshots/shot_1.png');
+
+    Http::assertSent(function (HttpClientRequest $req) {
+        return str_ends_with($req->url(), '/live/screenshot')
+            && $req['recipe_id'] === $this->recipe->uuid
+            && $req['url'] === 'https://example.com'
+            && $req['node_id'] === 'shot_1'
+            && $req['full_page'] === true;
     });
 });
