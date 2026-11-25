@@ -37,6 +37,7 @@ import {
   buildProductionWebhookUrl,
   buildTestWebhookUrl,
 } from "../../lib/webhook-url";
+import { copyToClipboard } from "../../lib/clipboard";
 import {
   fetchRecipeRuns,
   fetchRunDetail,
@@ -137,10 +138,11 @@ export function ExecutionConsole() {
       : buildTestWebhookUrl(webhookPath, webhookNode?.id);
   const webhookMethod = webhookNode?.params?.httpMethod || "POST";
 
-  const handleCopyWebhookUrl = () => {
-    navigator.clipboard.writeText(webhookUrl);
-    setIsCopied(true);
-    setTimeout(() => setIsCopied(false), 2000);
+  const handleCopyWebhookUrl = async () => {
+    if (await copyToClipboard(webhookUrl)) {
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    }
   };
 
   const handleSendTestPayload = async () => {

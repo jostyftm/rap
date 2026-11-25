@@ -5,6 +5,7 @@ import Editor from "@monaco-editor/react";
 import { Copy, Check, Download, AlertCircle, FileCode } from "lucide-react";
 import { exportToPlaywright } from "@rpa/dsl";
 import { useRecipeStore } from "../../stores/use-recipe-store";
+import { copyToClipboard } from "../../lib/clipboard";
 
 export function CodeEditor() {
   const definition = useRecipeStore((s) => s.definition);
@@ -38,11 +39,12 @@ export function CodeEditor() {
     }
   };
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
     const text = subTab === "playwright" ? playwrightCode : JSON.stringify(definition, null, 2);
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (await copyToClipboard(text)) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   const handleDownload = () => {

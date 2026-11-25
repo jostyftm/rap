@@ -17,6 +17,7 @@ import { useLiveStore } from "@/stores/use-live-store";
 import { DataViewer } from "./data-viewer";
 import { LiveSitePanel } from "../live-site-panel";
 import { WebhookOutputPanel } from "./webhook-output-panel";
+import { copyToClipboard } from "@/lib/clipboard";
 import {
   Badge,
   Button,
@@ -90,11 +91,12 @@ export function OutputLivePanel({
     );
   }
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
     if (outputData !== undefined) {
-      navigator.clipboard.writeText(JSON.stringify(outputData, null, 2));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      if (await copyToClipboard(JSON.stringify(outputData, null, 2))) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      }
     }
   };
 

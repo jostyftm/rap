@@ -16,6 +16,7 @@ import {
 import { Badge, type BadgeTone } from "@/components/ui/primitives";
 import { JsonView } from "./json-view";
 import { cn } from "@/lib/utils";
+import { copyToClipboard } from "@/lib/clipboard";
 
 export type DataViewMode = "schema" | "table" | "json";
 
@@ -72,11 +73,12 @@ function SchemaTreeNode({
     e.dataTransfer.effectAllowed = "copy";
   };
 
-  const handleCopy = (e: React.MouseEvent) => {
+  const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    navigator.clipboard.writeText(token);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    if (await copyToClipboard(token)) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
   };
 
   const matchesSearch =
@@ -226,10 +228,11 @@ export function DataViewer({
     }
   }
 
-  const handleCopyJson = () => {
-    navigator.clipboard.writeText(JSON.stringify(data, null, 2));
-    setCopiedAll(true);
-    setTimeout(() => setCopiedAll(false), 1500);
+  const handleCopyJson = async () => {
+    if (await copyToClipboard(JSON.stringify(data, null, 2))) {
+      setCopiedAll(true);
+      setTimeout(() => setCopiedAll(false), 1500);
+    }
   };
 
   if (data === undefined || data === null) {

@@ -23,6 +23,7 @@ import {
   buildProductionWebhookUrl,
   buildTestWebhookUrl,
 } from "@/lib/webhook-url";
+import { copyToClipboard } from "@/lib/clipboard";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { useWebhookTestStore } from "@/stores/use-webhook-test-store";
 import {
@@ -114,10 +115,11 @@ export function WebhookInspectorForm({
     };
   }, [testEntry.status, testEntry.expiresAt]);
 
-  const handleCopyUrl = () => {
-    navigator.clipboard.writeText(displayedUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopyUrl = async () => {
+    if (await copyToClipboard(displayedUrl)) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   const handleToggleListening = () => {

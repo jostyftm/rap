@@ -18,6 +18,7 @@ import { useRecipeStore } from "@/stores/use-recipe-store";
 import { useWebhookTestStore } from "@/stores/use-webhook-test-store";
 import { DataViewer } from "./data-viewer";
 import { testRecipeNode } from "@/lib/node-tester";
+import { copyToClipboard } from "@/lib/clipboard";
 import type { RecipeNode, RecipeDsl } from "@rpa/dsl";
 
 interface InputDataPanelProps {
@@ -251,10 +252,11 @@ export function InputDataPanel({
     }
   };
 
-  const copyWebhookShortcut = (token: string) => {
-    navigator.clipboard.writeText(token);
-    setCopiedWebhookShortcut(true);
-    setTimeout(() => setCopiedWebhookShortcut(false), 1500);
+  const copyWebhookShortcut = async (token: string) => {
+    if (await copyToClipboard(token)) {
+      setCopiedWebhookShortcut(true);
+      setTimeout(() => setCopiedWebhookShortcut(false), 1500);
+    }
   };
 
   return (

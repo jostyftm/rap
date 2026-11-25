@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { apiFetch } from "../../lib/api-client";
 import { getApiBaseUrl } from "../../lib/webhook-url";
+import { copyToClipboard } from "../../lib/clipboard";
 
 interface TriggersModalProps {
   recipeId: string;
@@ -413,10 +414,11 @@ export function TriggersModal({ recipeId, isOpen, onClose }: TriggersModalProps)
                     />
                     <button
                       type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(`${apiBase}${publishedWebhook.path}`);
-                        setCopiedPublishedWebhook(true);
-                        setTimeout(() => setCopiedPublishedWebhook(false), 2000);
+                      onClick={async () => {
+                        if (await copyToClipboard(`${apiBase}${publishedWebhook.path}`)) {
+                          setCopiedPublishedWebhook(true);
+                          setTimeout(() => setCopiedPublishedWebhook(false), 2000);
+                        }
                       }}
                       className="p-2 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition-colors"
                       title="Copiar URL de producción"
@@ -470,10 +472,11 @@ export function TriggersModal({ recipeId, isOpen, onClose }: TriggersModalProps)
                           className="flex-1 bg-neutral-900 border border-neutral-800 rounded px-3 py-1.5 text-xs font-mono text-neutral-200 select-all outline-none"
                         />
                         <button
-                          onClick={() => {
-                            navigator.clipboard.writeText(webhookUrl);
-                            setCopiedWebhook(true);
-                            setTimeout(() => setCopiedWebhook(false), 2000);
+                          onClick={async () => {
+                            if (await copyToClipboard(webhookUrl)) {
+                              setCopiedWebhook(true);
+                              setTimeout(() => setCopiedWebhook(false), 2000);
+                            }
                           }}
                           className="p-2 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition-colors"
                           title="Copiar URL"

@@ -17,6 +17,7 @@ import {
   buildProductionWebhookUrl,
   buildTestWebhookUrl,
 } from "@/lib/webhook-url";
+import { copyToClipboard } from "@/lib/clipboard";
 import { DataViewer } from "./data-viewer";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import {
@@ -77,16 +78,18 @@ export function WebhookOutputPanel({ node }: WebhookOutputPanelProps) {
   -H 'Content-Type: application/json' \\
   -d '{"ejemplo": "prueba", "nodeId": "${node.id}"}'`;
 
-  const handleCopyUrl = () => {
-    navigator.clipboard.writeText(fullUrl);
-    setCopiedUrl(true);
-    setTimeout(() => setCopiedUrl(false), 1500);
+  const handleCopyUrl = async () => {
+    if (await copyToClipboard(fullUrl)) {
+      setCopiedUrl(true);
+      setTimeout(() => setCopiedUrl(false), 1500);
+    }
   };
 
-  const handleCopyCurl = () => {
-    navigator.clipboard.writeText(curlExample);
-    setCopiedCurl(true);
-    setTimeout(() => setCopiedCurl(false), 1500);
+  const handleCopyCurl = async () => {
+    if (await copyToClipboard(curlExample)) {
+      setCopiedCurl(true);
+      setTimeout(() => setCopiedCurl(false), 1500);
+    }
   };
 
   const handleRestart = () => {

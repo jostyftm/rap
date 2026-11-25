@@ -22,6 +22,7 @@ import { useRecipeStore } from "@/stores/use-recipe-store";
 import { nodeRegistry } from "../nodes";
 import type { NodeDefinition } from "../nodes/types";
 import { RetryPolicyFields } from "../nodes/retry-policy-fields";
+import { copyToClipboard } from "@/lib/clipboard";
 import type { RecipeNode, LocatorStrategy, LocatorCandidate } from "@rpa/dsl";
 import { calculateLocatorScore } from "@rpa/locator";
 import {
@@ -155,10 +156,11 @@ export function NodeConfigPanel({
     document.getElementById(`node-config-tab-${nextTab.id}`)?.focus();
   };
 
-  const copyOutputToken = () => {
-    navigator.clipboard.writeText(`{{steps.${node.id}.output}}`);
-    setCopiedToken(true);
-    setTimeout(() => setCopiedToken(false), 1500);
+  const copyOutputToken = async () => {
+    if (await copyToClipboard(`{{steps.${node.id}.output}}`)) {
+      setCopiedToken(true);
+      setTimeout(() => setCopiedToken(false), 1500);
+    }
   };
 
   const locator = "locator" in node ? node.locator : undefined;

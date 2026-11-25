@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { X, Copy, Check, Download, Loader2, Code2, Terminal } from "lucide-react";
 import { apiFetch } from "../../lib/api-client";
+import { copyToClipboard } from "../../lib/clipboard";
 
 interface ExportModalProps {
   recipeId: string;
@@ -34,10 +35,11 @@ export function ExportModal({ recipeId, recipeName, isOpen, onClose }: ExportMod
 
   if (!isOpen) return null;
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async () => {
+    if (await copyToClipboard(code)) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   const handleDownload = () => {

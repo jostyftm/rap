@@ -20,6 +20,7 @@ import type {
   ExecutionStepRecord,
 } from "../../stores/use-recipe-store";
 import { resolveArtifactUrl } from "../../lib/run-api";
+import { copyToClipboard } from "../../lib/clipboard";
 
 interface RunResultPanelProps {
   runId: string;
@@ -116,10 +117,11 @@ export function RunResultPanel({
     return screenshots.length > 0 ? screenshots[screenshots.length - 1] : null;
   }, [selectedStepNodeId, screenshots, runSteps]);
 
-  const handleCopyJson = (key: string, value: unknown) => {
-    navigator.clipboard.writeText(formatPreviewJson(value));
-    setCopiedKey(key);
-    setTimeout(() => setCopiedKey(null), 1800);
+  const handleCopyJson = async (key: string, value: unknown) => {
+    if (await copyToClipboard(formatPreviewJson(value))) {
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 1800);
+    }
   };
 
   const toggleOutput = (nodeId: string) => {
