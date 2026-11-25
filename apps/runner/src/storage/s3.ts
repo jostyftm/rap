@@ -10,6 +10,34 @@ export interface ResolvedS3Config {
 }
 
 export function resolveS3Config(env: NodeJS.ProcessEnv = process.env): ResolvedS3Config {
+  const rawS3Url = (env.S3_URL || "").trim();
+  if (rawS3Url) {
+    try {
+      const parsed = new URL(rawS3Url);
+      const pathParts = parsed.pathname.split("/").filter(Boolean);
+      const urlBucket = pathParts[0] ? decodeURIComponent(pathParts[0]) : "";
+      const urlAccessKey = parsed.username ? decodeURIComponent(parsed.username) : "";
+      const urlSecretKey = parsed.password ? decodeURIComponent(parsed.password) : "";
+      const urlRegion = parsed.searchParams.get("region") || "";
+      const urlPathStyle = parsed.searchParams.get("pathStyle");
+
+      const rawForcePathStyle =
+        urlPathStyle ?? env.S3_FORCE_PATH_STYLE ?? env.AWS_USE_PATH_STYLE_ENDPOINT ?? "true";
+
+      return {
+        endpoint: `${parsed.protocol}//${parsed.host}`,
+        accessKeyId: urlAccessKey || env.S3_ACCESS_KEY || env.AWS_ACCESS_KEY_ID || "sail",
+        secretAccessKey:
+          urlSecretKey || env.S3_SECRET_KEY || env.AWS_SECRET_ACCESS_KEY || "password",
+        bucket: urlBucket || (env.S3_BUCKET || env.AWS_BUCKET || "rpa-artifacts").trim(),
+        region: (urlRegion || env.S3_REGION || env.AWS_DEFAULT_REGION || "us-east-1").trim(),
+        forcePathStyle: rawForcePathStyle.toLowerCase().trim() !== "false",
+      };
+    } catch {
+      // Si S3_URL no es válida, continúa con variables discretas
+    }
+  }
+
   const endpoint = (env.S3_ENDPOINT || env.AWS_ENDPOINT || "http://127.0.0.1:9000").trim();
   const accessKeyId = env.S3_ACCESS_KEY || env.AWS_ACCESS_KEY_ID || "sail";
   const secretAccessKey = env.S3_SECRET_KEY || env.AWS_SECRET_ACCESS_KEY || "password";

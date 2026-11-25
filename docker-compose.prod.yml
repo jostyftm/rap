@@ -206,6 +206,10 @@ services:
       - "max_connections=50"
     env_file:
       - "${PROD_ENV_FILE:-.env.prod}"
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-${DB_DATABASE:-rpa_studio}}"
+      POSTGRES_USER: "${POSTGRES_USER:-${DB_USERNAME:-rpa_user}}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-${DB_PASSWORD:-}}"
     volumes:
       - "rpa-prod-pgsql-data:/var/lib/postgresql/data"
     healthcheck:
@@ -250,6 +254,11 @@ services:
     cpus: "0.5"
     env_file:
       - "${PROD_ENV_FILE:-.env.prod}"
+    environment:
+      RUSTFS_ACCESS_KEY: "${RUSTFS_ACCESS_KEY:-${S3_ACCESS_KEY:-${AWS_ACCESS_KEY_ID:-}}}"
+      RUSTFS_SECRET_KEY: "${RUSTFS_SECRET_KEY:-${S3_SECRET_KEY:-${AWS_SECRET_ACCESS_KEY:-}}}"
+      RUSTFS_CONSOLE_ENABLE: "${RUSTFS_CONSOLE_ENABLE:-false}"
+      RUSTFS_VOLUMES: "${RUSTFS_VOLUMES:-/data}"
     volumes:
       - "rpa-prod-storage-data:/data"
     healthcheck:
@@ -272,7 +281,7 @@ networks:
     internal: true
   dokploy-network:
     name: "${EXTERNAL_DOCKER_NETWORK:-dokploy-network}"
-    external: true
+    external: ${EXTERNAL_DOCKER_NETWORK_IS_EXTERNAL:-true}
 
 volumes:
   rpa-prod-pgsql-data:

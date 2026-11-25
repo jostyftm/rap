@@ -44,9 +44,13 @@ read_env_var() {
 }
 
 ensure_external_network() {
-    local ext_net
+    local ext_net is_external
     ext_net="$(read_env_var EXTERNAL_DOCKER_NETWORK)"
     ext_net="${ext_net:-dokploy-network}"
+    is_external="$(read_env_var EXTERNAL_DOCKER_NETWORK_IS_EXTERNAL)"
+    if [ "$is_external" = "false" ] || [ "$is_external" = "0" ]; then
+        return 0
+    fi
     if ! docker network inspect "$ext_net" >/dev/null 2>&1; then
         echo -e "${C_BLUE}→ Creando red externa Docker '$ext_net' (no existía localmente)...${C_RESET}"
         docker network create "$ext_net" >/dev/null
@@ -341,9 +345,10 @@ cmd_up() {
     validate_env
     ensure_external_network
 
-    local db_url redis_url s3_ep profiles profile_args=() data_services=()
+    local db_url redis_url s3_url s3_ep profiles profile_args=() data_services=()
     db_url="$(read_env_var DB_URL)"
     redis_url="$(read_env_var REDIS_URL)"
+    s3_url="$(read_env_var S3_URL)"
     s3_ep="$(read_env_var S3_ENDPOINT)"
     if [ -z "$s3_ep" ]; then
         s3_ep="$(read_env_var AWS_ENDPOINT)"
@@ -358,7 +363,7 @@ cmd_up() {
         profile_args+=(--profile local-redis)
         data_services+=(redis)
     fi
-    if [ -z "$s3_ep" ] || [ "$s3_ep" = "http://rustfs:9000" ] || [[ ",${profiles}," == *",local-s3,"* ]]; then
+    if [[ ",${profiles}," == *",local-s3,"* ]] || { [ -z "$s3_url" ] && { [ -z "$s3_ep" ] || [ "$s3_ep" = "http://rustfs:9000" ]; }; }; then
         profile_args+=(--profile local-s3)
         data_services+=(rustfs)
     fi
@@ -374,7 +379,11 @@ cmd_up() {
     fi
     [ -n "$db_url" ] && echo -e "${C_CYAN}→ PostgreSQL externo vía DB_URL.${C_RESET}"
     [ -n "$redis_url" ] && echo -e "${C_CYAN}→ Redis externo vía REDIS_URL.${C_RESET}"
-    [ -n "$s3_ep" ] && [ "$s3_ep" != "http://rustfs:9000" ] && echo -e "${C_CYAN}→ S3/MinIO externo vía ${s3_ep}.${C_RESET}"
+    if [ -n "$s3_url" ]; then
+        echo -e "${C_CYAN}→ S3/MinIO externo vía S3_URL.${C_RESET}"
+    elif [ -n "$s3_ep" ] && [ "$s3_ep" != "http://rustfs:9000" ]; then
+        echo -e "${C_CYAN}→ S3/MinIO externo vía ${s3_ep}.${C_RESET}"
+    fi
 
     echo -e "\n${C_BOLD}2. Ejecutando migraciones de Laravel (--force)...${C_RESET}"
     compose run --rm api php artisan migrate --force
@@ -391,9 +400,10 @@ cmd_deploy() {
     validate_env
     ensure_external_network
 
-    local db_url redis_url s3_ep profiles profile_args=() data_services=()
+    local db_url redis_url s3_url s3_ep profiles profile_args=() data_services=()
     db_url="$(read_env_var DB_URL)"
     redis_url="$(read_env_var REDIS_URL)"
+    s3_url="$(read_env_var S3_URL)"
     s3_ep="$(read_env_var S3_ENDPOINT)"
     if [ -z "$s3_ep" ]; then
         s3_ep="$(read_env_var AWS_ENDPOINT)"
@@ -408,7 +418,7 @@ cmd_deploy() {
         profile_args+=(--profile local-redis)
         data_services+=(redis)
     fi
-    if [ -z "$s3_ep" ] || [ "$s3_ep" = "http://rustfs:9000" ] || [[ ",${profiles}," == *",local-s3,"* ]]; then
+    if [[ ",${profiles}," == *",local-s3,"* ]] || { [ -z "$s3_url" ] && { [ -z "$s3_ep" ] || [ "$s3_ep" = "http://rustfs:9000" ]; }; }; then
         profile_args+=(--profile local-s3)
         data_services+=(rustfs)
     fi

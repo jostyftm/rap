@@ -41,13 +41,17 @@ Servicios internos (red rpa-prod-internal, internal: true, sin puertos externos)
 - `web` solo pertenece a `rpa-prod-edge` (SSR consulta a `API_INTERNAL_URL=http://api:8000`).
 - Los artefactos (capturas/trazas en MinIO o RustFS) se entregan al navegador mediante URLs firmadas temporalmente en `/api/v1/artifacts/{artifact}`, evitando exponer el bucket directamente a Internet.
 
-### 2.1 Uso de PostgreSQL, Redis y MinIO/S3 externos (Dokploy) y límites de RAM
+### 2.1 Uso interno vs externo (PostgreSQL, Redis y MinIO/S3) y límites de RAM
 
-1. En `.env.prod` (o variables de Dokploy):
-   - Deja `COMPOSE_PROFILES=` vacío (o agrega `local-db,local-redis,local-s3` si quieres usar los contenedores incluidos; `worker` si agregas Jobs en Horizon).
-   - Define `DB_URL=postgresql://rpa_user:PASSWORD@servicio-postgres:5432/rpa_studio?sslmode=prefer`
-   - Define `REDIS_URL=redis://:PASSWORD@servicio-redis:6379/2` usando una DB lógica dedicada (`/2`, y `REDIS_CACHE_DB=3`) sin `REDIS_PREFIX`.
-   - Define `S3_ENDPOINT=http://servicio-minio:9000`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET=rpa-artifacts` y `S3_FORCE_PATH_STYLE=true` (tanto Laravel como el Runner leen `S3_*` o `AWS_*`).
+Puedes combinar libremente servicios **internos** (contenedores incluidos mediante `COMPOSE_PROFILES`) y **externos** (p. ej. Dokploy en `dokploy-network` o URL pública):
+
+| Servicio | Modo Interno (contenedor incluido) | Modo Externo (por URL / red) |
+| --- | --- | --- |
+| **PostgreSQL** | Agregar `local-db` a `COMPOSE_PROFILES`, dejar `DB_URL=` vacío y definir `DB_HOST=pgsql`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | Omitir `local-db` y definir `DB_URL=postgresql://user:pass@host:5432/rpa_studio?sslmode=prefer` |
+| **Redis** | Agregar `local-redis` a `COMPOSE_PROFILES`, dejar `REDIS_URL=` vacío y definir `REDIS_HOST=redis`, `REDIS_PASSWORD` | Omitir `local-redis` y definir `REDIS_URL=redis://:pass@host:6379/2` (`REDIS_CACHE_DB=3`, sin `REDIS_PREFIX`) |
+| **MinIO / S3** | Agregar `local-s3` a `COMPOSE_PROFILES`, dejar `S3_URL=` vacío y usar `S3_ENDPOINT=http://rustfs:9000`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET` | Omitir `local-s3` y definir `S3_URL=http://key:secret@minio:9000/rpa-artifacts` (o `S3_ENDPOINT` + credenciales) |
+
+- Si despliegas en un servidor **sin red Dokploy previa**, define `EXTERNAL_DOCKER_NETWORK_IS_EXTERNAL=false` para que Compose cree la red localmente.
 2. Control de concurrencia y memoria del Runner:
    - `RUNNER_CONCURRENCY=3` (ajusta a `2` si tienes solo 1–2 GB libres, o `4–5` si dispones de 4+ GB libres).
    - `RUNNER_AUTO_SCREENSHOTS=false`, `RUNNER_TRACING=on_error`, `RUNNER_BROWSER_CONSOLE_LOGS=errors`, `RUNNER_BROWSER_RECYCLE_RUNS=40`.

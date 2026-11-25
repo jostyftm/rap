@@ -56,4 +56,40 @@ describe("s3 config (MinIO / RustFS)", () => {
       } as NodeJS.ProcessEnv)
     ).toBe("https://cdn.example.com/rpa/runs/1/shot.png");
   });
+
+  it("resuelve S3_URL completo con credenciales codificadas, bucket y query params", () => {
+    const cfg = resolveS3Config({
+      S3_URL: "https://my%40key:sec%2Fret@minio.dokploy.internal:9000/rpa-prod?region=eu-central-1&pathStyle=false",
+      S3_ENDPOINT: "http://ignored:9000",
+      S3_BUCKET: "ignored-bucket",
+    } as NodeJS.ProcessEnv);
+
+    expect(cfg).toEqual({
+      endpoint: "https://minio.dokploy.internal:9000",
+      accessKeyId: "my@key",
+      secretAccessKey: "sec/ret",
+      bucket: "rpa-prod",
+      region: "eu-central-1",
+      forcePathStyle: false,
+    });
+  });
+
+  it("usa variables discretas o defaults internos cuando S3_URL está vacío", () => {
+    const cfg = resolveS3Config({
+      S3_URL: "",
+      S3_ENDPOINT: "http://rustfs:9000",
+      S3_ACCESS_KEY: "localkey",
+      S3_SECRET_KEY: "localsecret",
+      S3_BUCKET: "rpa-artifacts",
+    } as NodeJS.ProcessEnv);
+
+    expect(cfg).toEqual({
+      endpoint: "http://rustfs:9000",
+      accessKeyId: "localkey",
+      secretAccessKey: "localsecret",
+      bucket: "rpa-artifacts",
+      region: "us-east-1",
+      forcePathStyle: true,
+    });
+  });
 });
