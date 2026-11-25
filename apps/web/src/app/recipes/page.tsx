@@ -5,6 +5,8 @@ import { AuthGuard } from "../../components/auth/auth-guard";
 import { useRecipesList } from "./hooks/use-recipes-list";
 import { RecipesHeader } from "./components/recipes-header";
 import { RecipeCard } from "./components/recipe-card";
+import { DeleteRecipeDialog } from "../../components/recipes/delete-recipe-dialog";
+import type { RecipeSummary } from "./types/recipes.types";
 import { Loader2, Search, Plus } from "lucide-react";
 
 export function RecipeListPageContent() {
@@ -20,10 +22,33 @@ export function RecipeListPageContent() {
     clearCreateError,
     handleCreateRecipe,
     handleImportRecipe,
+    handleDeleteRecipe,
     handleLogout,
   } = useRecipesList();
 
   const [search, setSearch] = useState("");
+  const [recipeToDelete, setRecipeToDelete] = useState<RecipeSummary | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const confirmDelete = async () => {
+    if (!recipeToDelete) return;
+    const targetId = recipeToDelete.uuid || recipeToDelete.id;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await handleDeleteRecipe(targetId);
+      setRecipeToDelete(null);
+    } catch (err) {
+      setDeleteError(
+        err instanceof Error && err.message
+          ? err.message
+          : "No se pudo eliminar la automatización."
+      );
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const filteredRecipes = useMemo(() => {
     if (!search.trim()) return recipes;
@@ -126,11 +151,32 @@ export function RecipeListPageContent() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredRecipes.map((recipe) => (
-              <RecipeCard key={recipe.id} recipe={recipe} />
+              <RecipeCard
+                key={recipe.id}
+                recipe={recipe}
+                onRequestDelete={(target) => {
+                  setDeleteError(null);
+                  setRecipeToDelete(target);
+                }}
+              />
             ))}
           </div>
         )}
       </main>
+
+      <DeleteRecipeDialog
+        isOpen={Boolean(recipeToDelete)}
+        recipeName={recipeToDelete?.name || ""}
+        isDeleting={isDeleting}
+        error={deleteError}
+        onClose={() => {
+          if (!isDeleting) {
+            setRecipeToDelete(null);
+            setDeleteError(null);
+          }
+        }}
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 }

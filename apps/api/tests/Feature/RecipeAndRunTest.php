@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Enums\Role;
+use App\Models\Recipe;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\RunnerEventProcessor;
@@ -205,4 +206,69 @@ it('permite pausar, reanudar y consultar logs persistidos de un run', function (
     $filterRes->assertOk()
         ->assertJsonCount(1, 'data')
         ->assertJsonPath('data.0.source', 'browser');
+});
+
+it('elimina una automatización con soft delete, desactiva schedules/webhook y libera la ruta', function () {
+    $owner = User::factory()->create();
+    $viewer = User::factory()->create();
+    $ws = Workspace::create(['name' => 'Delete WS', 'slug' => 'del-ws-'.uniqid()]);
+    $ws->members()->attach($owner->id, ['role' => Role::Owner->value]);
+    $ws->members()->attach($viewer->id, ['role' => Role::Viewer->value]);
+    $project = $ws->projects()->create(['name' => 'Proyecto Delete']);
+
+    Sanctum::actingAs($owner);
+
+    $payload = createTestRecipePayload();
+    $payload['definition'] = [
+        'schema' => 'rpa/v1',
+        'entry' => 'hook_1',
+        'nodes' => [
+            'hook_1' => [
+                'id' => 'hook_1',
+                'type' => 'webhook',
+                'description' => 'Hook',
+                'params' => [
+                    'httpMethod' => 'POST',
+                    'path' => '/api/v1/webhooks/elimina-test',
+                    'outputVariable' => 'webhook',
+                ],
+            ],
+        ],
+        'edges' => [],
+    ];
+
+    $created = $this->postJson("/api/v1/projects/{$project->uuid}/recipes", $payload)->assertCreated();
+    $recipeUuid = (string) $created->json('data.id');
+    $recipe = Recipe::where('uuid', $recipeUuid)->firstOrFail();
+
+    $schedule = $recipe->schedules()->create([
+        'workspace_id' => $ws->id,
+        'name' => 'Cron test',
+        'cron_expression' => '*/5 * * * *',
+        'timezone' => 'UTC',
+        'is_active' => true,
+        'next_run_at' => now()->addMinutes(5),
+    ]);
+
+    // Viewer no puede eliminar (403)
+    Sanctum::actingAs($viewer);
+    $this->deleteJson("/api/v1/recipes/{$recipeUuid}")->assertForbidden();
+    expect(Recipe::where('uuid', $recipeUuid)->exists())->toBeTrue();
+
+    // Owner sí puede eliminar (204)
+    Sanctum::actingAs($owner);
+    $this->deleteJson("/api/v1/recipes/{$recipeUuid}")->assertNoContent();
+
+    $this->assertSoftDeleted('recipes', ['id' => $recipe->id]);
+    expect($schedule->fresh()->is_active)->toBeFalse();
+
+    // No aparece en listado ni consulta directa
+    $this->getJson("/api/v1/projects/{$project->uuid}/recipes")
+        ->assertOk()
+        ->assertJsonCount(0, 'data');
+
+    $this->getJson("/api/v1/recipes/{$recipeUuid}")->assertNotFound();
+
+    // El webhook deja de responder
+    $this->postJson('/api/v1/webhooks/elimina-test', ['a' => 1])->assertNotFound();
 });

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { reconcileRecipeRoot, type RecipeDsl, type WebhookNode } from "@rpa/dsl";
 import {
   ChevronLeft,
@@ -37,6 +38,7 @@ import {
   Activity,
   FileDown,
   FileUp,
+  Trash2,
 } from "lucide-react";
 import { useRecipeStore } from "../../stores/use-recipe-store";
 import { useLayoutStore } from "../../stores/use-layout-store";
@@ -45,8 +47,10 @@ import { getEcho } from "../../lib/echo";
 import { useAuth } from "../../context/auth-context";
 import { ExportModal } from "./export-modal";
 import { PublishDialog } from "./publish-dialog";
+import { DeleteRecipeDialog } from "../recipes/delete-recipe-dialog";
 import { VersionHistoryDrawer } from "./version-history-drawer";
 import { recipeEditorService } from "../../app/recipes/[id]/edit/services/recipe-editor.service";
+import { recipesService } from "../../app/recipes/services/recipes.service";
 import { downloadRecipeJson, readRecipeFile } from "../../lib/recipe-file";
 import { TriggersModal } from "./triggers-modal";
 import { SecretsModal } from "./secrets-modal";
@@ -112,6 +116,7 @@ function buildRunParameters(definition: RecipeDsl): Record<string, unknown> {
 }
 
 export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
+  const router = useRouter();
   const recipeName = useRecipeStore((s) => s.recipeName);
   const setName = useRecipeStore((s) => s.setName);
   const recipeVersion = useRecipeStore((s) => s.recipeVersion);
@@ -176,6 +181,9 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [isPublishOpen, setIsPublishOpen] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [isDeletingRecipe, setIsDeletingRecipe] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isTriggersOpen, setIsTriggersOpen] = useState(false);
   const [isSecretsOpen, setIsSecretsOpen] = useState(false);
@@ -1134,7 +1142,7 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
                 {/* Deshacer / Rehacer */}
                 <div className="px-2.5 py-1.5 flex items-center justify-between text-neutral-400">
                   <span className="text-[11px]">Historial:</span>
-                  <div className="flex items-center space-x-1">
+                    <div className="flex items-center space-x-1">
                     <button
                       onClick={undo}
                       title="Deshacer (Ctrl+Z)"
@@ -1151,6 +1159,29 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
                     </button>
                   </div>
                 </div>
+
+                {recipeId && (
+                  <>
+                    <div className="h-px bg-neutral-800 my-1" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeleteError(null);
+                        setIsToolsMenuOpen(false);
+                        setIsDeleteOpen(true);
+                      }}
+                      className="w-full flex items-start space-x-2.5 px-2.5 py-2 rounded-lg text-left text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4 mt-0.5 shrink-0" />
+                      <div>
+                        <div className="font-medium">Eliminar automatización</div>
+                        <div className="text-[10px] text-rose-400/70">
+                          Desactiva webhooks y elimina del proyecto
+                        </div>
+                      </div>
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -1308,6 +1339,37 @@ export function EditorHeader({ onSave, isSaving }: EditorHeaderProps) {
       <VariablesModal
         isOpen={isVariablesOpen}
         onClose={() => setIsVariablesOpen(false)}
+      />
+
+      <DeleteRecipeDialog
+        isOpen={isDeleteOpen}
+        recipeName={recipeName || "esta automatización"}
+        isDeleting={isDeletingRecipe}
+        error={deleteError}
+        onClose={() => {
+          if (!isDeletingRecipe) {
+            setIsDeleteOpen(false);
+            setDeleteError(null);
+          }
+        }}
+        onConfirm={async () => {
+          if (!recipeId) return;
+          setIsDeletingRecipe(true);
+          setDeleteError(null);
+          try {
+            await recipesService.deleteRecipe(recipeId);
+            setIsDeleteOpen(false);
+            router.push("/recipes");
+          } catch (err) {
+            setDeleteError(
+              err instanceof Error && err.message
+                ? err.message
+                : "No se pudo eliminar la automatización."
+            );
+          } finally {
+            setIsDeletingRecipe(false);
+          }
+        }}
       />
     </>
   );

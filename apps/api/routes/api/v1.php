@@ -74,6 +74,7 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function (): void {
     Route::post('projects/{project}/recipes/import', [RecipePortabilityController::class, 'importNew']);
     Route::get('recipes/{recipe}', [RecipeController::class, 'show']);
     Route::put('recipes/{recipe}', [RecipeController::class, 'update']);
+    Route::delete('recipes/{recipe}', [RecipeController::class, 'destroy']);
     Route::post('recipes/{recipe}/publish', [RecipeVersionController::class, 'publish']);
     Route::get('recipes/{recipe}/versions', [RecipeVersionController::class, 'index']);
     Route::get('recipes/{recipe}/versions/{version}', [RecipeVersionController::class, 'show']);
@@ -104,6 +105,7 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function (): void {
     Route::post('recipes/{recipe}/live/screencast', [LiveSessionController::class, 'screencast']);
     Route::post('recipes/{recipe}/live/external', [LiveSessionController::class, 'external']);
     Route::post('recipes/{recipe}/live/command', [LiveSessionController::class, 'command']);
+    Route::post('recipes/{recipe}/live/screenshot', [LiveSessionController::class, 'screenshot']);
     Route::post('recipes/{recipe}/live/stop', [LiveSessionController::class, 'stop']);
 
     // Ejecuciones (Runs)

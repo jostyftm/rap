@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\v1\Recipe;
 
+use App\Enums\Role;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Recipe\RecipeCreateRequest;
 use App\Http\Requests\Recipe\RecipeUpdateRequest;
@@ -12,6 +13,7 @@ use App\Models\Project;
 use App\Models\Recipe;
 use App\Services\RecipeService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 
@@ -61,5 +63,23 @@ class RecipeController extends Controller
         $result = $this->recipeService->update($request, $recipe);
 
         return new RecipeResource($result);
+    }
+
+    /**
+     * Soft-delete a recipe and deactivate its schedules and webhook listeners
+     */
+    public function destroy(Request $request, Recipe $recipe): Response
+    {
+        $recipe->loadMissing('project.workspace');
+        $workspace = $recipe->project?->workspace;
+        $user = $request->user();
+
+        if (! $workspace || ! $user || ! ($workspace->roleOf($user)?->atLeast(Role::Editor) ?? false)) {
+            abort(Response::HTTP_FORBIDDEN, 'No tienes permisos para eliminar esta automatización.');
+        }
+
+        $this->recipeService->delete($recipe, $user);
+
+        return response()->noContent();
     }
 }

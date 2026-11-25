@@ -134,6 +134,28 @@ class RecipeService
         });
     }
 
+    public function delete(Recipe $recipe, ?User $user): void
+    {
+        $recipe->loadMissing('project.workspace');
+
+        DB::transaction(function () use ($recipe, $user): void {
+            $recipe->schedules()->update(['is_active' => false]);
+
+            $recipe->update([
+                'status' => 'archived',
+                'webhook_enabled' => false,
+                'published_webhook_path' => null,
+                'published_webhook_method' => null,
+            ]);
+
+            $recipe->delete();
+
+            if ($recipe->project?->workspace) {
+                Audit::log('recipe.deleted', $user, $recipe->project->workspace, $recipe);
+            }
+        });
+    }
+
     public function publish(Recipe $recipe, ?string $changelog, ?User $user): Recipe
     {
         $recipe->loadMissing(['draft', 'publishedVersion']);

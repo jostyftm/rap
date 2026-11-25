@@ -120,6 +120,13 @@ export function useRecipesList() {
     router.replace("/login");
   };
 
+  const handleDeleteRecipe = async (recipeId: string): Promise<void> => {
+    await recipesService.deleteRecipe(recipeId);
+    setRecipes((prev) =>
+      prev.filter((r) => (r.uuid || r.id) !== recipeId && r.id !== recipeId)
+    );
+  };
+
   const clearCreateError = () => setCreateError(null);
 
   return {
@@ -134,6 +141,7 @@ export function useRecipesList() {
     clearCreateError,
     handleCreateRecipe,
     handleImportRecipe,
+    handleDeleteRecipe,
     handleLogout,
   };
 }

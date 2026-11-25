@@ -2,12 +2,26 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { Play, ArrowRight, Layers, Clock, Download, Loader2, CheckCircle2 } from "lucide-react";
+import {
+  Play,
+  ArrowRight,
+  Layers,
+  Clock,
+  Download,
+  Loader2,
+  CheckCircle2,
+  Trash2,
+} from "lucide-react";
 import type { RecipeSummary } from "../types/recipes.types";
 import { downloadRecipeJson } from "@/lib/recipe-file";
 import { apiFetch } from "@/lib/api-client";
 
-export function RecipeCard({ recipe }: { recipe: RecipeSummary }) {
+interface RecipeCardProps {
+  recipe: RecipeSummary;
+  onRequestDelete?: (recipe: RecipeSummary) => void;
+}
+
+export function RecipeCard({ recipe, onRequestDelete }: RecipeCardProps) {
   const recipeRouteId = recipe.uuid || recipe.id;
   const [isExporting, setIsExporting] = useState(false);
 
@@ -98,6 +112,22 @@ export function RecipeCard({ recipe }: { recipe: RecipeSummary }) {
           >
             <Play className="w-3.5 h-3.5 fill-current" />
           </Link>
+
+          {onRequestDelete && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onRequestDelete(recipe);
+              }}
+              aria-label={`Eliminar automatización ${recipe.name}`}
+              title="Eliminar automatización"
+              className="p-1.5 rounded-md bg-zinc-800/60 hover:bg-rose-500/15 text-zinc-400 hover:text-rose-400 transition-colors border border-zinc-700/50 hover:border-rose-500/30"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
     </div>

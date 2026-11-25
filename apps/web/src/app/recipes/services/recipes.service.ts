@@ -93,4 +93,14 @@ export const recipesService = {
 
     return res;
   },
+
+  async deleteRecipe(recipeId: string): Promise<void> {
+    if (!recipeId) {
+      throw new Error("El identificador de la receta es obligatorio para eliminarla.");
+    }
+
+    await apiFetch<void>(`/api/v1/recipes/${recipeId}`, {
+      method: "DELETE",
+    });
+  },
 };
