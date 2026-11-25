@@ -76,9 +76,6 @@ services:
       timeout: 5s
       retries: 6
       start_period: 15s
-    depends_on:
-      rustfs:
-        condition: service_healthy
     networks:
       - rpa-prod-edge
       - rpa-prod-internal
@@ -185,8 +182,6 @@ services:
       retries: 5
       start_period: 15s
     depends_on:
-      rustfs:
-        condition: service_healthy
       api:
         condition: service_healthy
     networks:
@@ -248,6 +243,8 @@ services:
 
   rustfs:
     image: rustfs/rustfs:latest
+    profiles:
+      - local-s3
     restart: unless-stopped
     mem_limit: "${RUSTFS_MEM_LIMIT:-160m}"
     cpus: "0.5"

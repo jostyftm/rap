@@ -1,18 +1,42 @@
 import { S3Client, PutObjectCommand, CreateBucketCommand } from "@aws-sdk/client-s3";
 
-const S3_ENDPOINT = process.env.S3_ENDPOINT || "http://127.0.0.1:9000";
-const S3_ACCESS_KEY = process.env.S3_ACCESS_KEY || "sail";
-const S3_SECRET_KEY = process.env.S3_SECRET_KEY || "password";
-const S3_BUCKET = process.env.S3_BUCKET || "rpa-artifacts";
+export interface ResolvedS3Config {
+  endpoint: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucket: string;
+  region: string;
+  forcePathStyle: boolean;
+}
+
+export function resolveS3Config(env: NodeJS.ProcessEnv = process.env): ResolvedS3Config {
+  const endpoint = (env.S3_ENDPOINT || env.AWS_ENDPOINT || "http://127.0.0.1:9000").trim();
+  const accessKeyId = env.S3_ACCESS_KEY || env.AWS_ACCESS_KEY_ID || "sail";
+  const secretAccessKey = env.S3_SECRET_KEY || env.AWS_SECRET_ACCESS_KEY || "password";
+  const bucket = (env.S3_BUCKET || env.AWS_BUCKET || "rpa-artifacts").trim();
+  const region = (env.S3_REGION || env.AWS_DEFAULT_REGION || "us-east-1").trim();
+  const rawForcePathStyle = env.S3_FORCE_PATH_STYLE ?? env.AWS_USE_PATH_STYLE_ENDPOINT ?? "true";
+
+  return {
+    endpoint,
+    accessKeyId,
+    secretAccessKey,
+    bucket,
+    region,
+    forcePathStyle: rawForcePathStyle.toLowerCase().trim() !== "false",
+  };
+}
+
+const initialConfig = resolveS3Config(process.env);
 
 const s3Client = new S3Client({
-  endpoint: S3_ENDPOINT,
-  region: "us-east-1",
+  endpoint: initialConfig.endpoint,
+  region: initialConfig.region,
   credentials: {
-    accessKeyId: S3_ACCESS_KEY,
-    secretAccessKey: S3_SECRET_KEY,
+    accessKeyId: initialConfig.accessKeyId,
+    secretAccessKey: initialConfig.secretAccessKey,
   },
-  forcePathStyle: true,
+  forcePathStyle: initialConfig.forcePathStyle,
   maxAttempts: 2,
 });
 
@@ -34,14 +58,17 @@ function isConnectionError(error: any): boolean {
 
 export async function ensureBucket(): Promise<void> {
   if (bucketChecked || Date.now() < s3UnavailableUntil) return;
+  const { bucket } = resolveS3Config(process.env);
   try {
-    await s3Client.send(new CreateBucketCommand({ Bucket: S3_BUCKET }));
+    await s3Client.send(new CreateBucketCommand({ Bucket: bucket }));
     bucketChecked = true;
   } catch (error: any) {
     if (
       error.name === "BucketAlreadyOwnedByYou" ||
       error.name === "BucketAlreadyExists" ||
-      error.$metadata?.httpStatusCode === 409
+      error.name === "AccessDenied" ||
+      error.$metadata?.httpStatusCode === 409 ||
+      error.$metadata?.httpStatusCode === 403
     ) {
       bucketChecked = true;
       return;
@@ -53,15 +80,14 @@ export async function ensureBucket(): Promise<void> {
   }
 }
 
-export function buildArtifactUrl(key: string): string {
+export function buildArtifactUrl(key: string, env: NodeJS.ProcessEnv = process.env): string {
   const cleanKey = key.replace(/^\/+/, "");
-  const publicBase = (process.env.S3_PUBLIC_URL || "").trim().replace(/\/+$/, "");
+  const publicBase = (env.S3_PUBLIC_URL || env.AWS_URL || "").trim().replace(/\/+$/, "");
   if (publicBase) {
     return `${publicBase}/${cleanKey}`;
   }
-  const endpoint = (process.env.S3_ENDPOINT || S3_ENDPOINT).trim().replace(/\/+$/, "");
-  const bucket = (process.env.S3_BUCKET || S3_BUCKET).trim();
-  return `${endpoint}/${bucket}/${cleanKey}`;
+  const { endpoint, bucket } = resolveS3Config(env);
+  return `${endpoint.replace(/\/+$/, "")}/${bucket}/${cleanKey}`;
 }
 
 export async function uploadArtifactWithStatus(
@@ -69,7 +95,7 @@ export async function uploadArtifactWithStatus(
   body: Buffer | Uint8Array | string,
   contentType = "image/png"
 ): Promise<{ key: string; bucket: string; url: string; uploaded: boolean }> {
-  const bucket = (process.env.S3_BUCKET || S3_BUCKET).trim();
+  const { bucket } = resolveS3Config(process.env);
   const url = buildArtifactUrl(key);
 
   if (Date.now() < s3UnavailableUntil) {

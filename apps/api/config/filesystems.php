@@ -49,13 +49,16 @@ return [
 
         's3' => [
             'driver' => 's3',
-            'key' => env('AWS_ACCESS_KEY_ID'),
-            'secret' => env('AWS_SECRET_ACCESS_KEY'),
-            'region' => env('AWS_DEFAULT_REGION'),
-            'bucket' => env('AWS_BUCKET'),
-            'url' => env('AWS_URL'),
-            'endpoint' => env('AWS_ENDPOINT'),
-            'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
+            'key' => env('AWS_ACCESS_KEY_ID') ?: env('S3_ACCESS_KEY'),
+            'secret' => env('AWS_SECRET_ACCESS_KEY') ?: env('S3_SECRET_KEY'),
+            'region' => env('AWS_DEFAULT_REGION') ?: env('S3_REGION', 'us-east-1'),
+            'bucket' => env('AWS_BUCKET') ?: env('S3_BUCKET'),
+            'url' => env('AWS_URL') ?: env('S3_PUBLIC_URL'),
+            'endpoint' => env('AWS_ENDPOINT') ?: env('S3_ENDPOINT'),
+            'use_path_style_endpoint' => filter_var(
+                env('AWS_USE_PATH_STYLE_ENDPOINT', env('S3_FORCE_PATH_STYLE', true)),
+                FILTER_VALIDATE_BOOLEAN
+            ),
             'throw' => false,
             'report' => false,
         ],

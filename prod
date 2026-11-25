@@ -341,9 +341,13 @@ cmd_up() {
     validate_env
     ensure_external_network
 
-    local db_url redis_url profiles profile_args=() data_services=(rustfs)
+    local db_url redis_url s3_ep profiles profile_args=() data_services=()
     db_url="$(read_env_var DB_URL)"
     redis_url="$(read_env_var REDIS_URL)"
+    s3_ep="$(read_env_var S3_ENDPOINT)"
+    if [ -z "$s3_ep" ]; then
+        s3_ep="$(read_env_var AWS_ENDPOINT)"
+    fi
     profiles="$(read_env_var COMPOSE_PROFILES)"
 
     if [ -z "$db_url" ] || [[ ",${profiles}," == *",local-db,"* ]]; then
@@ -354,17 +358,23 @@ cmd_up() {
         profile_args+=(--profile local-redis)
         data_services+=(redis)
     fi
+    if [ -z "$s3_ep" ] || [ "$s3_ep" = "http://rustfs:9000" ] || [[ ",${profiles}," == *",local-s3,"* ]]; then
+        profile_args+=(--profile local-s3)
+        data_services+=(rustfs)
+    fi
 
-    echo -e "${C_BOLD}1. Iniciando servicios de datos (${data_services[*]})...${C_RESET}"
-    compose "${profile_args[@]}" up -d "${data_services[@]}"
-    if [[ " ${data_services[*]} " == *" pgsql "* ]]; then
-        wait_for_pgsql
+    if [ ${#data_services[@]} -gt 0 ]; then
+        echo -e "${C_BOLD}1. Iniciando servicios de datos locales (${data_services[*]})...${C_RESET}"
+        compose "${profile_args[@]}" up -d "${data_services[@]}"
+        if [[ " ${data_services[*]} " == *" pgsql "* ]]; then
+            wait_for_pgsql
+        fi
     else
-        echo -e "${C_CYAN}→ Usando PostgreSQL externo por DB_URL.${C_RESET}"
+        echo -e "${C_BOLD}1. Usando servicios de datos externos configurados por URL.${C_RESET}"
     fi
-    if [ -n "$redis_url" ]; then
-        echo -e "${C_CYAN}→ Usando Redis externo por REDIS_URL.${C_RESET}"
-    fi
+    [ -n "$db_url" ] && echo -e "${C_CYAN}→ PostgreSQL externo vía DB_URL.${C_RESET}"
+    [ -n "$redis_url" ] && echo -e "${C_CYAN}→ Redis externo vía REDIS_URL.${C_RESET}"
+    [ -n "$s3_ep" ] && [ "$s3_ep" != "http://rustfs:9000" ] && echo -e "${C_CYAN}→ S3/MinIO externo vía ${s3_ep}.${C_RESET}"
 
     echo -e "\n${C_BOLD}2. Ejecutando migraciones de Laravel (--force)...${C_RESET}"
     compose run --rm api php artisan migrate --force
@@ -381,9 +391,13 @@ cmd_deploy() {
     validate_env
     ensure_external_network
 
-    local db_url redis_url profiles profile_args=() data_services=(rustfs)
+    local db_url redis_url s3_ep profiles profile_args=() data_services=()
     db_url="$(read_env_var DB_URL)"
     redis_url="$(read_env_var REDIS_URL)"
+    s3_ep="$(read_env_var S3_ENDPOINT)"
+    if [ -z "$s3_ep" ]; then
+        s3_ep="$(read_env_var AWS_ENDPOINT)"
+    fi
     profiles="$(read_env_var COMPOSE_PROFILES)"
 
     if [ -z "$db_url" ] || [[ ",${profiles}," == *",local-db,"* ]]; then
@@ -394,16 +408,22 @@ cmd_deploy() {
         profile_args+=(--profile local-redis)
         data_services+=(redis)
     fi
+    if [ -z "$s3_ep" ] || [ "$s3_ep" = "http://rustfs:9000" ] || [[ ",${profiles}," == *",local-s3,"* ]]; then
+        profile_args+=(--profile local-s3)
+        data_services+=(rustfs)
+    fi
 
     echo -e "${C_BOLD}1. Compilando imágenes de producción...${C_RESET}"
     compose build
 
-    echo -e "\n${C_BOLD}2. Asegurando servicios de datos (${data_services[*]})...${C_RESET}"
-    compose "${profile_args[@]}" up -d "${data_services[@]}"
-    if [[ " ${data_services[*]} " == *" pgsql "* ]]; then
-        wait_for_pgsql
+    if [ ${#data_services[@]} -gt 0 ]; then
+        echo -e "\n${C_BOLD}2. Asegurando servicios de datos locales (${data_services[*]})...${C_RESET}"
+        compose "${profile_args[@]}" up -d "${data_services[@]}"
+        if [[ " ${data_services[*]} " == *" pgsql "* ]]; then
+            wait_for_pgsql
+        fi
     else
-        echo -e "${C_CYAN}→ Usando PostgreSQL externo por DB_URL.${C_RESET}"
+        echo -e "\n${C_BOLD}2. Usando PostgreSQL, Redis y S3/MinIO externos.${C_RESET}"
     fi
 
     echo -e "\n${C_BOLD}3. Ejecutando migraciones de Laravel (--force)...${C_RESET}"

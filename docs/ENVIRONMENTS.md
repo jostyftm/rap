@@ -36,17 +36,18 @@ Servicios internos (red rpa-prod-internal, internal: true, sin puertos externos)
   - rustfs (S3 compatible, consola deshabilitada)
 ```
 
-- `api`, `reverb`, `worker`, `events`, `scheduler` y `runner` pertenecen a `rpa-prod-edge`, `rpa-prod-internal` y a la red externa configurable `EXTERNAL_DOCKER_NETWORK` (`dokploy-network` por defecto) para poder conectarse directamente a PostgreSQL y Redis ya desplegados en Dokploy.
-- `pgsql`, `redis` y `worker` (Horizon) están asociados a Docker Compose `profiles` (`local-db`, `local-redis`, `worker`), de modo que si dejas `COMPOSE_PROFILES=` vacío y defines `DB_URL` + `REDIS_URL`, no se levantan contenedores locales duplicados.
+- `api`, `reverb`, `worker`, `events`, `scheduler` y `runner` pertenecen a `rpa-prod-edge`, `rpa-prod-internal` y a la red externa configurable `EXTERNAL_DOCKER_NETWORK` (`dokploy-network` por defecto) para poder conectarse directamente a PostgreSQL, Redis y MinIO/S3 ya desplegados en Dokploy.
+- `pgsql`, `redis`, `rustfs` y `worker` (Horizon) están asociados a Docker Compose `profiles` (`local-db`, `local-redis`, `local-s3`, `worker`), de modo que si dejas `COMPOSE_PROFILES=` vacío y defines `DB_URL`, `REDIS_URL` y `S3_ENDPOINT`, no se levantan contenedores locales duplicados.
 - `web` solo pertenece a `rpa-prod-edge` (SSR consulta a `API_INTERNAL_URL=http://api:8000`).
-- Los artefactos (capturas/trazas en RustFS) se entregan al navegador mediante URLs firmadas temporalmente en `/api/v1/artifacts/{artifact}`, evitando exponer RustFS a Internet.
+- Los artefactos (capturas/trazas en MinIO o RustFS) se entregan al navegador mediante URLs firmadas temporalmente en `/api/v1/artifacts/{artifact}`, evitando exponer el bucket directamente a Internet.
 
-### 2.1 Uso de PostgreSQL y Redis externos (Dokploy) y límites de RAM
+### 2.1 Uso de PostgreSQL, Redis y MinIO/S3 externos (Dokploy) y límites de RAM
 
 1. En `.env.prod` (o variables de Dokploy):
-   - Deja `COMPOSE_PROFILES=` vacío (o agrega `local-db,local-redis` si quieres usar los contenedores incluidos; `worker` si agregas Jobs en Horizon).
+   - Deja `COMPOSE_PROFILES=` vacío (o agrega `local-db,local-redis,local-s3` si quieres usar los contenedores incluidos; `worker` si agregas Jobs en Horizon).
    - Define `DB_URL=postgresql://rpa_user:PASSWORD@servicio-postgres:5432/rpa_studio?sslmode=prefer`
    - Define `REDIS_URL=redis://:PASSWORD@servicio-redis:6379/2` usando una DB lógica dedicada (`/2`, y `REDIS_CACHE_DB=3`) sin `REDIS_PREFIX`.
+   - Define `S3_ENDPOINT=http://servicio-minio:9000`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET=rpa-artifacts` y `S3_FORCE_PATH_STYLE=true` (tanto Laravel como el Runner leen `S3_*` o `AWS_*`).
 2. Control de concurrencia y memoria del Runner:
    - `RUNNER_CONCURRENCY=3` (ajusta a `2` si tienes solo 1–2 GB libres, o `4–5` si dispones de 4+ GB libres).
    - `RUNNER_AUTO_SCREENSHOTS=false`, `RUNNER_TRACING=on_error`, `RUNNER_BROWSER_CONSOLE_LOGS=errors`, `RUNNER_BROWSER_RECYCLE_RUNS=40`.
