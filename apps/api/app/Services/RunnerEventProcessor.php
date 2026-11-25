@@ -21,6 +21,9 @@ final class RunnerEventProcessor
     /** @var array<int,?SecretRedactor> */
     private array $redactors = [];
 
+    /** @var array<int,int> */
+    private array $logCounts = [];
+
     public function __construct(
         private WorkspaceSecretService $secretService
     ) {}
@@ -107,6 +110,7 @@ final class RunnerEventProcessor
                     'finished_at' => now(),
                     'error_message' => 'Ejecución detenida por el usuario',
                 ]);
+                unset($this->redactors[$run->id], $this->logCounts[$run->id]);
                 event(new RunUpdated($run));
                 break;
 
@@ -128,8 +132,9 @@ final class RunnerEventProcessor
                     }
                 }
 
-                // Guardar en base de datos si no excede 2000 logs para depurar
-                if ($run->logs()->count() < 2000) {
+                // Guardar en base de datos si no excede 2000 logs para depurar (contador en memoria para evitar COUNT(*) por log)
+                $logCount = $this->logCounts[$run->id] ??= $run->logs()->count();
+                if ($logCount < 2000) {
                     RunLog::create([
                         'run_id' => $run->id,
                         'level' => $level,
@@ -139,6 +144,13 @@ final class RunnerEventProcessor
                         'context' => $context,
                         'logged_at' => now(),
                     ]);
+                    $this->logCounts[$run->id] = $logCount + 1;
+                    if (count($this->logCounts) > 500) {
+                        $oldestKey = array_key_first($this->logCounts);
+                        if ($oldestKey !== null) {
+                            unset($this->logCounts[$oldestKey]);
+                        }
+                    }
                 }
 
                 event(new RunLogEmitted(
@@ -250,6 +262,7 @@ final class RunnerEventProcessor
                     $this->recordScreenshotArtifact($run, $result['last_screenshot_path'], null, $status);
                 }
 
+                unset($this->redactors[$run->id], $this->logCounts[$run->id]);
                 event(new RunUpdated($run));
                 break;
         }
@@ -328,6 +341,13 @@ final class RunnerEventProcessor
         }
 
         $secrets = $this->secretService->getDecryptedForWorkspace($workspace);
+
+        if (count($this->redactors) >= 500) {
+            $oldestKey = array_key_first($this->redactors);
+            if ($oldestKey !== null) {
+                unset($this->redactors[$oldestKey]);
+            }
+        }
 
         return $this->redactors[$run->id] = $secrets === [] ? null : new SecretRedactor($secrets);
     }

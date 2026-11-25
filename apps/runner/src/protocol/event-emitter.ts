@@ -211,8 +211,20 @@ export class RedisEventEmitter implements RunnerEventEmitter {
     cleanPayload.id = ulid();
     this.logToConsole(cleanPayload);
 
+    const streamMaxLen = Math.max(
+      1000,
+      Math.floor(Number(process.env.REDIS_STREAM_MAXLEN ?? 20_000)) || 20_000
+    );
+
     try {
-      await this.redis.xadd(this.streamName, "*", ...Object.entries(cleanPayload).flat());
+      await this.redis.xadd(
+        this.streamName,
+        "MAXLEN",
+        "~",
+        String(streamMaxLen),
+        "*",
+        ...Object.entries(cleanPayload).flat()
+      );
     } catch (err) {
       console.error("[EventEmitter] Error emitiendo evento a Redis Stream:", err);
     }

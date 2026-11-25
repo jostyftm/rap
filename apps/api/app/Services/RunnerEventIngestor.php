@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Cache;
  */
 final class RunnerEventIngestor
 {
-    private const TTL_DAYS = 7;
+    private const TTL_HOURS = 24;
 
     public function __construct(
         private RunnerEventProcessor $processor
@@ -42,7 +42,7 @@ final class RunnerEventIngestor
         }
 
         $this->processor->process($payload);
-        Cache::put($cacheKey, true, now()->addDays(self::TTL_DAYS));
+        Cache::put($cacheKey, true, now()->addHours(self::TTL_HOURS));
 
         return true;
     }

@@ -100,8 +100,20 @@ export interface ExecutionOptions {
   webhookEnabled?: boolean;
 }
 
+type TracingMode = "always" | "on_error" | "never";
+
+function resolveTracingMode(): TracingMode {
+  const raw = (process.env.RUNNER_TRACING || "always").toLowerCase().trim();
+  if (raw === "never" || raw === "false" || raw === "0") return "never";
+  if (raw === "on_error" || raw === "error") return "on_error";
+  return "always";
+}
+
 export class RecipeExecutor {
   private sharedBrowser: Browser | null = null;
+  private sharedBrowserPromise: Promise<Browser> | null = null;
+  private activeSharedContexts = 0;
+  private completedSharedRuns = 0;
 
   constructor(
     private eventEmitter: RunnerEventEmitter,
@@ -109,17 +121,38 @@ export class RecipeExecutor {
   ) {}
 
   async initializeShared(): Promise<void> {
-    if (!this.sharedBrowser) {
-      this.sharedBrowser = await chromium.launch({
-        headless: process.env.RUNNER_HEADLESS !== "false",
-        args: [
-          "--no-sandbox",
-          "--disable-setuid-sandbox",
-          "--disable-dev-shm-usage",
-          "--disable-gpu",
-        ],
-      });
+    if (this.sharedBrowser && this.sharedBrowser.isConnected()) {
+      return;
     }
+
+    if (!this.sharedBrowserPromise) {
+      this.sharedBrowserPromise = chromium
+        .launch({
+          headless: process.env.RUNNER_HEADLESS !== "false",
+          args: [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+          ],
+        })
+        .then((browser) => {
+          this.sharedBrowser = browser;
+          this.sharedBrowserPromise = null;
+          browser.on("disconnected", () => {
+            if (this.sharedBrowser === browser) {
+              this.sharedBrowser = null;
+            }
+          });
+          return browser;
+        })
+        .catch((err) => {
+          this.sharedBrowserPromise = null;
+          throw err;
+        });
+    }
+
+    await this.sharedBrowserPromise;
   }
 
   async execute(options: ExecutionOptions): Promise<{ success: boolean; durationMs: number; error?: string }> {
@@ -238,28 +271,46 @@ export class RecipeExecutor {
       "runner"
     );
 
+    const tracingMode = resolveTracingMode();
+    const usingSharedBrowser = dedicatedBrowser === null;
+
     const context: BrowserContext = await browser.newContext({
       viewport: isHeadedActual ? null : { width: 1280, height: 800 },
       userAgent:
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 RPAStudio/1.0",
     });
 
-    const tempTraceDir = await fs.mkdtemp(path.join(os.tmpdir(), "rpa-trace-"));
-    const tracePath = path.join(tempTraceDir, `${runId}-trace.zip`);
+    if (usingSharedBrowser) {
+      this.activeSharedContexts++;
+    }
 
-    await context.tracing.start({
-      screenshots: true,
-      snapshots: true,
-      sources: false,
-    });
+    let tempTraceDir: string | undefined;
+    let tracePath: string | undefined;
+
+    if (tracingMode !== "never") {
+      if (tracingMode === "always" || tracingMode === "on_error") {
+        tempTraceDir = await fs.mkdtemp(path.join(os.tmpdir(), "rpa-trace-"));
+        tracePath = path.join(tempTraceDir, `${runId}-trace.zip`);
+      }
+
+      await context.tracing.start({
+        screenshots: true,
+        snapshots: true,
+        sources: false,
+      });
+    }
 
     const page: Page = await context.newPage();
 
     let activeNodeId: string | undefined = recipe.entry;
+    const browserConsoleMode = (process.env.RUNNER_BROWSER_CONSOLE_LOGS || "all").toLowerCase();
 
     // Escuchar eventos de consola y red del navegador para enriquecer logs
     page.on("console", (msg) => {
       const type = msg.type();
+      if (browserConsoleMode === "errors" && type !== "error" && type !== "warning") {
+        return;
+      }
       const level = type === "error" ? "error" : type === "warning" ? "warn" : "info";
       this.eventEmitter.emitRunLog(
         runId,
@@ -1270,6 +1321,8 @@ export class RecipeExecutor {
       };
     };
 
+    let runFailed = false;
+
     try {
       const outcome = await runChain(recipe.entry);
 
@@ -1319,6 +1372,7 @@ export class RecipeExecutor {
 
       return { success: true, durationMs: totalDuration };
     } catch (fatalError: unknown) {
+      runFailed = true;
       const totalDuration = Date.now() - startTime;
       const fatalMsg = fatalError instanceof Error ? fatalError.message : String(fatalError);
 
@@ -1359,17 +1413,47 @@ export class RecipeExecutor {
 
       return { success: false, durationMs: totalDuration, error: fatalMsg };
     } finally {
-      // Guardar y subir traza de Playwright a S3
-      try {
-        await context.tracing.stop({ path: tracePath });
-        const traceBuffer = await fs.readFile(tracePath);
-        await uploadArtifact(`runs/${runId}/trace.zip`, traceBuffer, "application/zip");
-        await fs.rm(tempTraceDir, { recursive: true, force: true });
-      } catch {
-        // Ignorar fallos de traza
+      // Guardar y subir traza de Playwright a S3 según RUNNER_TRACING (always | on_error | never)
+      if (tracingMode !== "never") {
+        try {
+          if (
+            tracePath &&
+            (tracingMode === "always" || (tracingMode === "on_error" && runFailed))
+          ) {
+            await context.tracing.stop({ path: tracePath });
+            const traceBuffer = await fs.readFile(tracePath);
+            await uploadArtifact(`runs/${runId}/trace.zip`, traceBuffer, "application/zip");
+          } else {
+            await context.tracing.stop().catch(() => undefined);
+          }
+        } catch {
+          // Ignorar fallos de traza
+        } finally {
+          if (tempTraceDir) {
+            await fs.rm(tempTraceDir, { recursive: true, force: true }).catch(() => undefined);
+          }
+        }
       }
 
       await context.close().catch(() => undefined);
+
+      if (usingSharedBrowser) {
+        this.activeSharedContexts = Math.max(0, this.activeSharedContexts - 1);
+        this.completedSharedRuns++;
+        const recycleRuns = Math.max(0, Number(process.env.RUNNER_BROWSER_RECYCLE_RUNS ?? 40));
+        if (
+          recycleRuns > 0 &&
+          this.activeSharedContexts === 0 &&
+          this.completedSharedRuns >= recycleRuns &&
+          this.sharedBrowser
+        ) {
+          this.completedSharedRuns = 0;
+          const oldBrowser = this.sharedBrowser;
+          this.sharedBrowser = null;
+          await oldBrowser.close().catch(() => undefined);
+        }
+      }
+
       if (dedicatedBrowser) {
         await dedicatedBrowser.close().catch(() => undefined);
       }

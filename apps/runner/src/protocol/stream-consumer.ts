@@ -1,3 +1,4 @@
+import os from "node:os";
 import type { Redis } from "ioredis";
 import type { RecipeDsl } from "@rpa/dsl";
 import { RecipeExecutor } from "../engine/executor.js";
@@ -6,7 +7,7 @@ import { SecretClient } from "../secrets/secret-client.js";
 import type { RedisEventEmitter } from "./event-emitter.js";
 
 const COMMAND_TTL_SECONDS = 86400;
-const RECLAIM_AFTER_MS = 60000;
+const RECLAIM_AFTER_MS = 300_000;
 const RECLAIM_EVERY_LOOPS = 15;
 
 export class RedisStreamConsumer {
@@ -14,60 +15,94 @@ export class RedisStreamConsumer {
 
   private loops = 0;
 
+  private readonly concurrency: number;
+
   constructor(
     private redis: Redis,
     private eventEmitter: RedisEventEmitter,
     private streamName = "rpa:cmd",
     private groupName = "rpa:runners",
-    private consumerName = `runner-${process.pid}`,
-    private secretClient = new SecretClient()
-  ) {}
+    private consumerName = `runner-${os.hostname()}-${process.pid}-${Math.random().toString(36).slice(2, 6)}`,
+    private secretClient = new SecretClient(),
+    concurrency = 2,
+    private executorOverride?: RecipeExecutor
+  ) {
+    this.concurrency = Math.max(1, Math.min(20, Math.floor(Number(concurrency) || 2)));
+  }
 
   async start(): Promise<void> {
     this.isRunning = true;
     await this.ensureGroupExists();
-    console.log(`[StreamConsumer] Escuchando comandos en '${this.streamName}' como '${this.consumerName}'...`);
+    console.log(
+      `[StreamConsumer] Escuchando comandos en '${this.streamName}' como '${this.consumerName}' (concurrencia=${this.concurrency})...`
+    );
 
-    const executor = new RecipeExecutor(this.eventEmitter, this.redis);
+    const executor = this.executorOverride ?? new RecipeExecutor(this.eventEmitter, this.redis);
     const recorder = new RecorderEngine(this.eventEmitter);
+    const activeRuns = new Set<Promise<void>>();
 
-    while (this.isRunning) {
-      try {
-        if (this.loops % RECLAIM_EVERY_LOOPS === 0) {
-          await this.reclaimPending(executor, recorder);
-        }
-        this.loops++;
+    // Conexión dedicada solo para XREADGROUP BLOCK para no bloquear XADD/GET/XACK de ejecuciones activas.
+    const blockingRedis =
+      typeof (this.redis as any).duplicate === "function"
+        ? ((this.redis as any).duplicate() as Redis)
+        : this.redis;
 
-        // Bloquea por 2 segundos esperando nuevos mensajes
-        const results = (await (this.redis as any).xreadgroup(
-          "GROUP",
-          this.groupName,
-          this.consumerName,
-          "COUNT",
-          1,
-          "BLOCK",
-          2000,
-          "STREAMS",
-          this.streamName,
-          ">"
-        )) as [string, [string, string[]][]][] | null;
-
-        if (results && results.length > 0) {
-          const [, messages] = results[0] as [string, [string, string[]][]];
-          for (const [messageId, fields] of messages) {
-            await this.handleMessage(messageId, fields, executor, recorder);
+    try {
+      while (this.isRunning) {
+        try {
+          if (activeRuns.size >= this.concurrency) {
+            await Promise.race(activeRuns);
+            continue;
           }
+
+          if (this.loops % RECLAIM_EVERY_LOOPS === 0) {
+            await this.reclaimPending(executor, recorder, activeRuns);
+          }
+          this.loops++;
+
+          if (activeRuns.size >= this.concurrency || !this.isRunning) {
+            continue;
+          }
+
+          const availableSlots = Math.max(1, this.concurrency - activeRuns.size);
+
+          // Bloquea por 2 segundos esperando nuevos mensajes según slots libres
+          const results = (await (blockingRedis as any).xreadgroup(
+            "GROUP",
+            this.groupName,
+            this.consumerName,
+            "COUNT",
+            availableSlots,
+            "BLOCK",
+            2000,
+            "STREAMS",
+            this.streamName,
+            ">"
+          )) as [string, [string, string[]][]][] | null;
+
+          if (results && results.length > 0) {
+            const [, messages] = results[0] as [string, [string, string[]][]];
+            for (const [messageId, fields] of messages) {
+              await this.handleMessage(messageId, fields, executor, recorder, activeRuns);
+            }
+          }
+        } catch (err: unknown) {
+          if (!this.isRunning) break;
+          console.error("[StreamConsumer] Error en bucle de streams:", err);
+          await new Promise((r) => setTimeout(r, 1000));
         }
-      } catch (err: unknown) {
-        if (!this.isRunning) break;
-        console.error("[StreamConsumer] Error en bucle de streams:", err);
-        await new Promise((r) => setTimeout(r, 1000));
+      }
+    } finally {
+      if (activeRuns.size > 0) {
+        await Promise.allSettled([...activeRuns]);
+      }
+      await recorder.closeAll();
+      await executor.close();
+      this.secretClient.clearAll();
+      if (blockingRedis !== this.redis && typeof (blockingRedis as any).quit === "function") {
+        await (blockingRedis as any).quit().catch(() => undefined);
       }
     }
-
-    await recorder.closeAll();
-    await executor.close();
-    this.secretClient.clearAll();
   }
 
   stop(): void {
@@ -78,7 +113,8 @@ export class RedisStreamConsumer {
     messageId: string,
     fields: string[],
     executor: RecipeExecutor,
-    recorder: RecorderEngine
+    recorder: RecorderEngine,
+    activeRuns: Set<Promise<void>>
   ): Promise<void> {
     const data: Record<string, string> = {};
     for (let i = 0; i < fields.length; i += 2) {
@@ -104,12 +140,12 @@ export class RedisStreamConsumer {
         `[StreamConsumer] Comando recibido: ${data.command} (id: ${commandId}${extra ? `, ${extra}` : ""})`
       );
 
-      await this.dispatch(data, executor, recorder);
+      await this.dispatch(data, executor, recorder, activeRuns);
       await this.redis.set(dedupeKey, "1", "EX", COMMAND_TTL_SECONDS);
     } catch (err) {
       console.error(`[StreamConsumer] Error procesando comando ${commandId}:`, err);
     } finally {
-      // Confirmar siempre: un comando inválido no debe bloquear el grupo.
+      // Confirmar al aceptar o descartar para no bloquear el grupo ni reclamar ejecuciones largas en curso.
       await this.redis.xack(this.streamName, this.groupName, messageId);
     }
   }
@@ -117,11 +153,12 @@ export class RedisStreamConsumer {
   private async dispatch(
     data: Record<string, string>,
     executor: RecipeExecutor,
-    recorder: RecorderEngine
+    recorder: RecorderEngine,
+    activeRuns: Set<Promise<void>>
   ): Promise<void> {
     switch (data.command) {
       case "run.start":
-        await this.handleRunStart(data, executor);
+        await this.handleRunStart(data, executor, activeRuns);
         break;
       case "run.pause":
         await this.setControl(data.run_id, "pause");
@@ -160,7 +197,11 @@ export class RedisStreamConsumer {
     }
   }
 
-  private async handleRunStart(data: Record<string, string>, executor: RecipeExecutor): Promise<void> {
+  private async handleRunStart(
+    data: Record<string, string>,
+    executor: RecipeExecutor,
+    activeRuns: Set<Promise<void>>
+  ): Promise<void> {
     if (!data.definition || !data.run_id) {
       throw new Error("run.start sin definition o run_id");
     }
@@ -198,6 +239,7 @@ export class RedisStreamConsumer {
     const acquired = await this.redis.set(startedKey, "1", "EX", 3600, "NX");
     if (acquired === null) {
       console.warn(`[StreamConsumer] run.start duplicado ignorado para ${runId}`);
+      this.secretClient.clear(runId);
       return;
     }
 
@@ -205,33 +247,40 @@ export class RedisStreamConsumer {
       this.eventEmitter.registerRunSecrets(runId, secrets);
     }
 
-    try {
-      await executor.execute({
-        runId,
-        recipe,
-        parameters,
-        secrets,
-        options,
-        trigger,
-        recipeId,
-        webhookTriggerUrl,
-        webhookEnabled,
-      });
-    } catch (err) {
-      // Errores fuera del bucle del executor (p. ej. lanzar Chromium).
-      const message = err instanceof Error ? err.message : String(err);
-      await this.eventEmitter.emitRunLog(
-        runId,
-        "error",
-        `La ejecución no pudo iniciarse: ${message}`,
-        undefined,
-        "runner"
-      );
-      await this.eventEmitter.emitRunFinished(runId, "failed", 0, message);
-    } finally {
-      this.eventEmitter.clearRunSecrets(runId);
-      this.secretClient.clear(runId);
-    }
+    const runPromise = (async () => {
+      try {
+        await executor.execute({
+          runId,
+          recipe,
+          parameters,
+          secrets,
+          options,
+          trigger,
+          recipeId,
+          webhookTriggerUrl,
+          webhookEnabled,
+        });
+      } catch (err) {
+        // Errores fuera del bucle del executor (p. ej. lanzar Chromium).
+        const message = err instanceof Error ? err.message : String(err);
+        await this.eventEmitter.emitRunLog(
+          runId,
+          "error",
+          `La ejecución no pudo iniciarse: ${message}`,
+          undefined,
+          "runner"
+        );
+        await this.eventEmitter.emitRunFinished(runId, "failed", 0, message);
+      } finally {
+        this.eventEmitter.clearRunSecrets(runId);
+        this.secretClient.clear(runId);
+      }
+    })();
+
+    activeRuns.add(runPromise);
+    runPromise.finally(() => {
+      activeRuns.delete(runPromise);
+    });
   }
 
   private async setControl(runId: string | undefined, action: string): Promise<void> {
@@ -262,11 +311,17 @@ export class RedisStreamConsumer {
 
   private async reclaimPending(
     executor: RecipeExecutor,
-    recorder: RecorderEngine
+    recorder: RecorderEngine,
+    activeRuns: Set<Promise<void>>
   ): Promise<void> {
     let cursor = "0-0";
 
     do {
+      if (activeRuns.size >= this.concurrency) {
+        return;
+      }
+
+      const count = Math.max(1, this.concurrency - activeRuns.size);
       const result = (await (this.redis as any).xautoclaim(
         this.streamName,
         this.groupName,
@@ -274,7 +329,7 @@ export class RedisStreamConsumer {
         RECLAIM_AFTER_MS,
         cursor,
         "COUNT",
-        10
+        count
       )) as [string, [string, string[]][], string[]?] | null;
 
       if (!result || !Array.isArray(result)) {
@@ -285,9 +340,9 @@ export class RedisStreamConsumer {
       const messages = Array.isArray(result[1]) ? result[1] : [];
 
       for (const [messageId, fields] of messages) {
-        await this.handleMessage(messageId, fields, executor, recorder);
+        await this.handleMessage(messageId, fields, executor, recorder, activeRuns);
       }
-    } while (cursor !== "0-0" && this.isRunning);
+    } while (cursor !== "0-0" && this.isRunning && activeRuns.size < this.concurrency);
   }
 
   private async ensureGroupExists(): Promise<void> {

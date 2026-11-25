@@ -205,7 +205,7 @@ return [
             'maxProcesses' => 1,
             'maxTime' => 0,
             'maxJobs' => 0,
-            'memory' => 128,
+            'memory' => (int) env('HORIZON_WORKER_MEMORY', 96),
             'tries' => 1,
             'timeout' => 60,
             'nice' => 0,
@@ -215,7 +215,7 @@ return [
     'environments' => [
         'production' => [
             'supervisor-1' => [
-                'maxProcesses' => 10,
+                'maxProcesses' => (int) env('HORIZON_MAX_PROCESSES', 2),
                 'balanceMaxShift' => 1,
                 'balanceCooldown' => 3,
             ],

@@ -1,38 +1,42 @@
-import { Redis } from "ioredis";
+import os from "node:os";
 import { RedisEventEmitter } from "./protocol/event-emitter.js";
+import { createRedisClient, maskRedisUrlForLogs } from "./protocol/redis-client.js";
 import { RedisStreamConsumer } from "./protocol/stream-consumer.js";
 import { ensureBucket } from "./storage/s3.js";
 import { LiveServer } from "./live/live-server.js";
 import { ExternalBrowserManager } from "./live/external-browser.js";
 import { ScreencastManager } from "./live/screencast-manager.js";
 
-const REDIS_HOST = process.env.REDIS_HOST || "localhost";
-const REDIS_PORT = Number(process.env.REDIS_PORT || 6379);
-const REDIS_PASSWORD = process.env.REDIS_PASSWORD || "secret_password";
+const concurrency = Math.max(
+  1,
+  Math.min(20, Math.floor(Number(process.env.RUNNER_CONCURRENCY) || 2))
+);
+const idleBrowserCloseMs = Math.max(
+  0,
+  Number(process.env.RUNNER_LIVE_IDLE_CLOSE_MS ?? 60_000)
+);
 
-console.log("[RPA-Runner] Iniciando servicio de automatización Playwright...");
-console.log(`[RPA-Runner] Conectando a Redis en ${REDIS_HOST}:${REDIS_PORT}...`);
+console.log(
+  `[RPA-Runner] Iniciando servicio Playwright (concurrencia: ${concurrency})...`
+);
+console.log(`[RPA-Runner] Conectando a Redis en ${maskRedisUrlForLogs(process.env)}...`);
 
-const redis = new Redis({
-  host: REDIS_HOST,
-  port: REDIS_PORT,
-  password: REDIS_PASSWORD,
-  retryStrategy(times: number) {
-    const delay = Math.min(times * 500, 2000);
-    return delay;
-  },
-});
+const redis = createRedisClient(process.env);
+const consumerName = `runner-${os.hostname()}-${process.pid}-${Math.random().toString(36).slice(2, 6)}`;
 
 const eventEmitter = new RedisEventEmitter(redis, process.env.EVENT_STREAM || "rpa:evt");
 const streamConsumer = new RedisStreamConsumer(
   redis,
   eventEmitter,
   process.env.COMMAND_STREAM || "rpa:cmd",
-  "rpa:runners"
+  "rpa:runners",
+  consumerName,
+  undefined,
+  concurrency
 );
 
 const externalBrowser = new ExternalBrowserManager(eventEmitter);
-const screencastManager = new ScreencastManager();
+const screencastManager = new ScreencastManager({ idleBrowserCloseMs });
 const liveServer = new LiveServer(
   Number(process.env.RUNNER_LIVE_PORT || 8085),
   process.env.RUNNER_LIVE_TOKEN || "local-live-token",
@@ -41,9 +45,16 @@ const liveServer = new LiveServer(
 );
 liveServer.start();
 
+let started = false;
+let heartbeatTimer: NodeJS.Timeout | null = null;
 
 redis.on("connect", () => {
   console.log("[RPA-Runner] Conexión establecida con Redis.");
+  if (started) {
+    return;
+  }
+  started = true;
+
   ensureBucket().catch((err) => {
     console.warn("[RPA-Runner] Aviso inicializando bucket S3:", err.message);
   });
@@ -58,19 +69,24 @@ redis.on("error", (err: Error) => {
 });
 
 function registerHeartbeat(): void {
-  const runnerId = `runner-${process.pid}-${Math.random().toString(36).slice(2, 7)}`;
-  setInterval(async () => {
+  const runnerId = consumerName;
+  heartbeatTimer = setInterval(async () => {
     try {
       await redis.set(`rpa:runner:${runnerId}:heartbeat`, Date.now().toString(), "EX", 15);
     } catch {
       // Ignorar fallos transitorios en heartbeat
     }
   }, 5000);
+  heartbeatTimer.unref();
   console.log(`[RPA-Runner] Heartbeat registrado como ${runnerId}`);
 }
 
 process.on("SIGTERM", async () => {
   console.log("[RPA-Runner] Señal SIGTERM recibida, cerrando limpiamente...");
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
   streamConsumer.stop();
   await screencastManager.closeAll();
   await externalBrowser.closeAll();

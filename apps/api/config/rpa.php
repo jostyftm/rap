@@ -21,6 +21,7 @@ return [
     'runner' => [
         'command_stream' => 'rpa:cmd',
         'event_stream' => 'rpa:evt',
+        'stream_maxlen' => (int) env('REDIS_STREAM_MAXLEN', 20000),
     ],
 
     /*

@@ -29,6 +29,30 @@ compose() {
     PROD_ENV_FILE="$ENV_FILE" docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"
 }
 
+read_env_var() {
+    local key="$1"
+    local file="${2:-$ENV_FILE}"
+    if [ ! -f "$file" ]; then
+        return 0
+    fi
+    local line
+    line="$(grep -E "^${key}=" "$file" | tail -n 1 || true)"
+    line="${line#*=}"
+    line="${line%\"}"
+    line="${line#\"}"
+    printf '%s' "$line"
+}
+
+ensure_external_network() {
+    local ext_net
+    ext_net="$(read_env_var EXTERNAL_DOCKER_NETWORK)"
+    ext_net="${ext_net:-dokploy-network}"
+    if ! docker network inspect "$ext_net" >/dev/null 2>&1; then
+        echo -e "${C_BLUE}→ Creando red externa Docker '$ext_net' (no existía localmente)...${C_RESET}"
+        docker network create "$ext_net" >/dev/null
+    fi
+}
+
 rand_hex() {
     local bytes=${1:-24}
     if command -v openssl >/dev/null 2>&1; then
@@ -315,16 +339,38 @@ cmd_build() {
 cmd_up() {
     print_header
     validate_env
+    ensure_external_network
 
-    echo -e "${C_BOLD}1. Iniciando servicios de datos (pgsql, redis, rustfs)...${C_RESET}"
-    compose up -d pgsql redis rustfs
-    wait_for_pgsql
+    local db_url redis_url profiles profile_args=() data_services=(rustfs)
+    db_url="$(read_env_var DB_URL)"
+    redis_url="$(read_env_var REDIS_URL)"
+    profiles="$(read_env_var COMPOSE_PROFILES)"
+
+    if [ -z "$db_url" ] || [[ ",${profiles}," == *",local-db,"* ]]; then
+        profile_args+=(--profile local-db)
+        data_services+=(pgsql)
+    fi
+    if [ -z "$redis_url" ] || [[ ",${profiles}," == *",local-redis,"* ]]; then
+        profile_args+=(--profile local-redis)
+        data_services+=(redis)
+    fi
+
+    echo -e "${C_BOLD}1. Iniciando servicios de datos (${data_services[*]})...${C_RESET}"
+    compose "${profile_args[@]}" up -d "${data_services[@]}"
+    if [[ " ${data_services[*]} " == *" pgsql "* ]]; then
+        wait_for_pgsql
+    else
+        echo -e "${C_CYAN}→ Usando PostgreSQL externo por DB_URL.${C_RESET}"
+    fi
+    if [ -n "$redis_url" ]; then
+        echo -e "${C_CYAN}→ Usando Redis externo por REDIS_URL.${C_RESET}"
+    fi
 
     echo -e "\n${C_BOLD}2. Ejecutando migraciones de Laravel (--force)...${C_RESET}"
     compose run --rm api php artisan migrate --force
 
     echo -e "\n${C_BOLD}3. Levantando stack completo de producción...${C_RESET}"
-    compose up -d --remove-orphans
+    compose "${profile_args[@]}" up -d --remove-orphans
 
     echo ""
     cmd_status
@@ -333,19 +379,38 @@ cmd_up() {
 cmd_deploy() {
     print_header
     validate_env
+    ensure_external_network
+
+    local db_url redis_url profiles profile_args=() data_services=(rustfs)
+    db_url="$(read_env_var DB_URL)"
+    redis_url="$(read_env_var REDIS_URL)"
+    profiles="$(read_env_var COMPOSE_PROFILES)"
+
+    if [ -z "$db_url" ] || [[ ",${profiles}," == *",local-db,"* ]]; then
+        profile_args+=(--profile local-db)
+        data_services+=(pgsql)
+    fi
+    if [ -z "$redis_url" ] || [[ ",${profiles}," == *",local-redis,"* ]]; then
+        profile_args+=(--profile local-redis)
+        data_services+=(redis)
+    fi
 
     echo -e "${C_BOLD}1. Compilando imágenes de producción...${C_RESET}"
     compose build
 
-    echo -e "\n${C_BOLD}2. Asegurando servicios de datos...${C_RESET}"
-    compose up -d pgsql redis rustfs
-    wait_for_pgsql
+    echo -e "\n${C_BOLD}2. Asegurando servicios de datos (${data_services[*]})...${C_RESET}"
+    compose "${profile_args[@]}" up -d "${data_services[@]}"
+    if [[ " ${data_services[*]} " == *" pgsql "* ]]; then
+        wait_for_pgsql
+    else
+        echo -e "${C_CYAN}→ Usando PostgreSQL externo por DB_URL.${C_RESET}"
+    fi
 
     echo -e "\n${C_BOLD}3. Ejecutando migraciones de Laravel (--force)...${C_RESET}"
     compose run --rm api php artisan migrate --force
 
     echo -e "\n${C_BOLD}4. Actualizando servicios de producción...${C_RESET}"
-    compose up -d --remove-orphans
+    compose "${profile_args[@]}" up -d --remove-orphans
 
     echo ""
     cmd_status

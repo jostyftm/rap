@@ -32,6 +32,7 @@ interface ScreencastSession {
 }
 
 const DEFAULT_SESSION_TTL_MS = 30 * 60 * 1000;
+const DEFAULT_IDLE_BROWSER_CLOSE_MS = 60 * 1000;
 const DEFAULT_JPEG_QUALITY = 80;
 const MAX_WS_BUFFERED_BYTES = 1024 * 1024;
 const ACK_FALLBACK_TIMEOUT_MS = 300;
@@ -63,18 +64,48 @@ function normalizeHttpUrl(rawUrl: string): string {
 export class ScreencastManager {
   private browser: Browser | null = null;
   private browserPromise: Promise<Browser> | null = null;
+  private idleBrowserTimer: NodeJS.Timeout | null = null;
   private sessions = new Map<string, ScreencastSession>();
   private sweepTimer: NodeJS.Timeout;
   private readonly sessionTtlMs: number;
+  private readonly idleBrowserCloseMs: number;
   private readonly jpegQuality: number;
 
-  constructor(opts?: { sessionTtlMs?: number; jpegQuality?: number }) {
+  constructor(opts?: { sessionTtlMs?: number; idleBrowserCloseMs?: number; jpegQuality?: number }) {
     this.sessionTtlMs = opts?.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS;
+    this.idleBrowserCloseMs = Math.max(
+      0,
+      opts?.idleBrowserCloseMs ?? DEFAULT_IDLE_BROWSER_CLOSE_MS
+    );
     this.jpegQuality = opts?.jpegQuality ?? DEFAULT_JPEG_QUALITY;
     this.sweepTimer = setInterval(() => {
       void this.sweep();
     }, 60 * 1000);
     this.sweepTimer.unref();
+  }
+
+  private clearIdleBrowserTimer(): void {
+    if (this.idleBrowserTimer) {
+      clearTimeout(this.idleBrowserTimer);
+      this.idleBrowserTimer = null;
+    }
+  }
+
+  private scheduleIdleBrowserClose(): void {
+    if (this.idleBrowserCloseMs <= 0 || this.sessions.size > 0 || !this.browser) {
+      return;
+    }
+
+    this.clearIdleBrowserTimer();
+    this.idleBrowserTimer = setTimeout(() => {
+      this.idleBrowserTimer = null;
+      if (this.sessions.size === 0 && this.browser) {
+        const oldBrowser = this.browser;
+        this.browser = null;
+        void oldBrowser.close().catch(() => undefined);
+      }
+    }, this.idleBrowserCloseMs);
+    this.idleBrowserTimer.unref();
   }
 
   private async ensureBrowser(): Promise<Browser> {
@@ -116,6 +147,7 @@ export class ScreencastManager {
     width?: number;
     height?: number;
   }): Promise<ScreencastStartResult> {
+    this.clearIdleBrowserTimer();
     const targetUrl = normalizeHttpUrl(opts.url);
     const viewport = clampViewport(opts.width, opts.height);
     const browser = await this.ensureBrowser();
@@ -553,13 +585,19 @@ export class ScreencastManager {
     }
     await session.cdp.detach().catch(() => undefined);
     await session.context.close().catch(() => undefined);
+
+    if (this.sessions.size === 0) {
+      this.scheduleIdleBrowserClose();
+    }
   }
 
   async closeAll(): Promise<void> {
     clearInterval(this.sweepTimer);
+    this.clearIdleBrowserTimer();
     for (const id of [...this.sessions.keys()]) {
       await this.stop(id);
     }
+    this.clearIdleBrowserTimer();
     if (this.browser) {
       await this.browser.close().catch(() => undefined);
       this.browser = null;

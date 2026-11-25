@@ -268,4 +268,23 @@ describe("ScreencastManager + LiveServer WebSocket Bridge", () => {
     expect(delRes.status).toBe(200);
     await closedPromise;
   }, 25000);
+
+  it("cierra el navegador Chromium del screencast tras idleBrowserCloseMs al detener todas las sesiones", async () => {
+    const localManager = new ScreencastManager({ idleBrowserCloseMs: 80 });
+    try {
+      const created = await localManager.start({
+        sessionId: "sc_idle_close_test",
+        recipeId: "rec_idle",
+        url: `http://127.0.0.1:${sitePort}/`,
+      });
+      expect((localManager as any).browser).not.toBeNull();
+
+      await localManager.stop(created.sessionId);
+      await new Promise((r) => setTimeout(r, 250));
+
+      expect((localManager as any).browser).toBeNull();
+    } finally {
+      await localManager.closeAll();
+    }
+  }, 20000);
 });

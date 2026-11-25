@@ -13,9 +13,12 @@ final class RunnerDispatcher
 {
     private string $commandStream;
 
+    private int $streamMaxLen;
+
     public function __construct()
     {
         $this->commandStream = (string) config('rpa.runner.command_stream', 'rpa:cmd');
+        $this->streamMaxLen = max(1000, (int) config('rpa.runner.stream_maxlen', 20000));
     }
 
     public function dispatchRun(Run $run, array $options = []): string
@@ -49,7 +52,7 @@ final class RunnerDispatcher
             'timestamp' => (string) now()->timestamp,
         ];
 
-        $args = ['XADD', $this->commandStream, '*'];
+        $args = ['XADD', $this->commandStream, 'MAXLEN', '~', (string) $this->streamMaxLen, '*'];
         foreach ($payload as $key => $val) {
             $args[] = (string) $key;
             $args[] = (string) $val;

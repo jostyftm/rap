@@ -2,6 +2,8 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    mem_limit: "${CADDY_MEM_LIMIT:-64m}"
+    cpus: "0.5"
     ports:
       - "${CADDY_HTTP_PORT:-80}:80"
       - "${CADDY_HTTPS_PORT:-443}:443"
@@ -35,12 +37,15 @@ services:
         NEXT_PUBLIC_S3_URL: "${NEXT_PUBLIC_S3_URL:-}"
     image: rpa-studio/web:prod
     restart: unless-stopped
+    mem_limit: "${WEB_MEM_LIMIT:-256m}"
+    cpus: "1.0"
     environment:
       NODE_ENV: production
       HOSTNAME: 0.0.0.0
       PORT: 3000
       API_INTERNAL_URL: http://api:8000
       NEXT_TELEMETRY_DISABLED: "1"
+      NODE_OPTIONS: "--max-old-space-size=${WEB_NODE_MAX_OLD_SPACE_MB:-256}"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:3000/ >/dev/null || exit 1"]
       interval: 10s
@@ -59,6 +64,8 @@ services:
       dockerfile: docker/api/Dockerfile
     image: rpa-studio/api:prod
     restart: unless-stopped
+    mem_limit: "${API_MEM_LIMIT:-256m}"
+    cpus: "1.5"
     env_file:
       - "${PROD_ENV_FILE:-.env.prod}"
     volumes:
@@ -70,34 +77,36 @@ services:
       retries: 6
       start_period: 15s
     depends_on:
-      pgsql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
       rustfs:
         condition: service_healthy
     networks:
       - rpa-prod-edge
       - rpa-prod-internal
+      - dokploy-network
 
   reverb:
     image: rpa-studio/api:prod
     restart: unless-stopped
+    mem_limit: "${REVERB_MEM_LIMIT:-96m}"
+    cpus: "0.5"
     command: ["php", "artisan", "reverb:start", "--host=0.0.0.0", "--port=8080"]
     env_file:
       - "${PROD_ENV_FILE:-.env.prod}"
     depends_on:
-      redis:
-        condition: service_healthy
       api:
         condition: service_healthy
     networks:
       - rpa-prod-edge
       - rpa-prod-internal
+      - dokploy-network
 
   worker:
     image: rpa-studio/api:prod
+    profiles:
+      - worker
     restart: unless-stopped
+    mem_limit: "${WORKER_MEM_LIMIT:-128m}"
+    cpus: "0.5"
     command: ["php", "artisan", "horizon"]
     stop_grace_period: 60s
     env_file:
@@ -105,49 +114,44 @@ services:
     volumes:
       - "rpa-prod-api-storage:/var/www/html/storage"
     depends_on:
-      pgsql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
       api:
         condition: service_healthy
     networks:
       - rpa-prod-edge
       - rpa-prod-internal
+      - dokploy-network
 
   events:
     image: rpa-studio/api:prod
     restart: unless-stopped
+    mem_limit: "${EVENTS_MEM_LIMIT:-96m}"
+    cpus: "0.5"
     command: ["php", "artisan", "rpa:listen-events"]
     env_file:
       - "${PROD_ENV_FILE:-.env.prod}"
     depends_on:
-      pgsql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
       api:
         condition: service_healthy
     networks:
       - rpa-prod-edge
       - rpa-prod-internal
+      - dokploy-network
 
   scheduler:
     image: rpa-studio/api:prod
     restart: unless-stopped
+    mem_limit: "${SCHEDULER_MEM_LIMIT:-64m}"
+    cpus: "0.25"
     command: ["php", "artisan", "schedule:work"]
     env_file:
       - "${PROD_ENV_FILE:-.env.prod}"
     depends_on:
-      pgsql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
       api:
         condition: service_healthy
     networks:
       - rpa-prod-edge
       - rpa-prod-internal
+      - dokploy-network
 
   runner:
     build:
@@ -156,13 +160,24 @@ services:
     image: rpa-studio/runner:prod
     restart: unless-stopped
     init: true
-    shm_size: "1gb"
+    mem_limit: "${RUNNER_MEM_LIMIT:-1800m}"
+    cpus: "${RUNNER_CPUS:-4.0}"
+    oom_score_adj: 500
+    shm_size: "${RUNNER_SHM_SIZE:-128mb}"
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
     env_file:
       - "${PROD_ENV_FILE:-.env.prod}"
+    environment:
+      NODE_OPTIONS: "--max-old-space-size=${RUNNER_NODE_MAX_OLD_SPACE_MB:-384} --max-http-header-size=262144"
+      RUNNER_CONCURRENCY: "${RUNNER_CONCURRENCY:-3}"
+      RUNNER_AUTO_SCREENSHOTS: "${RUNNER_AUTO_SCREENSHOTS:-false}"
+      RUNNER_TRACING: "${RUNNER_TRACING:-on_error}"
+      RUNNER_BROWSER_CONSOLE_LOGS: "${RUNNER_BROWSER_CONSOLE_LOGS:-errors}"
+      RUNNER_BROWSER_RECYCLE_RUNS: "${RUNNER_BROWSER_RECYCLE_RUNS:-40}"
+      RUNNER_LIVE_IDLE_CLOSE_MS: "${RUNNER_LIVE_IDLE_CLOSE_MS:-60000}"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8085/health >/dev/null || exit 1"]
       interval: 10s
@@ -170,8 +185,6 @@ services:
       retries: 5
       start_period: 15s
     depends_on:
-      redis:
-        condition: service_healthy
       rustfs:
         condition: service_healthy
       api:
@@ -179,10 +192,23 @@ services:
     networks:
       - rpa-prod-edge
       - rpa-prod-internal
+      - dokploy-network
 
   pgsql:
     image: postgres:16-alpine
+    profiles:
+      - local-db
     restart: unless-stopped
+    mem_limit: "${PGSQL_MEM_LIMIT:-384m}"
+    cpus: "1.5"
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=96MB"
+      - "-c"
+      - "work_mem=4MB"
+      - "-c"
+      - "max_connections=50"
     env_file:
       - "${PROD_ENV_FILE:-.env.prod}"
     volumes:
@@ -197,8 +223,17 @@ services:
 
   redis:
     image: redis:7-alpine
+    profiles:
+      - local-redis
     restart: unless-stopped
-    command: ["sh", "-c", "exec redis-server --requirepass \"$REDIS_PASSWORD\" --appendonly yes"]
+    mem_limit: "${REDIS_MEM_LIMIT:-160m}"
+    cpus: "0.5"
+    command:
+      [
+        "sh",
+        "-c",
+        "exec redis-server --requirepass \"$REDIS_PASSWORD\" --appendonly yes --maxmemory 128mb --maxmemory-policy noeviction",
+      ]
     env_file:
       - "${PROD_ENV_FILE:-.env.prod}"
     volumes:
@@ -214,6 +249,8 @@ services:
   rustfs:
     image: rustfs/rustfs:latest
     restart: unless-stopped
+    mem_limit: "${RUSTFS_MEM_LIMIT:-160m}"
+    cpus: "0.5"
     env_file:
       - "${PROD_ENV_FILE:-.env.prod}"
     volumes:
@@ -236,6 +273,9 @@ networks:
   rpa-prod-internal:
     driver: bridge
     internal: true
+  dokploy-network:
+    name: "${EXTERNAL_DOCKER_NETWORK:-dokploy-network}"
+    external: true
 
 volumes:
   rpa-prod-pgsql-data:

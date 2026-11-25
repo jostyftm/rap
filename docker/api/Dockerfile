@@ -47,6 +47,7 @@ RUN composer dump-autoload --optimize --no-dev \
     && chown -R www-data:www-data storage bootstrap/cache
 
 COPY docker/api/php-prod.ini /usr/local/etc/php/conf.d/zz-rpa-prod.ini
+COPY docker/api/zz-fpm-prod.conf /usr/local/etc/php-fpm.d/zz-rpa-prod.conf
 COPY docker/api/nginx.conf /etc/nginx/http.d/default.conf
 COPY docker/api/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
