@@ -37,8 +37,11 @@ export async function captureAndUploadScreenshot(
   let screenshotBuffer: Buffer;
 
   if (opts.locator?.primary?.value) {
-    resolvedLocator = await resolveLocator(page, opts.locator, opts.timeout ?? 5000);
-    screenshotBuffer = await resolvedLocator.locator.screenshot();
+    resolvedLocator = await resolveLocator(page, opts.locator, opts.timeout ?? 10000);
+    const hasTimeout = typeof opts.timeout === "number" && opts.timeout > 0;
+    screenshotBuffer = hasTimeout
+      ? await resolvedLocator.locator.screenshot({ timeout: opts.timeout })
+      : await resolvedLocator.locator.screenshot();
   } else {
     screenshotBuffer = await page.screenshot({
       fullPage: opts.fullPage ?? false,

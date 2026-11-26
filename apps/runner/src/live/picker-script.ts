@@ -313,10 +313,17 @@ export const PICKER_JS = String.raw`
         return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: true, strategy: 'networkIdle', output: 'Red inactiva' };
       }
 
+      var waitTimeoutMs = Math.min(
+        strat === 'selector' && Number(val) > 0
+          ? Number(val)
+          : (Number(cmd.timeout) > 0 ? Number(cmd.timeout) : 5000),
+        120000
+      );
+
       if (strat === 'url') {
         var targetUrl = String(val || '').toLowerCase();
         var uStart = Date.now();
-        while (Date.now() - uStart < 5000) {
+        while (Date.now() - uStart < waitTimeoutMs) {
           if (!targetUrl || realUrl().toLowerCase().indexOf(targetUrl) !== -1) {
             return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: true, strategy: 'url', output: realUrl() };
           }
@@ -334,7 +341,7 @@ export const PICKER_JS = String.raw`
           return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: true, strategy: 'text', output: 'Texto vacío' };
         }
         var tStart = Date.now();
-        while (Date.now() - tStart < 5000) {
+        while (Date.now() - tStart < waitTimeoutMs) {
           var textEl = deepestWithText(needle);
           if (textEl && isVisible(textEl)) {
             textEl.scrollIntoView({ block: 'center', inline: 'center' });
@@ -349,7 +356,7 @@ export const PICKER_JS = String.raw`
 
       // strat === 'selector' o fallback
       var sStart = Date.now();
-      while (Date.now() - sStart < 5000) {
+      while (Date.now() - sStart < waitTimeoutMs) {
         var foundEl = null;
         var foundStrat = 'selector';
         if (cmd.locator) {
@@ -359,15 +366,15 @@ export const PICKER_JS = String.raw`
             foundStrat = g.strategy;
           }
         }
-        if (!foundEl && val) {
+        if (!foundEl && val && typeof val === 'string') {
           try {
             var raw = String(val).trim();
-            var elCand = (raw.indexOf('//') === 0 || raw.indexOf('(') === 0)
+            var elCand = (raw.indexOf('/') === 0 || raw.indexOf('(') === 0)
               ? document.evaluate(raw, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue
               : document.querySelector(raw);
             if (elCand && isVisible(elCand)) {
               foundEl = elCand;
-              foundStrat = raw.indexOf('//') === 0 ? 'xpath' : 'css';
+              foundStrat = raw.indexOf('/') === 0 ? 'xpath' : 'css';
             }
           } catch (e) {}
         }
@@ -379,7 +386,7 @@ export const PICKER_JS = String.raw`
         }
         await new Promise(function (r) { setTimeout(r, 200); });
       }
-      return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: false, error: 'Elemento no encontrado tras esperar 5s' };
+      return { reqId: cmd.reqId, nodeId: cmd.nodeId, action: cmd.action, ok: false, error: 'Elemento no encontrado tras esperar ' + Math.round(waitTimeoutMs / 1000) + 's' };
     }
 
     // Acciones que no requieren un localizador obligatorio
@@ -404,7 +411,7 @@ export const PICKER_JS = String.raw`
     }
 
     // Auto-espera activa (polling) hasta que el elemento aparezca y sea visible en el DOM
-    var timeoutMs = Math.min((cmd.timeout && Number(cmd.timeout)) || 3500, 10000);
+    var timeoutMs = Math.min((cmd.timeout && Number(cmd.timeout)) || 3500, 120000);
     var startTime = Date.now();
     var found = null;
     while (Date.now() - startTime < timeoutMs) {

@@ -213,6 +213,42 @@ describe("Playwright Exporter", () => {
     expect(code).toContain("if (((variables?.payload) == null)) {");
   });
 
+  it("exporta waitFor selector usando params.value como timeout y prefijando xpath= en resolveLocator", () => {
+    const recipe: RecipeDsl = {
+      schema: "rpa/v1",
+      name: "WaitFor Selector Timeout",
+      entry: "wait_logo",
+      nodes: {
+        wait_logo: {
+          id: "wait_logo",
+          type: "waitFor",
+          description: "Esperar logo",
+          locator: {
+            primary: { strategy: "css", value: "app-login img", score: 50 },
+            fallbacks: [
+              {
+                strategy: "xpath",
+                value: "/html[1]/body[1]/app-root[1]/app-login[1]/div[1]/img[1]",
+                score: 5,
+              },
+            ],
+          },
+          params: {
+            strategy: "selector",
+            value: 20000,
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const code = exportToPlaywright(recipe);
+    expect(code).toContain("resolveLocator(page,");
+    expect(code).toContain("20000");
+    expect(code).toContain("xpath=${raw}");
+    expect(code).not.toContain("Math.min(timeoutMs, 2500)");
+  });
+
   it("exporta nodos de scroll por elemento y por coordenadas", () => {    const recipe: RecipeDsl = {
       schema: "rpa/v1",
       name: "Flujo de Scroll",

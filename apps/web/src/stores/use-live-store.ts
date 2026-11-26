@@ -416,6 +416,20 @@ export const useLiveStore = create<LiveState>((set, get) => ({
     });
 
     const reqId = `${node.id}-${Date.now()}`;
+    const rawWaitVal =
+      n.type === "waitFor" && n.params?.strategy === "selector" ? n.params?.value : undefined;
+    const waitSelectorTimeout =
+      typeof rawWaitVal === "number" && Number.isFinite(rawWaitVal) && rawWaitVal > 0
+        ? rawWaitVal
+        : typeof rawWaitVal === "string" && /^\d+$/.test(rawWaitVal.trim()) && Number(rawWaitVal.trim()) > 0
+          ? Number(rawWaitVal.trim())
+          : undefined;
+    const effectiveNodeTimeout =
+      waitSelectorTimeout ||
+      (typeof n.timeout === "number" && n.timeout > 0 ? n.timeout : undefined) ||
+      (typeof n.params?.timeout === "number" && n.params.timeout > 0 ? n.params.timeout : undefined) ||
+      5000;
+    const effectiveRpcTimeout = Math.max(timeoutMs, effectiveNodeTimeout + 3000);
 
     return new Promise<LiveExecResult>((resolve) => {
       let resolved = false;
@@ -427,13 +441,13 @@ export const useLiveStore = create<LiveState>((set, get) => ({
         const timeoutRes: LiveExecResult = {
           nodeId: node.id,
           ok: false,
-          error: `Tiempo de espera agotado (${Math.round(timeoutMs / 1000)}s) esperando respuesta del navegador`,
+          error: `Tiempo de espera agotado (${Math.round(effectiveRpcTimeout / 1000)}s) esperando respuesta del navegador`,
         };
         set((s) => ({
           execResults: { ...s.execResults, [node.id]: timeoutRes },
         }));
         resolve(timeoutRes);
-      }, timeoutMs);
+      }, effectiveRpcTimeout);
 
       const handler = (res: LiveExecResult) => {
         if (resolved) return;
@@ -452,7 +466,7 @@ export const useLiveStore = create<LiveState>((set, get) => ({
         action: node.type,
         locator: n.locator,
         params: n.params,
-        timeout: Math.min(n.timeout || (n.params as any)?.timeout || 3500, Math.max(1000, timeoutMs - 1000)),
+        timeout: effectiveNodeTimeout,
       });
     });
   },

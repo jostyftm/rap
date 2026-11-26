@@ -13,15 +13,26 @@ export const typeHandler: NodeActionHandler<TypeNode> = {
     });
 
     const resolvedLocator = await resolveLocator(page, node.locator, node.timeout);
+    const hasTimeout = typeof node.timeout === "number" && node.timeout > 0;
+
     if (node.params.clear !== false) {
-      await resolvedLocator.locator.fill(textToType);
+      if (hasTimeout) {
+        await resolvedLocator.locator.fill(textToType, { timeout: node.timeout });
+      } else {
+        await resolvedLocator.locator.fill(textToType);
+      }
     } else {
       await resolvedLocator.locator.pressSequentially(textToType, {
         delay: node.params.delay ?? 20,
+        ...(hasTimeout ? { timeout: node.timeout } : {}),
       });
     }
     if (node.params.pressEnter) {
-      await resolvedLocator.locator.press("Enter");
+      if (hasTimeout) {
+        await resolvedLocator.locator.press("Enter", { timeout: node.timeout });
+      } else {
+        await resolvedLocator.locator.press("Enter");
+      }
     }
     return { success: true, resolvedLocator, nextNodeId: node.next };
   },

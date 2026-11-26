@@ -9,6 +9,7 @@ import type {
   WebhookNode,
   RecipeNode,
   TypeNode,
+  WaitForNode,
 } from "@rpa/dsl";
 import {
   executeNodeAction,
@@ -489,6 +490,62 @@ describe("Action Handlers & Strategy Registry", () => {
       expect(result.success).toBe(true);
       expect(mockPage._mockLocator.fill).toHaveBeenCalledWith("usuario_normal");
       expect(mockPage._mockLocator.press).not.toHaveBeenCalled();
+    });
+
+    it("waitForHandler en estrategia selector usa params.value como timeout y prefija xpath=", async () => {
+      const ctx = createMockContext();
+      const mockPage = createMockPage();
+      const node: WaitForNode = {
+        id: "wait_sel_1",
+        type: "waitFor",
+        description: "Esperar logo",
+        locator: {
+          primary: {
+            strategy: "xpath",
+            value: "/html[1]/body[1]/app-root[1]/app-login[1]/div[1]/img[1]",
+            score: 5,
+          },
+          fallbacks: [],
+        },
+        params: {
+          strategy: "selector",
+          value: 20000,
+        },
+      };
+
+      const result = await executeNodeAction(mockPage, node, ctx);
+      expect(result.success).toBe(true);
+      expect(mockPage.locator).toHaveBeenCalledWith(
+        "xpath=/html[1]/body[1]/app-root[1]/app-login[1]/div[1]/img[1]"
+      );
+      const waitArg = mockPage._mockLocator.waitFor.mock.calls[0][0];
+      expect(waitArg.state).toBe("visible");
+      expect(waitArg.timeout).toBeGreaterThan(19000);
+      expect(waitArg.timeout).toBeLessThanOrEqual(20000);
+    });
+
+    it("waitForHandler en estrategia selector usa node.timeout si params.value se omite", async () => {
+      const ctx = createMockContext();
+      const mockPage = createMockPage();
+      const node: WaitForNode = {
+        id: "wait_sel_2",
+        type: "waitFor",
+        description: "Esperar botón",
+        timeout: 15000,
+        locator: {
+          primary: { strategy: "css", value: "#submit-btn", score: 80 },
+          fallbacks: [],
+        },
+        params: {
+          strategy: "selector",
+        },
+      };
+
+      const result = await executeNodeAction(mockPage, node, ctx);
+      expect(result.success).toBe(true);
+      const waitArg = mockPage._mockLocator.waitFor.mock.calls[0][0];
+      expect(waitArg.timeout).toBeGreaterThan(14000);
+      expect(waitArg.timeout).toBeLessThanOrEqual(15000);
     });
   });
 });

@@ -12,7 +12,12 @@ export const selectHandler: NodeActionHandler<SelectNode> = {
     const val = interpolateString(node.params.value, ctx.variables, ctx.secrets, {
       onMissingTokens: createMissingTokenReporter(node.id, node.type, ctx),
     });
-    await resolvedLocator.locator.selectOption(val);
+    const hasTimeout = typeof node.timeout === "number" && node.timeout > 0;
+    if (hasTimeout) {
+      await resolvedLocator.locator.selectOption(val, { timeout: node.timeout });
+    } else {
+      await resolvedLocator.locator.selectOption(val);
+    }
     return { success: true, resolvedLocator, nextNodeId: node.next };
   },
 };

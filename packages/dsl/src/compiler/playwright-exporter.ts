@@ -162,42 +162,52 @@ export function exportToPlaywright(recipe: RecipeDsl, options: PlaywrightExportO
   lines.push("async function resolveLocator(");
   lines.push("  page: Page,");
   lines.push("  candidates: Array<{ strategy: string; value: string }>,");
-  lines.push("  timeoutMs = 5000");
+  lines.push("  timeoutMs = 10000");
   lines.push("): Promise<Locator> {");
-  lines.push("  for (const candidate of candidates) {");
-  lines.push("    try {");
-  lines.push("      let loc: Locator;");
-  lines.push("      switch (candidate.strategy) {");
-  lines.push("        case 'testid':");
-  lines.push("          loc = page.getByTestId(candidate.value);");
-  lines.push("          break;");
-  lines.push("        case 'text':");
-  lines.push("          loc = page.getByText(candidate.value, { exact: false });");
-  lines.push("          break;");
-  lines.push("        case 'label':");
-  lines.push("          loc = page.getByLabel(candidate.value);");
-  lines.push("          break;");
-  lines.push("        case 'role': {");
-  lines.push("          const match = candidate.value.match(/^([a-z]+)(\\[name=['\"](.*)['\"]\\])?$/i);");
-  lines.push("          loc = match && match[3]");
-  lines.push("            ? page.getByRole(match[1] as any, { name: match[3] })");
-  lines.push("            : page.getByRole((match ? match[1] : candidate.value) as any);");
-  lines.push("          break;");
-  lines.push("        }");
-  lines.push("        case 'css':");
-  lines.push("        case 'xpath':");
-  lines.push("        default:");
-  lines.push("          loc = page.locator(candidate.value);");
-  lines.push("          break;");
+  lines.push("  const buildLoc = (candidate: { strategy: string; value: string }): Locator => {");
+  lines.push("    switch (candidate.strategy) {");
+  lines.push("      case 'testid':");
+  lines.push("        return page.getByTestId(candidate.value);");
+  lines.push("      case 'text':");
+  lines.push("        return page.getByText(candidate.value, { exact: false });");
+  lines.push("      case 'label':");
+  lines.push("        return page.getByLabel(candidate.value);");
+  lines.push("      case 'role': {");
+  lines.push("        const match = candidate.value.match(/^([a-z]+)(\\[name=['\"](.*)['\"]\\])?$/i);");
+  lines.push("        return match && match[3]");
+  lines.push("          ? page.getByRole(match[1] as any, { name: match[3] })");
+  lines.push("          : page.getByRole((match ? match[1] : candidate.value) as any);");
   lines.push("      }");
-  lines.push("      await loc.first().waitFor({ state: 'visible', timeout: Math.min(timeoutMs, 2500) });");
-  lines.push("      return loc.first();");
-  lines.push("    } catch {");
-  lines.push("      // Probar siguiente fallback");
+  lines.push("      case 'xpath': {");
+  lines.push("        const raw = candidate.value.trim();");
+  lines.push("        return page.locator(raw.startsWith('xpath=') ? raw : `xpath=${raw}`);");
+  lines.push("      }");
+  lines.push("      case 'css':");
+  lines.push("      default:");
+  lines.push("        return page.locator(candidate.value);");
+  lines.push("    }");
+  lines.push("  };");
+  lines.push("  const deadline = Date.now() + (timeoutMs > 0 ? timeoutMs : 10000);");
+  lines.push("  const nonRetryable = new Set<number>();");
+  lines.push("  while (Date.now() < deadline) {");
+  lines.push("    const viable = candidates.map((c, idx) => ({ c, idx })).filter((x) => !nonRetryable.has(x.idx));");
+  lines.push("    if (viable.length === 0) break;");
+  lines.push("    for (const { c, idx } of viable) {");
+  lines.push("      const leftMs = deadline - Date.now();");
+  lines.push("      if (leftMs <= 0) break;");
+  lines.push("      const sliceMs = viable.length === 1 ? leftMs : Math.min(leftMs, Math.max(500, Math.min(2500, Math.ceil(leftMs / viable.length))));");
+  lines.push("      try {");
+  lines.push("        const loc = buildLoc(c).first();");
+  lines.push("        await loc.waitFor({ state: 'visible', timeout: sliceMs });");
+  lines.push("        return loc;");
+  lines.push("      } catch (err) {");
+  lines.push("        const msg = err instanceof Error ? err.message : String(err);");
+  lines.push("        if (!/Timeout\\s+\\d+ms\\s+exceeded/i.test(msg)) nonRetryable.add(idx);");
+  lines.push("      }");
   lines.push("    }");
   lines.push("  }");
   lines.push("  // Fallback por defecto al primer selector");
-  lines.push("  return page.locator(candidates[0].value).first();");
+  lines.push("  return buildLoc(candidates[0]).first();");
   lines.push("}");
   lines.push("");
 
@@ -427,15 +437,28 @@ export function exportToPlaywright(recipe: RecipeDsl, options: PlaywrightExportO
             );
             break;
           case "selector":
-          default:
+          default: {
+            const rawVal = node.params.value;
+            const waitTimeout =
+              typeof rawVal === "number" && Number.isFinite(rawVal) && rawVal > 0
+                ? rawVal
+                : typeof rawVal === "string" && /^\d+$/.test(rawVal.trim()) && Number(rawVal.trim()) > 0
+                  ? Number(rawVal.trim())
+                  : (node.timeout || 10000);
             if (node.locator) {
               const candidates = getCandidatesJson(node.locator);
-              nodeLines.push(`const loc_${node.id} = await resolveLocator(page, ${candidates}, ${node.timeout || 10000});`);
-              nodeLines.push(`await loc_${node.id}.waitFor({ state: 'visible', timeout: ${node.timeout || 10000} });`);
-            } else if (node.params.value) {
-              nodeLines.push(`await page.locator(${JSON.stringify(String(node.params.value))}).first().waitFor({ state: 'visible', timeout: ${node.timeout || 10000} });`);
+              nodeLines.push(`const loc_${node.id} = await resolveLocator(page, ${candidates}, ${waitTimeout});`);
+              nodeLines.push(`await loc_${node.id}.waitFor({ state: 'visible', timeout: ${waitTimeout} });`);
+            } else if (typeof rawVal === "string" && rawVal.trim()) {
+              const trimmed = rawVal.trim();
+              const sel =
+                (trimmed.startsWith("/") || trimmed.startsWith("(")) && !trimmed.startsWith("xpath=")
+                  ? `xpath=${trimmed}`
+                  : trimmed;
+              nodeLines.push(`await page.locator(${JSON.stringify(sel)}).first().waitFor({ state: 'visible', timeout: ${node.timeout || 10000} });`);
             }
             break;
+          }
         }
         break;
       }

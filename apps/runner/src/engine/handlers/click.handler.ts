@@ -7,10 +7,12 @@ export const clickHandler: NodeActionHandler<ClickNode> = {
   type: "click",
   async execute(page: Page, node: ClickNode, _ctx: ExecutionContext): Promise<ActionResult> {
     const resolvedLocator = await resolveLocator(page, node.locator, node.timeout);
+    const hasTimeout = typeof node.timeout === "number" && node.timeout > 0;
     await resolvedLocator.locator.click({
       button: node.params.button ?? "left",
       clickCount: node.params.clickCount ?? 1,
       delay: node.params.delay,
+      ...(hasTimeout ? { timeout: node.timeout } : {}),
     });
     return { success: true, resolvedLocator, nextNodeId: node.next };
   },
