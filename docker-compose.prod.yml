@@ -42,7 +42,8 @@ services:
       API_INTERNAL_URL: http://api:8000
       NEXT_TELEMETRY_DISABLED: "1"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:3000/ >/dev/null || exit 1"]
+      test:
+        ["CMD-SHELL", "curl -sf http://127.0.0.1:3000/ >/dev/null || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -64,7 +65,8 @@ services:
     volumes:
       - "rpa-prod-api-storage:/var/www/html/storage"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8000/up >/dev/null || exit 1"]
+      test:
+        ["CMD-SHELL", "curl -sf http://127.0.0.1:8000/up >/dev/null || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 6
@@ -77,8 +79,11 @@ services:
       rustfs:
         condition: service_healthy
     networks:
-      - rpa-prod-edge
-      - rpa-prod-internal
+      rpa-prod-edge:
+      rpa-prod-internal:
+      dokploy-network:
+        aliases:
+          - rpa-api
 
   reverb:
     image: rpa-studio/api:prod
@@ -164,7 +169,11 @@ services:
     env_file:
       - "${PROD_ENV_FILE:-.env.prod}"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8085/health >/dev/null || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "curl -sf http://127.0.0.1:8085/health >/dev/null || exit 1",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -179,6 +188,7 @@ services:
     networks:
       - rpa-prod-edge
       - rpa-prod-internal
+      - dokploy-network
 
   pgsql:
     image: postgres:16-alpine
@@ -188,7 +198,11 @@ services:
     volumes:
       - "rpa-prod-pgsql-data:/var/lib/postgresql/data"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-rpa_user} -d ${DB_DATABASE:-rpa_studio}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DB_USERNAME:-rpa_user} -d ${DB_DATABASE:-rpa_studio}",
+        ]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -198,13 +212,18 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["sh", "-c", "exec redis-server --requirepass \"$REDIS_PASSWORD\" --appendonly yes"]
+    command:
+      [
+        "sh",
+        "-c",
+        'exec redis-server --requirepass "$REDIS_PASSWORD" --appendonly yes',
+      ]
     env_file:
       - "${PROD_ENV_FILE:-.env.prod}"
     volumes:
       - "rpa-prod-redis-data:/data"
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$REDIS_PASSWORD\" ping | grep -q PONG"]
+      test: ["CMD-SHELL", 'redis-cli -a "$REDIS_PASSWORD" ping | grep -q PONG']
       interval: 5s
       timeout: 3s
       retries: 12
@@ -231,6 +250,8 @@ services:
       - rpa-prod-internal
 
 networks:
+  dokploy-network:
+    external: true
   rpa-prod-edge:
     driver: bridge
   rpa-prod-internal:
