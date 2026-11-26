@@ -42,7 +42,6 @@ export const httpRequestDefinition: NodeDefinition<HttpRequestNode> = {
       timeoutMs: 30000,
       followRedirects: true,
       failOnHttpError: true,
-      outputVariable: "",
     },
   }),
   getHighlight: (node: HttpRequestNode) => {

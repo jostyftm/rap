@@ -267,7 +267,7 @@
                     "enum": ["sandbox", "browser"],
                     "default": "sandbox"
                   },
-                  "outputVariable": { "type": "string" }
+                  "outputVariable": { "type": ["string", "null"] }
                 }
               }
             }
@@ -459,7 +459,7 @@
                   "timeoutMs": { "type": "integer", "minimum": 500, "maximum": 300000 },
                   "followRedirects": { "type": "boolean" },
                   "failOnHttpError": { "type": "boolean" },
-                  "outputVariable": { "type": "string" }
+                  "outputVariable": { "type": ["string", "null"] }
                 }
               }
             }

@@ -10,6 +10,76 @@ const MAX_RESPONSE_BYTES = Math.max(
   Number(process.env.RPA_HTTP_MAX_RESPONSE_BYTES ?? 10 * 1024 * 1024)
 );
 
+function parseHttpHostAliases(raw?: string): Map<string, string> {
+  const aliases = new Map<string, string>();
+  if (!raw) return aliases;
+
+  for (const entry of raw.split(",")) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx <= 0) continue;
+    const source = trimmed.slice(0, eqIdx).trim().toLowerCase();
+    const target = trimmed.slice(eqIdx + 1).trim();
+    if (source && target) {
+      aliases.set(source, target);
+    }
+  }
+  return aliases;
+}
+
+function applyHttpHostAlias(url: URL, rawAliases?: string): URL {
+  const aliases = parseHttpHostAliases(rawAliases);
+  if (aliases.size === 0) return url;
+
+  const target =
+    aliases.get(url.host.toLowerCase()) ?? aliases.get(url.hostname.toLowerCase());
+  if (!target) return url;
+
+  if (/^https?:\/\//i.test(target)) {
+    try {
+      const targetUrl = new URL(target);
+      url.protocol = targetUrl.protocol;
+      url.host = targetUrl.host;
+    } catch {
+      // Ignorar alias con formato de URL inválido
+    }
+  } else {
+    url.host = target;
+  }
+
+  return url;
+}
+
+function formatFetchError(err: unknown, targetUrl: string): Error {
+  const baseMessage = err instanceof Error ? err.message : String(err);
+  const cause = err instanceof Error ? (err as Error & { cause?: unknown }).cause : undefined;
+
+  if (cause && typeof cause === "object") {
+    const c = cause as {
+      code?: unknown;
+      hostname?: unknown;
+      address?: unknown;
+      port?: unknown;
+      message?: unknown;
+    };
+    const parts: string[] = [];
+    if (typeof c.code === "string" && c.code) parts.push(c.code);
+    if (typeof c.hostname === "string" && c.hostname) parts.push(c.hostname);
+    if (typeof c.address === "string" && c.address) {
+      parts.push(c.port !== undefined ? `${c.address}:${c.port}` : c.address);
+    }
+    if (parts.length > 0) {
+      return new Error(`${baseMessage} (${parts.join(" ")}) [${targetUrl}]`);
+    }
+    if (typeof c.message === "string" && c.message) {
+      return new Error(`${baseMessage} (${c.message}) [${targetUrl}]`);
+    }
+  }
+
+  return err instanceof Error ? err : new Error(baseMessage);
+}
+
 function isPrivateOrLocalHostname(hostname: string): boolean {
   const host = hostname.trim().toLowerCase().replace(/^\[|\]$/g, "");
   if (
@@ -143,6 +213,8 @@ export const httpRequestHandler: NodeActionHandler<HttpRequestNode> = {
     if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
       throw new Error(`Protocolo no permitido en '${node.id}': ${parsedUrl.protocol}`);
     }
+
+    applyHttpHostAlias(parsedUrl, process.env.RPA_HTTP_HOST_ALIASES);
 
     if (
       process.env.RPA_HTTP_ALLOW_PRIVATE_NETWORKS === "false" &&
@@ -289,13 +361,19 @@ export const httpRequestHandler: NodeActionHandler<HttpRequestNode> = {
     }
 
     const timeoutMs = Math.max(500, Math.min(300_000, node.params.timeoutMs ?? DEFAULT_TIMEOUT_MS));
-    const response = await fetch(parsedUrl.toString(), {
-      method,
-      headers,
-      body,
-      redirect: node.params.followRedirects === false ? "manual" : "follow",
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    const targetUrl = parsedUrl.toString();
+    let response: globalThis.Response;
+    try {
+      response = await fetch(targetUrl, {
+        method,
+        headers,
+        body,
+        redirect: node.params.followRedirects === false ? "manual" : "follow",
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (err: unknown) {
+      throw formatFetchError(err, targetUrl);
+    }
 
     const responseHeaders: Record<string, string> = {};
     response.headers.forEach((value, key) => {

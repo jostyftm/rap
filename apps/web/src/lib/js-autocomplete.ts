@@ -17,7 +17,7 @@ export interface AvailableVariableEntry {
   preview?: unknown;
 }
 
-const DEFAULT_WEBHOOK_SHAPE: Record<string, unknown> = {
+export const DEFAULT_WEBHOOK_SHAPE: Record<string, unknown> = {
   method: "POST",
   path: "/api/v1/webhooks/webhook",
   headers: { "content-type": "application/json" },
@@ -29,7 +29,7 @@ const DEFAULT_WEBHOOK_SHAPE: Record<string, unknown> = {
 
 const MAX_PROPERTY_SUGGESTIONS = 40;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -115,7 +115,10 @@ export function collectAvailableVariables(
   return Array.from(map.values());
 }
 
-function resolveStepOutputSample(nodeId: string, ctx: JsAutocompleteContext): unknown {
+export function resolveStepOutputSample(
+  nodeId: string,
+  ctx: Pick<JsAutocompleteContext, "definition" | "nodeOutputs" | "webhookPayload">
+): unknown {
   if (Object.prototype.hasOwnProperty.call(ctx.nodeOutputs, nodeId) && ctx.nodeOutputs[nodeId] !== undefined) {
     return ctx.nodeOutputs[nodeId];
   }
@@ -172,7 +175,7 @@ function resolveStepOutputSample(nodeId: string, ctx: JsAutocompleteContext): un
   return undefined;
 }
 
-function walkPath(root: unknown, segments: string[]): unknown {
+export function walkPath(root: unknown, segments: string[]): unknown {
   let current: unknown = root;
   for (const segment of segments) {
     if (current === null || current === undefined) return undefined;
@@ -203,7 +206,7 @@ const ARRAY_METHODS: Completion[] = [
   { label: "join", type: "method", detail: "(sep) => string", info: "Une los elementos en texto" },
 ];
 
-function resolveObjectProperties(target: unknown): Completion[] {
+export function resolveObjectProperties(target: unknown): Completion[] {
   if (Array.isArray(target)) {
     return ARRAY_METHODS;
   }

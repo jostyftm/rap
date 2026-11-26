@@ -368,4 +368,120 @@ describe("httpRequestHandler", () => {
     expect((noFail.output as any).ok).toBe(false);
     expect((noFail.output as any).data).toEqual({ message: "boom" });
   });
+
+  it("reescribe hostnames mediante RPA_HTTP_HOST_ALIASES manteniendo ruta, query y body", async () => {
+    const mockHostPort = new URL(baseUrl).host;
+    const prevAliases = process.env.RPA_HTTP_HOST_ALIASES;
+    process.env.RPA_HTTP_HOST_ALIASES = `sdi_audit_service_local=${mockHostPort},otro=127.0.0.1:9999`;
+
+    try {
+      const ctx = createCtx();
+      const res = await httpRequestHandler.execute(
+        dummyPage,
+        {
+          id: "r_alias",
+          type: "httpRequest",
+          description: "Callback interno Docker",
+          params: {
+            method: "POST",
+            url: "http://sdi_audit_service_local/api/v1/bot/raffle-insertion-result?raffle_id=8425&raffle_result_id=36",
+            bodyType: "json",
+            bodyJson: '{"ok":true}',
+          },
+        },
+        ctx
+      );
+
+      const out = res.output as any;
+      expect(out.status).toBe(200);
+      expect(out.data.method).toBe("POST");
+      expect(out.data.pathname).toBe("/api/v1/bot/raffle-insertion-result");
+      expect(out.data.query).toEqual({ raffle_id: "8425", raffle_result_id: "36" });
+      expect(out.data.bodyText).toBe('{"ok":true}');
+    } finally {
+      if (prevAliases === undefined) {
+        delete process.env.RPA_HTTP_HOST_ALIASES;
+      } else {
+        process.env.RPA_HTTP_HOST_ALIASES = prevAliases;
+      }
+    }
+  });
+
+  it("incluye detalles de causa y URL destino cuando fetch falla por conexión", async () => {
+    const prevAliases = process.env.RPA_HTTP_HOST_ALIASES;
+    delete process.env.RPA_HTTP_HOST_ALIASES;
+
+    try {
+      const ctx = createCtx();
+      await expect(
+        httpRequestHandler.execute(
+          dummyPage,
+          {
+            id: "r_unreachable",
+            type: "httpRequest",
+            description: "Puerto cerrado",
+            params: {
+              method: "GET",
+              url: "http://127.0.0.1:1/health",
+              timeoutMs: 2000,
+            },
+          },
+          ctx
+        )
+      ).rejects.toThrow(/127\.0\.0\.1:1/);
+    } finally {
+      if (prevAliases !== undefined) {
+        process.env.RPA_HTTP_HOST_ALIASES = prevAliases;
+      }
+    }
+  });
+
+  it("interpola tokens del nodo webhook y propiedades anidadas en bodyJson", async () => {
+    const webhookOut = {
+      method: "POST",
+      body: {
+        raffle_id: 8425,
+        lottery_id: 32,
+        results: {
+          raffle_code: 6800,
+        },
+      },
+    };
+    const ctx = createCtx({
+      variables: {
+        webhook: webhookOut,
+        steps: {
+          webhook_1myc9: { output: webhookOut },
+        },
+      },
+      stepResults: {
+        webhook_1myc9: webhookOut,
+      },
+    });
+
+    const res = await httpRequestHandler.execute(
+      dummyPage,
+      {
+        id: "httpRequest_7hu4k",
+        type: "httpRequest",
+        description: "Callback resultado",
+        params: {
+          method: "POST",
+          url: `${baseUrl}/callback`,
+          bodyType: "json",
+          bodyJson:
+            '{\n  "raffle_id": {{steps.webhook_1myc9.body.raffle_id}},\n  "raffle_result_id": {{steps.webhook_1myc9.body.results.raffle_code}},\n  "lottery_id": {{steps.webhook_1myc9.body.lottery_id}}\n}',
+        },
+      },
+      ctx
+    );
+
+    const out = res.output as any;
+    expect(out.status).toBe(200);
+    expect(JSON.parse(out.data.bodyText)).toEqual({
+      raffle_id: 8425,
+      raffle_result_id: 6800,
+      lottery_id: 32,
+    });
+  });
 });

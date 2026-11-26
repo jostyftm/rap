@@ -8,6 +8,7 @@ import {
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { useLiveStore } from "@/stores/use-live-store";
 import { useLayoutStore } from "@/stores/use-layout-store";
+import { useWebhookTestStore } from "@/stores/use-webhook-test-store";
 import { apiFetch } from "./api-client";
 import { buildTestWebhookPath } from "./webhook-url";
 
@@ -37,12 +38,31 @@ function resolveEditorToken(
     const rest = key.slice("steps.".length);
     const parts = rest.split(".");
     const stepId = parts[0];
-    const stepOut = stepResults[stepId];
+    let stepOut = stepResults[stepId];
+    if (stepOut === undefined) {
+      stepOut = useWebhookTestStore.getState().byNode[stepId]?.payload;
+    }
     if (stepOut === undefined) return { found: false, value: undefined };
     const tail = parts.slice(1).join(".");
     if (!tail || tail === "output") return { found: true, value: stepOut };
     const cleanTail = tail.startsWith("output.") ? tail.slice("output.".length) : tail;
     const nested = getByDotPath(stepOut, cleanTail);
+    return { found: nested !== undefined, value: nested };
+  }
+  if (key === "webhook" || key.startsWith("webhook.")) {
+    let webhookOut: unknown = variables.webhook;
+    if (webhookOut === undefined) {
+      const defNodes = Object.values(useRecipeStore.getState().definition.nodes || {});
+      const webhookNode = defNodes.find((n) => n.type === "webhook");
+      if (webhookNode) {
+        webhookOut =
+          stepResults[webhookNode.id] ??
+          useWebhookTestStore.getState().byNode[webhookNode.id]?.payload;
+      }
+    }
+    if (webhookOut === undefined) return { found: false, value: undefined };
+    if (key === "webhook") return { found: true, value: webhookOut };
+    const nested = getByDotPath(webhookOut, key.slice("webhook.".length));
     return { found: nested !== undefined, value: nested };
   }
   const direct = getByDotPath(variables, key);

@@ -205,7 +205,9 @@ const JavascriptNodeSchema = BaseNodeSchema.extend({
             "El nombre de variable debe ser un identificador válido"
           ),
       ])
-      .optional(),
+      .nullable()
+      .optional()
+      .transform((v) => (v === null ? undefined : v)),
   }),
 });
 
@@ -356,7 +358,9 @@ const HttpRequestNodeSchema = BaseNodeSchema.extend({
             "El nombre de variable debe ser un identificador válido"
           ),
       ])
-      .optional(),
+      .nullable()
+      .optional()
+      .transform((v) => (v === null ? undefined : v)),
   }),
 });
 

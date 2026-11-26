@@ -1,19 +1,31 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import type {
-  HttpAuthConfig,
-  HttpBodyType,
-  HttpMultipartField,
-  HttpRequestMethod,
-  HttpRequestNode,
-  HttpResponseType,
+import {
+  resolveExpression,
+  type HttpAuthConfig,
+  type HttpBodyType,
+  type HttpMultipartField,
+  type HttpRequestMethod,
+  type HttpRequestNode,
+  type HttpResponseType,
 } from "@rpa/dsl";
 import type { NodeInspectorProps } from "../types";
 import { useRecipeStore } from "@/stores/use-recipe-store";
-import { Field, SegmentedControl, Select, TextInput } from "@/components/ui/primitives";
+import { useWebhookTestStore } from "@/stores/use-webhook-test-store";
+import {
+  Badge,
+  Field,
+  SegmentedControl,
+  Select,
+  TextInput,
+} from "@/components/ui/primitives";
 import { VariablePicker } from "../../variable-picker";
+import {
+  CodeMirrorTemplateEditor,
+  type CodeMirrorTemplateEditorHandle,
+} from "../../code-mirror-template-editor";
 import { KeyValueList } from "./key-value-list";
 
 type HttpTab = "params" | "headers" | "auth" | "body" | "response";
@@ -51,9 +63,60 @@ export function HttpRequestInspectorForm({
   updateParam,
 }: NodeInspectorProps<HttpRequestNode>) {
   const [activeTab, setActiveTab] = useState<HttpTab>("params");
+  const jsonEditorRef = useRef<CodeMirrorTemplateEditorHandle>(null);
+
+  const definition = useRecipeStore((s) => s.definition);
+  const nodeOutputs = useRecipeStore((s) => s.nodeOutputs);
   const editorMode = useRecipeStore((s) => s.editorMode);
   const viewingVersion = useRecipeStore((s) => s.viewingVersion);
+  const webhookByNode = useWebhookTestStore((s) => s.byNode);
   const isReadOnly = editorMode === "published" || viewingVersion !== null;
+
+  const webhookNode = useMemo(
+    () => Object.values(definition?.nodes || {}).find((n) => n.type === "webhook"),
+    [definition]
+  );
+  const webhookPayload = webhookNode
+    ? webhookByNode[webhookNode.id]?.payload ?? null
+    : null;
+
+  const effectiveNodeOutputs = useMemo(() => {
+    if (webhookNode && webhookPayload && nodeOutputs[webhookNode.id] === undefined) {
+      return { ...nodeOutputs, [webhookNode.id]: webhookPayload };
+    }
+    return nodeOutputs;
+  }, [nodeOutputs, webhookNode, webhookPayload]);
+
+  const templateAutocompleteContext = useMemo(
+    () => ({
+      definition,
+      currentNodeId: node.id,
+      nodeOutputs: effectiveNodeOutputs,
+      webhookPayload,
+    }),
+    [definition, node.id, effectiveNodeOutputs, webhookPayload]
+  );
+
+  const renderedJsonPreview = useMemo(() => {
+    const raw = node.params.bodyJson || "";
+    if (!raw.trim()) return null;
+    const evalRes = resolveExpression(raw, {
+      definition,
+      nodeOutputs: effectiveNodeOutputs,
+    });
+    let isValidJson = false;
+    try {
+      JSON.parse(evalRes.resolvedStr);
+      isValidJson = true;
+    } catch {
+      isValidJson = false;
+    }
+    return {
+      resolvedStr: evalRes.resolvedStr,
+      missingTokens: evalRes.missingTokens,
+      isValidJson,
+    };
+  }, [node.params.bodyJson, definition, effectiveNodeOutputs]);
 
   const method = node.params.method || "GET";
   const bodyType: HttpBodyType = node.params.bodyType || "none";
@@ -371,29 +434,58 @@ export function HttpRequestInspectorForm({
           </Field>
 
           {bodyType === "json" && (
-            <Field
-              label="Payload JSON"
-              htmlFor={`http-body-json-${node.id}`}
-              action={
-                !isReadOnly ? (
-                  <VariablePicker
-                    onSelect={(token) =>
-                      updateParam("bodyJson", `${node.params.bodyJson || ""}${token}`)
-                    }
-                  />
-                ) : undefined
-              }
-            >
-              <textarea
-                id={`http-body-json-${node.id}`}
-                rows={6}
-                value={node.params.bodyJson || ""}
-                disabled={isReadOnly}
-                onChange={(e) => updateParam("bodyJson", e.target.value)}
-                placeholder={'{\n  "evento": "pedido",\n  "datos": {{variables.payload}}\n}'}
-                className="w-full rounded-field border border-line bg-input px-3.5 py-2.5 font-mono text-[12px] text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none disabled:opacity-50"
-              />
-            </Field>
+            <div className="space-y-2.5">
+              <Field
+                label="Payload JSON"
+                htmlFor={`http-body-json-${node.id}`}
+                hint="Escribe {{ para autocompletar variables o salidas de pasos (ej. webhook)."
+                action={
+                  !isReadOnly ? (
+                    <VariablePicker
+                      onSelect={(token) => {
+                        if (jsonEditorRef.current) {
+                          jsonEditorRef.current.insertText(token);
+                        } else {
+                          updateParam("bodyJson", `${node.params.bodyJson || ""}${token}`);
+                        }
+                      }}
+                    />
+                  ) : undefined
+                }
+              >
+                <CodeMirrorTemplateEditor
+                  ref={jsonEditorRef}
+                  value={node.params.bodyJson || ""}
+                  onChange={(val) => updateParam("bodyJson", val)}
+                  autocompleteContext={templateAutocompleteContext}
+                  readOnly={isReadOnly}
+                  placeholder={'{\n  "evento": "pedido",\n  "datos": {{variables.payload}}\n}'}
+                  minHeight="140px"
+                  ariaLabel="Payload JSON"
+                />
+              </Field>
+
+              {renderedJsonPreview && (
+                <div className="space-y-1.5 rounded-card border border-line bg-card p-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-[10px] uppercase tracking-wider text-fg-subtle">
+                      Vista previa renderizada
+                    </span>
+                    <Badge tone={renderedJsonPreview.isValidJson ? "success" : "danger"}>
+                      {renderedJsonPreview.isValidJson ? "JSON válido" : "JSON inválido"}
+                    </Badge>
+                  </div>
+                  {renderedJsonPreview.missingTokens.length > 0 && (
+                    <p className="text-[10.5px] text-warning-text">
+                      Sin valor de prueba aún: {renderedJsonPreview.missingTokens.join(", ")}
+                    </p>
+                  )}
+                  <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-fg-muted">
+                    {renderedJsonPreview.resolvedStr}
+                  </pre>
+                </div>
+              )}
+            </div>
           )}
 
           {bodyType === "formUrlEncoded" && (
@@ -643,7 +735,12 @@ export function HttpRequestInspectorForm({
               type="text"
               value={node.params.outputVariable || ""}
               disabled={isReadOnly}
-              onChange={(e) => updateParam("outputVariable", e.target.value)}
+              onChange={(e) =>
+                updateParam(
+                  "outputVariable",
+                  e.target.value.trim() ? e.target.value : undefined
+                )
+              }
               placeholder="ej. apiRespuesta"
               className="font-mono"
             />

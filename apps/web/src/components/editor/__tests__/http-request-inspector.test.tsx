@@ -1,9 +1,24 @@
 import React from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { HttpRequestNode, RecipeDsl } from "@rpa/dsl";
 import { HttpRequestInspectorForm } from "../nodes/inspectors/http-request-inspector";
 import { useRecipeStore } from "@/stores/use-recipe-store";
+import { useWebhookTestStore } from "@/stores/use-webhook-test-store";
+
+beforeAll(() => {
+  if (typeof Range !== "undefined" && !Range.prototype.getClientRects) {
+    Range.prototype.getClientRects = () =>
+      ({
+        length: 0,
+        item: () => null,
+        [Symbol.iterator]: function* () {},
+      }) as unknown as DOMRectList;
+  }
+  if (typeof Range !== "undefined" && !Range.prototype.getBoundingClientRect) {
+    Range.prototype.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+  }
+});
 
 function createHttpNode(
   overrides?: Partial<HttpRequestNode["params"]>
@@ -35,9 +50,17 @@ function seedStore(editorMode: "edit" | "published" = "edit") {
     name: "HTTP Test",
     variables: [],
     secrets: ["API_KEY"],
-    entry: "http_1",
+    entry: "webhook_1",
     edges: [],
-    nodes: { http_1: node },
+    nodes: {
+      webhook_1: {
+        id: "webhook_1",
+        type: "webhook",
+        description: "Webhook inicial",
+        params: { httpMethod: "POST", outputVariable: "webhook" },
+      },
+      http_1: node,
+    },
   };
   useRecipeStore.setState({
     definition,
@@ -46,6 +69,7 @@ function seedStore(editorMode: "edit" | "published" = "edit") {
     activeDetailNodeId: null,
     nodeOutputs: {},
   });
+  useWebhookTestStore.setState({ byNode: {} });
 }
 
 describe("HttpRequestInspectorForm", () => {
@@ -57,7 +81,7 @@ describe("HttpRequestInspectorForm", () => {
     const updateParam = vi.fn();
     render(
       <HttpRequestInspectorForm
-        node={createHttpNode()}
+        node={createHttpNode({ outputVariable: null as unknown as string })}
         updateNode={vi.fn()}
         updateParam={updateParam}
       />
@@ -89,6 +113,54 @@ describe("HttpRequestInspectorForm", () => {
       target: { value: "binary" },
     });
     expect(updateParam).toHaveBeenCalledWith("responseType", "binary");
+  });
+
+  it("monta editor con autocompletado en Payload JSON y muestra vista previa renderizada del webhook", () => {
+    useWebhookTestStore.setState({
+      byNode: {
+        webhook_1: {
+          status: "success",
+          listenId: "l1",
+          channel: "ch1",
+          payload: {
+            method: "POST",
+            path: "/api/v1/webhooks-test/webhook_1",
+            headers: {},
+            params: {},
+            query: {},
+            timestamp: "2026-11-26T00:00:00Z",
+            body: {
+              raffle_id: 8425,
+              results: { raffle_code: 6800 },
+            },
+          },
+        },
+      },
+    });
+
+    const node = createHttpNode({
+      method: "POST",
+      bodyType: "json",
+      bodyJson:
+        '{"raffle_id": {{steps.webhook_1.body.raffle_id}}, "code": {{steps.webhook_1.body.results.raffle_code}}}',
+    });
+
+    render(
+      <HttpRequestInspectorForm
+        node={node}
+        updateNode={vi.fn()}
+        updateParam={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Body" }));
+
+    expect(screen.getByTestId("codemirror-template-host")).toBeInTheDocument();
+    expect(screen.getByText("Vista previa renderizada")).toBeInTheDocument();
+    expect(screen.getByText("JSON válido")).toBeInTheDocument();
+    expect(
+      screen.getByText('{"raffle_id": 8425, "code": 6800}')
+    ).toBeInTheDocument();
   });
 
   it("deshabilita los controles en modo solo lectura", () => {

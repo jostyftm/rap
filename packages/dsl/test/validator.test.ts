@@ -812,4 +812,60 @@ describe("DSL Validator", () => {
       expect(result.success).toBe(true);
     });
   });
+
+  describe("outputVariable opcional en httpRequest y javascript", () => {
+    it("acepta outputVariable como null, string vacío, undefined o identificador válido", () => {
+      for (const outputVariable of [null, "", undefined, "apiRespuesta"]) {
+        const res = validateRecipeDsl({
+          schema: "rpa/v1",
+          entry: "http_1",
+          nodes: {
+            http_1: {
+              id: "http_1",
+              type: "httpRequest",
+              description: "Llamada HTTP",
+              params: {
+                method: "POST",
+                url: "https://api.example.com/callback",
+                outputVariable,
+              },
+            },
+            js_1: {
+              id: "js_1",
+              type: "javascript",
+              description: "Script",
+              params: {
+                code: "return 1;",
+                mode: "sandbox",
+                outputVariable,
+              },
+            },
+          },
+          edges: [{ from: "http_1", to: "js_1" }],
+        });
+        expect(res.success).toBe(true);
+      }
+    });
+
+    it("rechaza identificadores inválidos en outputVariable", () => {
+      const res = validateRecipeDsl({
+        schema: "rpa/v1",
+        entry: "http_1",
+        nodes: {
+          http_1: {
+            id: "http_1",
+            type: "httpRequest",
+            description: "Llamada HTTP",
+            params: {
+              method: "POST",
+              url: "https://api.example.com/callback",
+              outputVariable: "123invalido",
+            },
+          },
+        },
+        edges: [],
+      });
+      expect(res.success).toBe(false);
+    });
+  });
 });
