@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "predev": "pnpm --filter @rpa/dsl build && pnpm --filter @rpa/locator build",
-    "dev": "next dev",
+    "dev": "next dev -p ${WEB_PORT:-3090}",
     "prebuild": "pnpm --filter @rpa/dsl build && pnpm --filter @rpa/locator build",
     "build": "next build",
     "start": "next start",

@@ -12,10 +12,10 @@ Este documento describe la arquitectura, las variables de entorno y los comandos
 | **Orquestador CLI** | `./dev` | `./prod` |
 | **Plantilla de env** | `.env.dev.example` (alias `.env.example`) → `.env` | `.env.prod.example` → `.env.prod` |
 | **Aislamiento Docker** | `COMPOSE_PROJECT_NAME=rpa-dev`, red `sail` | `COMPOSE_PROJECT_NAME=rpa-prod`, redes `rpa-prod-edge` + `rpa-prod-internal` |
-| **Frontend (`apps/web`)** | `next dev` en el host (`:3000`) | Contenedor `web` (`next start`, `node:24-alpine`, usuario `node`) |
+| **Frontend (`apps/web`)** | `next dev` en el host (`:3090`) | Contenedor `web` (`next start`, `node:24-alpine`, usuario `node`) |
 | **Runner (`apps/runner`)** | `tsx watch` en el host (`:8085`) | Contenedor `runner` (`node dist/index.js`, Playwright Chromium, `cap_drop: ALL`, `shm_size: 1gb`) |
 | **API (`apps/api`)** | Contenedor Sail (`supervisord`: artisan serve, reverb, queue, scheduler, listen-events) | Contenedores separados por proceso: `api` (Nginx + PHP-FPM 8.4), `reverb`, `worker` (`horizon`), `events`, `scheduler` |
-| **Reverse Proxy / TLS** | Sin proxy (puertos directos `:3000`, `:8000`, `:8080`, `:8085`) | `caddy:2-alpine` (`:80` / `:443` con HTTPS automático vía Let's Encrypt si se define dominio) |
+| **Reverse Proxy / TLS** | Sin proxy (puertos directos `:3090`, `:8000`, `:8080`, `:8085`) | `caddy:2-alpine` (`:80` / `:443` con HTTPS automático vía Let's Encrypt si se define dominio) |
 | **BD / Redis / RustFS** | Puertos expuestos al host (`5432`, `6379`, `9000`, `9001`) | Solo en red `rpa-prod-internal` (`internal: true`), sin puertos publicados al host |
 | **Telescope** | Activo en `APP_ENV=local` | No instalado en build (`--no-dev`) ni registrado fuera de `local` |
 

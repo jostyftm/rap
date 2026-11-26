@@ -47,27 +47,70 @@ is_pid_running() {
     fi
 }
 
+get_env_value() {
+    local key=$1
+    local default_val=${2:-}
+    local env_file="$PROJECT_ROOT/.env"
+    local val=""
+
+    if [ -f "$env_file" ]; then
+        val=$(grep -E "^${key}=" "$env_file" | tail -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d ' \r')
+    fi
+
+    echo "${val:-$default_val}"
+}
+
+get_web_port() {
+    get_env_value "WEB_PORT" "3090"
+}
+
 export_runner_env() {
     export NODE_OPTIONS="--max-http-header-size=262144 ${NODE_OPTIONS:-}"
     local env_file="$PROJECT_ROOT/.env"
-    local value port
+    local value port redis_port
 
     if [ -f "$env_file" ]; then
-        value=$(grep -E '^RPA_INTERNAL_SECRET=' "$env_file" | tail -n1 | cut -d= -f2- | tr -d '"')
+        value=$(get_env_value "RPA_INTERNAL_SECRET")
         if [ -n "$value" ]; then
             export RPA_INTERNAL_SECRET="$value"
         fi
 
-        value=$(grep -E '^RPA_INTERNAL_URL=' "$env_file" | tail -n1 | cut -d= -f2- | tr -d '"')
+        port=$(get_env_value "APP_PORT" "8000")
+        export APP_PORT="$port"
+
+        value=$(get_env_value "RPA_INTERNAL_URL")
         if [ -z "$value" ]; then
-            port=$(grep -E '^APP_PORT=' "$env_file" | tail -n1 | cut -d= -f2- | tr -d '"')
-            value="http://127.0.0.1:${port:-8000}"
+            value="http://127.0.0.1:${port}"
         fi
         export RPA_INTERNAL_URL="$value"
 
+        # El Runner corre en el host, por eso usa FORWARD_REDIS_PORT (puerto mapeado al host)
+        redis_port=$(get_env_value "FORWARD_REDIS_PORT")
+        if [ -z "$redis_port" ]; then
+            redis_port=$(get_env_value "REDIS_PORT" "6379")
+        fi
+        export REDIS_PORT="$redis_port"
+
         local key
-        for key in REDIS_PORT REDIS_PASSWORD S3_ENDPOINT S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET; do
-            value=$(grep -E "^${key}=" "$env_file" | tail -n1 | cut -d= -f2- | tr -d '"')
+        for key in REDIS_PASSWORD S3_ENDPOINT S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_PUBLIC_URL RUNNER_LIVE_PORT RUNNER_LIVE_TOKEN RUNNER_HEADLESS RPA_HTTP_HOST_ALIASES; do
+            value=$(get_env_value "$key")
+            if [ -n "$value" ]; then
+                export "${key}=${value}"
+            fi
+        done
+    fi
+}
+
+export_web_env() {
+    local env_file="$PROJECT_ROOT/.env"
+    local web_port value
+    web_port=$(get_web_port)
+    export WEB_PORT="$web_port"
+
+    if [ -f "$env_file" ]; then
+        local key
+        for key in NEXT_PUBLIC_API_URL NEXT_PUBLIC_REVERB_APP_KEY NEXT_PUBLIC_REVERB_HOST NEXT_PUBLIC_REVERB_PORT NEXT_PUBLIC_REVERB_SCHEME NEXT_PUBLIC_S3_URL NEXT_PUBLIC_LIVE_PORT; do
+            value=$(get_env_value "$key")
             if [ -n "$value" ]; then
                 export "${key}=${value}"
             fi
@@ -196,9 +239,10 @@ cmd_start() {
 
     echo -e "\n${C_BOLD}5. Iniciando servicios de desarrollo local (Host)...${C_RESET}"
     export_runner_env
+    export_web_env
     start_background_service "testsite" "env PORT=8099 node testsite/server.js"
     start_background_service "runner" "NODE_OPTIONS='--max-http-header-size=262144' pnpm --filter @rpa/runner dev"
-    start_background_service "web" "pnpm --filter web dev"
+    start_background_service "web" "WEB_PORT=${WEB_PORT} pnpm --filter web dev"
 
     sleep 2
     cmd_status
@@ -212,7 +256,9 @@ cmd_stop() {
     stop_process_by_pid "testsite"
 
     # Limpieza de posibles procesos residuales en puertos clave
-    for p in 3000 8099; do
+    local web_port
+    web_port=$(get_web_port)
+    for p in "$web_port" 8099; do
         if command -v fuser >/dev/null 2>&1; then
             fuser -k -n tcp "$p" 2>/dev/null || true
         fi
@@ -230,47 +276,57 @@ cmd_status() {
     printf "%-18s %-10s %-12s %-25s\n" "SERVICIO" "ESTADO" "PUERTO/PID" "URL / DETALLES"
     echo "----------------------------------------------------------"
 
+    local app_port reverb_port db_port redis_port s3_port s3_console_port web_port live_port
+    app_port=$(get_env_value "APP_PORT" "8000")
+    reverb_port=$(get_env_value "REVERB_SERVER_PORT" "8080")
+    db_port=$(get_env_value "FORWARD_DB_PORT" "5432")
+    redis_port=$(get_env_value "FORWARD_REDIS_PORT" "6379")
+    s3_port=$(get_env_value "FORWARD_STORAGE_PORT" "9000")
+    s3_console_port=$(get_env_value "FORWARD_STORAGE_CONSOLE_PORT" "9001")
+    web_port=$(get_web_port)
+    live_port=$(get_env_value "RUNNER_LIVE_PORT" "8085")
+
     # Laravel API
-    if is_port_listening 8000; then
-        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "Laravel API" "ONLINE" "8000" "http://localhost:8000"
+    if is_port_listening "$app_port"; then
+        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "Laravel API" "ONLINE" "$app_port" "http://localhost:$app_port"
     else
-        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "Laravel API" "OFFLINE" "8000" "http://localhost:8000"
+        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "Laravel API" "OFFLINE" "$app_port" "http://localhost:$app_port"
     fi
 
     # Laravel Reverb
-    if is_port_listening 8080; then
-        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "Reverb WS" "ONLINE" "8080" "ws://localhost:8080"
+    if is_port_listening "$reverb_port"; then
+        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "Reverb WS" "ONLINE" "$reverb_port" "ws://localhost:$reverb_port"
     else
-        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "Reverb WS" "OFFLINE" "8080" "ws://localhost:8080"
+        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "Reverb WS" "OFFLINE" "$reverb_port" "ws://localhost:$reverb_port"
     fi
 
     # PostgreSQL
-    if is_port_listening 5432; then
-        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "PostgreSQL" "ONLINE" "5432" "pgsql://rpa_user:***@5432"
+    if is_port_listening "$db_port"; then
+        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "PostgreSQL" "ONLINE" "$db_port" "pgsql://rpa_user:***@$db_port"
     else
-        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "PostgreSQL" "OFFLINE" "5432" "pgsql://rpa_user:***@5432"
+        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "PostgreSQL" "OFFLINE" "$db_port" "pgsql://rpa_user:***@$db_port"
     fi
 
     # Redis
-    if is_port_listening 6379; then
-        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "Redis" "ONLINE" "6379" "redis://localhost:6379"
+    if is_port_listening "$redis_port"; then
+        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "Redis" "ONLINE" "$redis_port" "redis://localhost:$redis_port"
     else
-        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "Redis" "OFFLINE" "6379" "redis://localhost:6379"
+        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "Redis" "OFFLINE" "$redis_port" "redis://localhost:$redis_port"
     fi
 
     # RustFS (S3)
-    if is_port_listening 9000; then
-        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "RustFS S3" "ONLINE" "9000/9001" "Console: http://localhost:9001"
+    if is_port_listening "$s3_port"; then
+        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "RustFS S3" "ONLINE" "$s3_port/$s3_console_port" "Console: http://localhost:$s3_console_port"
     else
-        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "RustFS S3" "OFFLINE" "9000/9001" "http://localhost:9000"
+        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "RustFS S3" "OFFLINE" "$s3_port/$s3_console_port" "http://localhost:$s3_port"
     fi
 
     # Web Next.js
     local web_pid=$(cat "$PID_DIR/web.pid" 2>/dev/null || echo "")
-    if is_port_listening 3000 || is_pid_running "$web_pid"; then
-        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "Next.js Web" "ONLINE" "3000" "http://localhost:3000"
+    if is_port_listening "$web_port" || is_pid_running "$web_pid"; then
+        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "Next.js Web" "ONLINE" "$web_port" "http://localhost:$web_port"
     else
-        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "Next.js Web" "OFFLINE" "3000" "http://localhost:3000"
+        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "Next.js Web" "OFFLINE" "$web_port" "http://localhost:$web_port"
     fi
 
     # RPA Runner
@@ -282,10 +338,10 @@ cmd_status() {
     fi
 
     # Sitio en Vivo (proxy + control del Runner)
-    if is_port_listening 8085; then
-        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "Live Proxy" "ONLINE" "8085" "http://localhost:8085/health"
+    if is_port_listening "$live_port"; then
+        printf "%-18s ${C_GREEN}%-10s${C_RESET} %-12s %-25s\n" "Live Proxy" "ONLINE" "$live_port" "http://localhost:$live_port/health"
     else
-        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "Live Proxy" "OFFLINE" "8085" "http://localhost:8085/health"
+        printf "%-18s ${C_RED}%-10s${C_RESET} %-12s %-25s\n" "Live Proxy" "OFFLINE" "$live_port" "http://localhost:$live_port/health"
     fi
 
     # TestSite Mock

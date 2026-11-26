@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import http from "node:http";
 import { chromium, type Browser } from "playwright";
 
+const WEB_URL = process.env.FRONTEND_URL || "http://localhost:3090";
+
 describe("Live Simulator Authentication & Virtual Cookie Jar", () => {
   let browser: Browser | null = null;
   let customServer: http.Server | null = null;
@@ -86,8 +88,8 @@ describe("Live Simulator Authentication & Virtual Cookie Jar", () => {
     expect(session.session_id).toBeDefined();
 
     const page = await browser!.newPage();
-    // Navegar a un origen diferente (localhost:3000) para forzar contexto third-party iframe
-    await page.goto("http://localhost:3000");
+    // Navegar a un origen diferente (localhost:3090 por defecto) para forzar contexto third-party iframe
+    await page.goto(WEB_URL);
 
     await page.evaluate((proxyUrl) => {
       const ifr = document.createElement("iframe");
@@ -144,7 +146,7 @@ describe("Live Simulator Authentication & Virtual Cookie Jar", () => {
     const session = await sRes.json();
 
     const page = await browser!.newPage();
-    await page.goto("http://localhost:3000");
+    await page.goto(WEB_URL);
 
     await page.evaluate((proxyUrl) => {
       const ifr = document.createElement("iframe");
@@ -183,7 +185,7 @@ describe("Live Simulator Authentication & Virtual Cookie Jar", () => {
     const session = await sRes.json();
 
     const page = await browser!.newPage();
-    await page.goto("http://localhost:3000");
+    await page.goto(WEB_URL);
 
     await page.evaluate((proxyUrl) => {
       const ifr = document.createElement("iframe");

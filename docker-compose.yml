@@ -17,6 +17,7 @@ services:
       - "./docker/sail/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf:ro"
     networks:
       - sail
+      - dokploy-network
     depends_on:
       pgsql:
         condition: service_healthy
@@ -81,6 +82,8 @@ services:
       retries: 10
 
 networks:
+  dokploy-network:
+    external: true
   sail:
     driver: bridge
 
