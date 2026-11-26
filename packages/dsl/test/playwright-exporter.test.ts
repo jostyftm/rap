@@ -166,6 +166,53 @@ describe("Playwright Exporter", () => {
     expect(code).toContain("await page.waitForTimeout(500);");
   });
 
+  it("exporta condiciones tipadas para evaluar valores nulos o vacíos", () => {
+    const recipe: RecipeDsl = {
+      schema: "rpa/v1",
+      name: "Condición nulo/vacío",
+      entry: "cond_null",
+      variables: [{ name: "payload", type: "string", defaultValue: "" }],
+      nodes: {
+        cond_null: {
+          id: "cond_null",
+          type: "condition",
+          description: "Validar nulo o vacío",
+          params: {
+            dataType: "exists",
+            operator: "is_null_or_empty",
+            leftOperand: "{{variables.payload}}",
+            expression: '$not(variables.payload) or variables.payload = ""',
+            thenNodeId: "cond_strict_null",
+          },
+        },
+        cond_strict_null: {
+          id: "cond_strict_null",
+          type: "condition",
+          description: "Validar estrictamente nulo",
+          params: {
+            dataType: "string",
+            operator: "is_null",
+            leftOperand: "{{variables.payload}}",
+            expression: "variables.payload = null",
+            thenNodeId: "step_wait",
+          },
+        },
+        step_wait: {
+          id: "step_wait",
+          type: "waitFor",
+          description: "Esperar",
+          params: { strategy: "timeout", value: 100 },
+        },
+      },
+      edges: [],
+    };
+
+    const code = exportToPlaywright(recipe);
+    expect(code).toContain("function isEmptyValue(value: unknown): boolean");
+    expect(code).toContain("if (isEmptyValue(variables?.payload)) {");
+    expect(code).toContain("if (((variables?.payload) == null)) {");
+  });
+
   it("exporta nodos de scroll por elemento y por coordenadas", () => {    const recipe: RecipeDsl = {
       schema: "rpa/v1",
       name: "Flujo de Scroll",

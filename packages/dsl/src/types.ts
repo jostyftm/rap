@@ -173,33 +173,43 @@ export interface JavascriptNode extends BaseNode {
   };
 }
 
-export type ConditionDataType =
-  | "string"
-  | "number"
-  | "boolean"
-  | "array"
-  | "exists"
-  | "custom";
+export const CONDITION_DATA_TYPES = [
+  "string",
+  "number",
+  "boolean",
+  "array",
+  "exists",
+  "custom",
+] as const;
 
-export type ConditionOperator =
-  | "equals"
-  | "not_equals"
-  | "contains"
-  | "not_contains"
-  | "starts_with"
-  | "ends_with"
-  | "regex_match"
-  | "greater_than"
-  | "greater_than_or_equal"
-  | "less_than"
-  | "less_than_or_equal"
-  | "is_true"
-  | "is_false"
-  | "array_contains"
-  | "array_is_empty"
-  | "array_not_empty"
-  | "is_null_or_empty"
-  | "is_not_null_or_empty";
+export type ConditionDataType = (typeof CONDITION_DATA_TYPES)[number];
+
+export const CONDITION_OPERATORS = [
+  "equals",
+  "not_equals",
+  "contains",
+  "not_contains",
+  "starts_with",
+  "ends_with",
+  "regex_match",
+  "greater_than",
+  "greater_than_or_equal",
+  "less_than",
+  "less_than_or_equal",
+  "is_true",
+  "is_false",
+  "array_contains",
+  "array_is_empty",
+  "array_not_empty",
+  "is_null",
+  "is_not_null",
+  "is_empty",
+  "is_not_empty",
+  "is_null_or_empty",
+  "is_not_null_or_empty",
+] as const;
+
+export type ConditionOperator = (typeof CONDITION_OPERATORS)[number];
 
 export interface ConditionNode extends BaseNode {
   type: "condition";

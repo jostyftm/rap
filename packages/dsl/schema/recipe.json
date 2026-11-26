@@ -179,6 +179,58 @@
       "allOf": [
         {
           "if": {
+            "properties": { "type": { "const": "condition" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["expression", "thenNodeId"],
+                "properties": {
+                  "expression": { "type": "string", "minLength": 1 },
+                  "thenNodeId": { "type": "string", "minLength": 1 },
+                  "elseNodeId": { "type": "string" },
+                  "dataType": {
+                    "type": "string",
+                    "enum": ["string", "number", "boolean", "array", "exists", "custom"]
+                  },
+                  "leftOperand": { "type": "string" },
+                  "operator": {
+                    "type": "string",
+                    "enum": [
+                      "equals",
+                      "not_equals",
+                      "contains",
+                      "not_contains",
+                      "starts_with",
+                      "ends_with",
+                      "regex_match",
+                      "greater_than",
+                      "greater_than_or_equal",
+                      "less_than",
+                      "less_than_or_equal",
+                      "is_true",
+                      "is_false",
+                      "array_contains",
+                      "array_is_empty",
+                      "array_not_empty",
+                      "is_null",
+                      "is_not_null",
+                      "is_empty",
+                      "is_not_empty",
+                      "is_null_or_empty",
+                      "is_not_null_or_empty"
+                    ]
+                  },
+                  "rightOperand": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "type": { "const": "tryCatch" } },
             "required": ["type"]
           },

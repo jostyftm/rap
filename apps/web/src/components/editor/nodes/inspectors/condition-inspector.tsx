@@ -1,7 +1,13 @@
 "use client";
 
 import React from "react";
-import type { ConditionNode, ConditionDataType, ConditionOperator } from "@rpa/dsl";
+import {
+  isNullOrEmptyOperator,
+  isUnaryConditionOperator,
+  type ConditionNode,
+  type ConditionDataType,
+  type ConditionOperator,
+} from "@rpa/dsl";
 import type { NodeInspectorProps } from "../types";
 import { VariablePicker } from "../../variable-picker";
 import { GitBranch } from "lucide-react";
@@ -17,11 +23,36 @@ const DATA_TYPES: DataTypeOption[] = [
   { value: "number", label: "Número" },
   { value: "boolean", label: "Booleano" },
   { value: "array", label: "Lista / Arreglo" },
-  { value: "exists", label: "Existe / No vacío" },
+  { value: "exists", label: "Nulo / Vacío (Existencia)" },
   { value: "custom", label: "Expresión avanzada" },
 ];
 
-const OPERATORS_BY_TYPE: Record<ConditionDataType, Array<{ value: ConditionOperator; label: string; unary?: boolean }>> = {
+const NULL_EMPTY_OPERATORS: Array<{
+  value: ConditionOperator;
+  label: string;
+  unary: true;
+}> = [
+  { value: "is_null_or_empty", label: "Es nulo o vacío", unary: true },
+  { value: "is_not_null_or_empty", label: "No es nulo ni vacío", unary: true },
+  { value: "is_empty", label: "Está vacío", unary: true },
+  { value: "is_not_empty", label: "No está vacío", unary: true },
+  { value: "is_null", label: "Es nulo o indefinido", unary: true },
+  { value: "is_not_null", label: "No es nulo", unary: true },
+];
+
+const NULLISH_ONLY_OPERATORS: Array<{
+  value: ConditionOperator;
+  label: string;
+  unary: true;
+}> = [
+  { value: "is_null", label: "Es nulo o indefinido", unary: true },
+  { value: "is_not_null", label: "No es nulo", unary: true },
+];
+
+const OPERATORS_BY_TYPE: Record<
+  ConditionDataType,
+  Array<{ value: ConditionOperator; label: string; unary?: boolean }>
+> = {
   string: [
     { value: "contains", label: "Contiene texto" },
     { value: "not_contains", label: "No contiene texto" },
@@ -30,6 +61,7 @@ const OPERATORS_BY_TYPE: Record<ConditionDataType, Array<{ value: ConditionOpera
     { value: "starts_with", label: "Empieza con" },
     { value: "ends_with", label: "Termina con" },
     { value: "regex_match", label: "Coincide con RegExp" },
+    ...NULL_EMPTY_OPERATORS,
   ],
   number: [
     { value: "equals", label: "Igual a (=)" },
@@ -38,21 +70,34 @@ const OPERATORS_BY_TYPE: Record<ConditionDataType, Array<{ value: ConditionOpera
     { value: "greater_than_or_equal", label: "Mayor o igual (>=)" },
     { value: "less_than", label: "Menor que (<)" },
     { value: "less_than_or_equal", label: "Menor o igual (<=)" },
+    { value: "is_null", label: "Es nulo o indefinido", unary: true },
+    { value: "is_not_null", label: "No es nulo", unary: true },
+    { value: "is_null_or_empty", label: "Es nulo o vacío", unary: true },
+    { value: "is_not_null_or_empty", label: "No es nulo ni vacío", unary: true },
   ],
   boolean: [
     { value: "is_true", label: "Es verdadero (true)", unary: true },
     { value: "is_false", label: "Es falso (false)", unary: true },
     { value: "equals", label: "Es igual a" },
     { value: "not_equals", label: "Es diferente de" },
+    ...NULLISH_ONLY_OPERATORS,
   ],
   array: [
     { value: "array_contains", label: "Contiene elemento" },
     { value: "array_not_empty", label: "Tiene elementos (no vacío)", unary: true },
     { value: "array_is_empty", label: "Está vacío (0 elementos)", unary: true },
+    { value: "is_null", label: "Es nulo o indefinido", unary: true },
+    { value: "is_not_null", label: "No es nulo", unary: true },
+    { value: "is_null_or_empty", label: "Es nulo o vacío", unary: true },
+    { value: "is_not_null_or_empty", label: "No es nulo ni vacío", unary: true },
   ],
   exists: [
     { value: "is_not_null_or_empty", label: "Existe y no está vacío", unary: true },
     { value: "is_null_or_empty", label: "Es nulo, indefinido o vacío", unary: true },
+    { value: "is_null", label: "Es nulo o indefinido", unary: true },
+    { value: "is_not_null", label: "No es nulo", unary: true },
+    { value: "is_empty", label: "Está vacío", unary: true },
+    { value: "is_not_empty", label: "No está vacío", unary: true },
   ],
   custom: [],
 };
@@ -66,6 +111,19 @@ function buildExpression(
 ): string {
   const cleanLeft = left.replace(/^\{\{|\}\}$/g, "").trim() || "val";
   const cleanRight = right.replace(/^\{\{|\}\}$/g, "").trim();
+
+  switch (operator) {
+    case "is_null":
+      return `${cleanLeft} = null`;
+    case "is_not_null":
+      return `${cleanLeft} != null`;
+    case "is_empty":
+    case "is_null_or_empty":
+      return `$not(${cleanLeft}) or ${cleanLeft} = ""`;
+    case "is_not_empty":
+    case "is_not_null_or_empty":
+      return `Boolean(${cleanLeft}) and ${cleanLeft} != ""`;
+  }
 
   switch (dataType) {
     case "number": {
@@ -96,7 +154,6 @@ function buildExpression(
       return `"${cleanRight}" in ${cleanLeft}`;
     }
     case "exists": {
-      if (operator === "is_null_or_empty") return `$not(${cleanLeft}) or ${cleanLeft} = ""`;
       return `Boolean(${cleanLeft}) and ${cleanLeft} != ""`;
     }
     default:
@@ -119,38 +176,58 @@ export function ConditionInspectorForm({
 
   const operators = OPERATORS_BY_TYPE[currentDataType] || [];
   const selectedOpMeta = operators.find((op) => op.value === currentOperator);
-  const isUnary = selectedOpMeta?.unary || false;
+  const isUnary =
+    selectedOpMeta?.unary || isUnaryConditionOperator(currentOperator);
+  const showNullEmptyHint =
+    currentDataType === "exists" || isNullOrEmptyOperator(currentOperator);
 
   const handleDataTypeChange = (newType: ConditionDataType) => {
     const firstOp = OPERATORS_BY_TYPE[newType][0]?.value;
+    const firstIsUnary = isUnaryConditionOperator(firstOp);
     const params = {
       ...node.params,
       dataType: newType,
       operator: firstOp,
+      rightOperand: firstIsUnary ? undefined : node.params.rightOperand,
       expression:
         newType !== "custom" && firstOp
-          ? buildExpression(newType, firstOp, leftOperand, rightOperand)
+          ? buildExpression(newType, firstOp, leftOperand, firstIsUnary ? "" : rightOperand)
           : node.params.expression,
     };
     updateNode({ params });
   };
 
   const handleOperatorChange = (newOp: ConditionOperator) => {
-    const newExpr = buildExpression(currentDataType, newOp, leftOperand, rightOperand);
+    const nextIsUnary = isUnaryConditionOperator(newOp);
+    const newExpr = buildExpression(
+      currentDataType,
+      newOp,
+      leftOperand,
+      nextIsUnary ? "" : rightOperand
+    );
     updateNode({
       params: {
         ...node.params,
+        dataType: currentDataType,
         operator: newOp,
+        rightOperand: nextIsUnary ? undefined : node.params.rightOperand,
         expression: newExpr,
       },
     });
   };
 
   const handleLeftChange = (val: string) => {
-    const newExpr = buildExpression(currentDataType, currentOperator, val, rightOperand);
+    const newExpr = buildExpression(
+      currentDataType,
+      currentOperator,
+      val,
+      isUnary ? "" : rightOperand
+    );
     updateNode({
       params: {
         ...node.params,
+        dataType: currentDataType,
+        operator: currentOperator,
         leftOperand: val,
         expression: newExpr,
       },
@@ -162,6 +239,8 @@ export function ConditionInspectorForm({
     updateNode({
       params: {
         ...node.params,
+        dataType: currentDataType,
+        operator: currentOperator,
         rightOperand: val,
         expression: newExpr,
       },
@@ -190,7 +269,15 @@ export function ConditionInspectorForm({
 
       {currentDataType !== "custom" ? (
         <>
-          <Field label="Operación" htmlFor="condition-operator">
+          <Field
+            label="Operación"
+            htmlFor="condition-operator"
+            hint={
+              showNullEmptyHint
+                ? 'Nulo/indefinido: null o undefined. Vacío: "", espacios, [] o {} (0 y false no son vacíos).'
+                : undefined
+            }
+          >
             <Select
               id="condition-operator"
               value={currentOperator}

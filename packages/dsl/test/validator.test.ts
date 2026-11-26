@@ -581,6 +581,43 @@ describe("DSL Validator", () => {
       expect(result.success).toBe(false);
       expect(result.errors?.some((e) => e.includes("vuelve a entrar"))).toBe(true);
     });
+
+    it("acepta los operadores de nulos y vacíos en nodos condition tipados", () => {
+      for (const operator of [
+        "is_null",
+        "is_not_null",
+        "is_empty",
+        "is_not_empty",
+        "is_null_or_empty",
+        "is_not_null_or_empty",
+      ]) {
+        const result = validateRecipeDsl(
+          conditionRecipe({
+            params: {
+              dataType: "exists",
+              operator,
+              leftOperand: "{{variables.payload}}",
+              expression: "variables.payload = null",
+            },
+          })
+        );
+        expect(result.success).toBe(true);
+      }
+    });
+
+    it("rechaza un operador desconocido en condition", () => {
+      const result = validateRecipeDsl(
+        conditionRecipe({
+          params: {
+            dataType: "exists",
+            operator: "invalid_null_op",
+            leftOperand: "{{variables.payload}}",
+            expression: "variables.payload = null",
+          },
+        })
+      );
+      expect(result.success).toBe(false);
+    });
   });
 
   describe("loop", () => {

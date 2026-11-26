@@ -1,5 +1,10 @@
-import type { RecipeNode, RecipeDsl } from "@rpa/dsl";
-import { resolveExpression } from "@rpa/dsl";
+import type { RecipeNode, RecipeDsl, ConditionDataType, ConditionOperator } from "@rpa/dsl";
+import {
+  resolveExpression,
+  evaluateTypedCondition,
+  resolveConditionOperand,
+  isUnaryConditionOperator,
+} from "@rpa/dsl";
 import { useRecipeStore } from "@/stores/use-recipe-store";
 import { useLiveStore } from "@/stores/use-live-store";
 import { useLayoutStore } from "@/stores/use-layout-store";
@@ -109,7 +114,9 @@ function createTesterContext(
   const store = useRecipeStore.getState();
   const variables: Record<string, unknown> = {};
   for (const v of store.definition.variables || []) {
-    variables[v.name] = v.defaultValue ?? "";
+    if (v.defaultValue !== undefined) {
+      variables[v.name] = v.defaultValue;
+    }
   }
   return {
     variables,
@@ -118,28 +125,6 @@ function createTesterContext(
     abortSignal,
     delayMs,
   };
-}
-
-function resolveValue(
-  tokenOrStr: string,
-  variables: Record<string, unknown>,
-  stepResults: Record<string, unknown>
-): unknown {
-  if (!tokenOrStr) return "";
-  const trimmed = tokenOrStr.trim();
-  if (trimmed.startsWith("{{") && trimmed.endsWith("}}")) {
-    const key = trimmed.slice(2, -2).trim();
-    const res = resolveEditorToken(key, variables, stepResults);
-    return res.found ? res.value : key;
-  }
-  if (trimmed.startsWith("variables.") || trimmed.startsWith("steps.")) {
-    const res = resolveEditorToken(trimmed, variables, stepResults);
-    if (res.found) return res.value;
-  }
-  if (!Number.isNaN(Number(trimmed)) && trimmed !== "") return Number(trimmed);
-  if (trimmed === "true") return true;
-  if (trimmed === "false") return false;
-  return trimmed;
 }
 
 function resolveLoopCollection(
@@ -778,44 +763,39 @@ async function executeNodeBody(
       }
 
       case "condition": {
-        const { dataType = "string", operator = "contains", leftOperand = "", rightOperand = "" } = node.params;
-        const leftVal = resolveValue(leftOperand, currentVariables, currentStepOutputs);
-        const rightVal = resolveValue(rightOperand, currentVariables, currentStepOutputs);
+        const dataType: ConditionDataType = node.params.dataType || "string";
+        const operator: ConditionOperator =
+          (node.params.operator as ConditionOperator) || "contains";
+        const leftOperand = node.params.leftOperand ?? "";
+        const rightOperand = node.params.rightOperand ?? "";
 
-        let isSatisfied = false;
-        if (dataType === "number") {
-          const nLeft = Number(leftVal);
-          const nRight = Number(rightVal);
-          if (operator === "greater_than") isSatisfied = nLeft > nRight;
-          else if (operator === "less_than") isSatisfied = nLeft < nRight;
-          else if (operator === "greater_than_or_equal") isSatisfied = nLeft >= nRight;
-          else if (operator === "less_than_or_equal") isSatisfied = nLeft <= nRight;
-          else if (operator === "not_equals") isSatisfied = nLeft !== nRight;
-          else isSatisfied = nLeft === nRight;
-        } else if (dataType === "boolean") {
-          const bLeft = Boolean(leftVal);
-          if (operator === "is_true") isSatisfied = bLeft === true;
-          else if (operator === "is_false") isSatisfied = bLeft === false;
-          else isSatisfied = bLeft === Boolean(rightVal);
-        } else if (dataType === "array") {
-          const arr = Array.isArray(leftVal) ? leftVal : [leftVal];
-          if (operator === "array_is_empty") isSatisfied = arr.length === 0;
-          else if (operator === "array_not_empty") isSatisfied = arr.length > 0;
-          else isSatisfied = arr.some((item) => String(item) === String(rightVal));
-        } else if (dataType === "exists") {
-          const hasVal = leftVal !== null && leftVal !== undefined && leftVal !== "";
-          isSatisfied = operator === "is_null_or_empty" ? !hasVal : hasVal;
-        } else {
-          // String
-          const sLeft = String(leftVal ?? "");
-          const sRight = String(rightVal ?? "");
-          if (operator === "contains") isSatisfied = sLeft.toLowerCase().includes(sRight.toLowerCase());
-          else if (operator === "not_contains") isSatisfied = !sLeft.toLowerCase().includes(sRight.toLowerCase());
-          else if (operator === "starts_with") isSatisfied = sLeft.startsWith(sRight);
-          else if (operator === "ends_with") isSatisfied = sLeft.endsWith(sRight);
-          else if (operator === "not_equals") isSatisfied = sLeft !== sRight;
-          else isSatisfied = sLeft === sRight;
-        }
+        const webhookNode = Object.values(store.definition.nodes || {}).find(
+          (n) => n.type === "webhook"
+        );
+        const webhookOutput = webhookNode
+          ? currentStepOutputs[webhookNode.id]
+          : undefined;
+        const operandCtx = {
+          variables: currentVariables,
+          stepResults: currentStepOutputs,
+          webhookOutput,
+        };
+
+        const leftVal = resolveConditionOperand(leftOperand, operandCtx).value;
+        const isUnary = isUnaryConditionOperator(operator);
+        const rightVal = isUnary
+          ? undefined
+          : resolveConditionOperand(rightOperand, operandCtx).value;
+
+        const isSatisfied = evaluateTypedCondition(
+          dataType,
+          operator,
+          leftVal,
+          rightVal
+        );
+
+        const formatVal = (v: unknown) =>
+          v === undefined ? "undefined" : JSON.stringify(v);
 
         const durationMs = Date.now() - startTime;
         const targetBranchId = isSatisfied
@@ -826,7 +806,9 @@ async function executeNodeBody(
           ramaSiguiente:
             targetBranchId ||
             (isSatisfied ? "Rama VERDADERA (then)" : "Rama FALSA (else)"),
-          comparacion: `${JSON.stringify(leftVal)} [${operator}] ${JSON.stringify(rightVal)}`,
+          comparacion: isUnary
+            ? `${formatVal(leftVal)} [${operator}]`
+            : `${formatVal(leftVal)} [${operator}] ${formatVal(rightVal)}`,
         };
         store.setNodeOutput(node.id, resultOutput);
         store.addLog({

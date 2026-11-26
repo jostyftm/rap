@@ -1,5 +1,9 @@
 import { z } from "zod";
-import type { RecipeDsl } from "./types.js";
+import {
+  CONDITION_DATA_TYPES,
+  CONDITION_OPERATORS,
+  type RecipeDsl,
+} from "./types.js";
 
 const LocatorStrategySchema = z.enum([
   "testid",
@@ -211,11 +215,9 @@ const ConditionNodeSchema = BaseNodeSchema.extend({
     expression: z.string().min(1, "La expresión de la condición es obligatoria"),
     thenNodeId: z.string().min(1, "El nodo 'thenNodeId' es obligatorio"),
     elseNodeId: z.string().optional(),
-    dataType: z
-      .enum(["string", "number", "boolean", "array", "exists", "custom"])
-      .optional(),
+    dataType: z.enum(CONDITION_DATA_TYPES).optional(),
     leftOperand: z.string().optional(),
-    operator: z.string().optional(),
+    operator: z.enum(CONDITION_OPERATORS).optional(),
     rightOperand: z.string().optional(),
   }),
 });

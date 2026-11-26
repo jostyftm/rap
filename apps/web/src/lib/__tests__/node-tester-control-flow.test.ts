@@ -414,6 +414,116 @@ describe("node-tester control flow (tryCatch, condition, loop)", () => {
     expect(useRecipeStore.getState().nodeOutputs.else_step).toBeUndefined();
   });
 
+  it("condition evalúa datos nulos, indefinidos y vacíos sin confundir tokens faltantes ni 0/false", async () => {
+    const condNullNode = {
+      id: "cond_null",
+      type: "condition" as const,
+      description: "Verificar nulo o vacío",
+      params: {
+        dataType: "exists" as const,
+        operator: "is_null" as const,
+        leftOperand: "{{variables.nulo}}",
+        expression: "variables.nulo = null",
+        thenNodeId: "then_step",
+        elseNodeId: "else_step",
+      },
+    };
+    const def: RecipeDsl = {
+      schema: "rpa/v1",
+      entry: "cond_null",
+      variables: [
+        { name: "nulo", type: "string", defaultValue: null },
+        { name: "sinDefault", type: "string" },
+        { name: "espacios", type: "string", defaultValue: "   " },
+        { name: "listaVacia", type: "array", defaultValue: [] },
+        { name: "objetoVacio", type: "object", defaultValue: {} },
+        { name: "cero", type: "number", defaultValue: 0 },
+        { name: "falso", type: "boolean", defaultValue: false },
+      ],
+      nodes: {
+        cond_null: condNullNode,
+        then_step: {
+          id: "then_step",
+          type: "setVariable",
+          description: "Rama THEN",
+          params: { name: "branch", expression: "THEN" },
+        },
+        else_step: {
+          id: "else_step",
+          type: "setVariable",
+          description: "Rama ELSE",
+          params: { name: "branch", expression: "ELSE" },
+        },
+      },
+      edges: [],
+    };
+    loadRecipe(def);
+
+    const resNull = await testRecipeNode(condNullNode);
+    expect(resNull.ok).toBe(true);
+    expect((resNull.output as any).cumpleCondicion).toBe(true);
+    expect((resNull.output as any).comparacion).toBe("null [is_null]");
+
+    const resMissing = await testRecipeNode({
+      ...condNullNode,
+      params: { ...condNullNode.params, leftOperand: "{{variables.sinDefault}}" },
+    });
+    expect((resMissing.output as any).cumpleCondicion).toBe(true);
+    expect((resMissing.output as any).comparacion).toBe("undefined [is_null]");
+
+    const resSpaces = await testRecipeNode({
+      ...condNullNode,
+      params: {
+        ...condNullNode.params,
+        dataType: "string",
+        operator: "is_empty",
+        leftOperand: "{{variables.espacios}}",
+      },
+    });
+    expect((resSpaces.output as any).cumpleCondicion).toBe(true);
+
+    const resEmptyArr = await testRecipeNode({
+      ...condNullNode,
+      params: {
+        ...condNullNode.params,
+        dataType: "array",
+        operator: "is_null_or_empty",
+        leftOperand: "{{variables.listaVacia}}",
+      },
+    });
+    expect((resEmptyArr.output as any).cumpleCondicion).toBe(true);
+
+    const resEmptyObj = await testRecipeNode({
+      ...condNullNode,
+      params: {
+        ...condNullNode.params,
+        operator: "is_null_or_empty",
+        leftOperand: "{{variables.objetoVacio}}",
+      },
+    });
+    expect((resEmptyObj.output as any).cumpleCondicion).toBe(true);
+
+    const resZero = await testRecipeNode({
+      ...condNullNode,
+      params: {
+        ...condNullNode.params,
+        operator: "is_not_null_or_empty",
+        leftOperand: "{{variables.cero}}",
+      },
+    });
+    expect((resZero.output as any).cumpleCondicion).toBe(true);
+
+    const resFalse = await testRecipeNode({
+      ...condNullNode,
+      params: {
+        ...condNullNode.params,
+        operator: "is_not_null_or_empty",
+        leftOperand: "{{variables.falso}}",
+      },
+    });
+    expect((resFalse.output as any).cumpleCondicion).toBe(true);
+  });
+
   it("loop itera sobre una colección respetando maxIterations y exponiendo itemVariable", async () => {
     const def: RecipeDsl = {
       schema: "rpa/v1",

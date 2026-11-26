@@ -381,6 +381,68 @@ describe("Action Handlers & Strategy Registry", () => {
       expect(resultNumber.nextNodeId).toBe("normal-step");
     });
 
+    it("evalúa valores nulos, indefinidos y vacíos sin emitir falsos avisos ni confundir 0 o false", async () => {
+      const warn = vi.fn();
+      const ctx = createMockContext({
+        warn,
+        variables: {
+          campoNulo: null,
+          textoEspacios: "   ",
+          objetoVacio: {},
+          listaVacia: [],
+          numeroCero: 0,
+          banderaFalsa: false,
+        },
+        stepResults: {
+          extract_1: { email: null },
+        },
+      });
+      const mockPage = createMockPage();
+
+      const cases: Array<{
+        id: string;
+        dataType: ConditionNode["params"]["dataType"];
+        operator: ConditionNode["params"]["operator"];
+        leftOperand: string;
+        expected: boolean;
+      }> = [
+        { id: "c1", dataType: "exists", operator: "is_null", leftOperand: "{{variables.campoNulo}}", expected: true },
+        { id: "c2", dataType: "exists", operator: "is_null", leftOperand: "{{variables.noExiste}}", expected: true },
+        { id: "c3", dataType: "exists", operator: "is_null", leftOperand: "{{variables.textoEspacios}}", expected: false },
+        { id: "c4", dataType: "exists", operator: "is_null_or_empty", leftOperand: "{{variables.textoEspacios}}", expected: true },
+        { id: "c5", dataType: "exists", operator: "is_null_or_empty", leftOperand: "{{variables.objetoVacio}}", expected: true },
+        { id: "c6", dataType: "exists", operator: "is_null_or_empty", leftOperand: "{{variables.listaVacia}}", expected: true },
+        { id: "c7", dataType: "exists", operator: "is_not_null_or_empty", leftOperand: "{{variables.numeroCero}}", expected: true },
+        { id: "c8", dataType: "exists", operator: "is_not_null_or_empty", leftOperand: "{{variables.banderaFalsa}}", expected: true },
+        { id: "c9", dataType: "string", operator: "is_empty", leftOperand: "{{variables.textoEspacios}}", expected: true },
+        { id: "c10", dataType: "number", operator: "is_not_null", leftOperand: "{{variables.numeroCero}}", expected: true },
+        { id: "c11", dataType: "array", operator: "is_null_or_empty", leftOperand: "{{variables.listaVacia}}", expected: true },
+        { id: "c12", dataType: "exists", operator: "is_null", leftOperand: "{{steps.extract_1.output.email}}", expected: true },
+      ];
+
+      for (const tc of cases) {
+        const node: ConditionNode = {
+          id: tc.id,
+          type: "condition",
+          description: tc.id,
+          params: {
+            expression: "true",
+            dataType: tc.dataType,
+            operator: tc.operator,
+            leftOperand: tc.leftOperand,
+            thenNodeId: "then-step",
+            elseNodeId: "else-step",
+          },
+        };
+        const res = await executeNodeAction(mockPage, node, ctx);
+        expect(res.success).toBe(true);
+        expect(res.output).toBe(tc.expected);
+        expect(res.nextNodeId).toBe(tc.expected ? "then-step" : "else-step");
+      }
+
+      expect(warn).not.toHaveBeenCalled();
+    });
+
     it("typeHandler escribe texto y presiona Enter si pressEnter es true", async () => {
       const ctx = createMockContext();
       const mockPage = createMockPage();

@@ -1,4 +1,146 @@
-import type { RecipeDsl, RecipeNode, RecipeEdge, LocatorGroup } from "../types.js";
+import type {
+  RecipeDsl,
+  RecipeNode,
+  RecipeEdge,
+  LocatorGroup,
+  ConditionNode,
+} from "../types.js";
+
+function accessChainToJs(root: string, path: string): string {
+  if (!path) return root;
+  const normalized = path.replace(/\[(\w+)\]/g, ".$1").replace(/^\./, "");
+  let acc = root;
+  for (const seg of normalized.split(".")) {
+    if (!seg) continue;
+    if (/^\d+$/.test(seg)) {
+      acc += `?.[${seg}]`;
+    } else if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(seg)) {
+      acc += `?.${seg}`;
+    } else {
+      acc += `?.[${JSON.stringify(seg)}]`;
+    }
+  }
+  return acc;
+}
+
+function conditionOperandToJs(operandStr: string | undefined): string {
+  if (operandStr === undefined || operandStr === null) return "undefined";
+  const trimmed = operandStr.trim();
+  if (trimmed === "") return JSON.stringify("");
+
+  const tokenMatch = /^\{\{([^{}]+)\}\}$/.exec(trimmed);
+  const ref = tokenMatch ? tokenMatch[1].trim() : trimmed;
+
+  if (ref.startsWith("variables.")) {
+    return accessChainToJs("variables", ref.slice("variables.".length));
+  }
+  if (ref.startsWith("steps.")) {
+    const normalized = ref.slice("steps.".length).replace(/\[(\w+)\]/g, ".$1").replace(/^\./, "");
+    const [stepId, ...rest] = normalized.split(".");
+    if (stepId) {
+      const tail = rest.join(".");
+      const base = `variables?.steps?.[${JSON.stringify(stepId)}]?.output`;
+      if (!tail || tail === "output") return base;
+      const cleanTail = tail.startsWith("output.") ? tail.slice("output.".length) : tail;
+      return accessChainToJs(base, cleanTail);
+    }
+  }
+  if (ref === "webhook" || ref.startsWith("webhook.")) {
+    const subPath = ref === "webhook" ? "" : ref.slice("webhook.".length);
+    return accessChainToJs("variables?.webhook", subPath);
+  }
+  if (tokenMatch) {
+    return accessChainToJs("variables", ref);
+  }
+
+  if (trimmed === "null") return "null";
+  if (trimmed === "undefined") return "undefined";
+  if (trimmed === "true") return "true";
+  if (trimmed === "false") return "false";
+  if (!Number.isNaN(Number(trimmed))) return String(Number(trimmed));
+  return JSON.stringify(trimmed);
+}
+
+function compileTypedConditionExpression(node: ConditionNode): string {
+  const { dataType, operator, leftOperand, rightOperand, expression } = node.params;
+  if (!dataType || dataType === "custom" || !operator) {
+    return `Boolean(${expression})`;
+  }
+
+  const leftJs = conditionOperandToJs(leftOperand);
+  const rightJs = conditionOperandToJs(rightOperand);
+
+  switch (operator) {
+    case "is_null":
+      return `((${leftJs}) == null)`;
+    case "is_not_null":
+      return `((${leftJs}) != null)`;
+    case "is_empty":
+    case "is_null_or_empty":
+      return `isEmptyValue(${leftJs})`;
+    case "is_not_empty":
+    case "is_not_null_or_empty":
+      return `!isEmptyValue(${leftJs})`;
+  }
+
+  switch (dataType) {
+    case "string": {
+      const sLeft = `String((${leftJs}) ?? "")`;
+      const sRight = `String((${rightJs}) ?? "")`;
+      switch (operator) {
+        case "equals":
+          return `${sLeft} === ${sRight}`;
+        case "not_equals":
+          return `${sLeft} !== ${sRight}`;
+        case "contains":
+          return `${sLeft}.toLowerCase().includes(${sRight}.toLowerCase())`;
+        case "not_contains":
+          return `!${sLeft}.toLowerCase().includes(${sRight}.toLowerCase())`;
+        case "starts_with":
+          return `${sLeft}.startsWith(${sRight})`;
+        case "ends_with":
+          return `${sLeft}.endsWith(${sRight})`;
+        case "regex_match":
+          return `new RegExp(${sRight}).test(${sLeft})`;
+        default:
+          return `${sLeft} === ${sRight}`;
+      }
+    }
+    case "number": {
+      const opMap: Record<string, string> = {
+        equals: "===",
+        not_equals: "!==",
+        greater_than: ">",
+        greater_than_or_equal: ">=",
+        less_than: "<",
+        less_than_or_equal: "<=",
+      };
+      const op = opMap[operator] || "===";
+      return `Number(${leftJs}) ${op} Number(${rightJs})`;
+    }
+    case "boolean": {
+      const bLeft = `(typeof (${leftJs}) === "boolean" ? (${leftJs}) : String((${leftJs}) ?? "").toLowerCase() === "true")`;
+      const bRight = `(typeof (${rightJs}) === "boolean" ? (${rightJs}) : String((${rightJs}) ?? "").toLowerCase() === "true")`;
+      if (operator === "is_false") return `!${bLeft}`;
+      if (operator === "equals") return `${bLeft} === ${bRight}`;
+      if (operator === "not_equals") return `${bLeft} !== ${bRight}`;
+      return `${bLeft} === true`;
+    }
+    case "array": {
+      const arr = `(Array.isArray(${leftJs}) ? (${leftJs}) : [])`;
+      if (operator === "array_is_empty") return `${arr}.length === 0`;
+      if (operator === "array_not_empty") return `${arr}.length > 0`;
+      if (operator === "array_contains") {
+        return `${arr}.some((item) => String(item) === String((${rightJs}) ?? ""))`;
+      }
+      return `${arr}.length > 0`;
+    }
+    case "exists":
+      return `!isEmptyValue(${leftJs})`;
+    default:
+      return `Boolean(${expression})`;
+  }
+}
 
 export interface PlaywrightExportOptions {
   testName?: string;
@@ -58,6 +200,31 @@ export function exportToPlaywright(recipe: RecipeDsl, options: PlaywrightExportO
   lines.push("  return page.locator(candidates[0].value).first();");
   lines.push("}");
   lines.push("");
+
+  const needsEmptyHelper = Object.values(recipe.nodes || {}).some(
+    (n) =>
+      n.type === "condition" &&
+      n.params.dataType !== "custom" &&
+      (n.params.dataType === "exists" ||
+        n.params.operator === "is_empty" ||
+        n.params.operator === "is_not_empty" ||
+        n.params.operator === "is_null_or_empty" ||
+        n.params.operator === "is_not_null_or_empty")
+  );
+
+  if (needsEmptyHelper) {
+    lines.push("function isEmptyValue(value: unknown): boolean {");
+    lines.push("  if (value === null || value === undefined) return true;");
+    lines.push('  if (typeof value === "string") return value.trim().length === 0;');
+    lines.push("  if (Array.isArray(value)) return value.length === 0;");
+    lines.push('  if (typeof value === "object") {');
+    lines.push("    if (value instanceof Date || value instanceof RegExp) return false;");
+    lines.push("    return Object.keys(value).length === 0;");
+    lines.push("  }");
+    lines.push("  return false;");
+    lines.push("}");
+    lines.push("");
+  }
 
   // 3. Inicio del test
   lines.push(`test(${JSON.stringify(testName)}, async ({ page }) => {`);
@@ -152,7 +319,7 @@ export function exportToPlaywright(recipe: RecipeDsl, options: PlaywrightExportO
     }
 
     if (node.type === "condition") {
-      lines.push(`${indent}if (Boolean(${node.params.expression})) {`);
+      lines.push(`${indent}if (${compileTypedConditionExpression(node)}) {`);
       if (node.params.thenNodeId) {
         generateNodeCode(node.params.thenNodeId, `${indent}  `, stopAt);
       }
